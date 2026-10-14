@@ -1,0 +1,30 @@
+{
+  "name": "Fieldproof",
+  "dockerComposeFile": ["../docker/compose.yaml"],
+  "service": "dev",
+  "runServices": ["sim", "dev"],
+  "workspaceFolder": "/workspace",
+  "remoteUser": "fieldproof",
+  "shutdownAction": "stopCompose",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cmake-tools",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-iot.vscode-ros",
+        "timonwong.shellcheck",
+        "exiasr.hadolint",
+        "redhat.vscode-yaml",
+        "DavidAnson.vscode-markdownlint"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "clangd.path": "/usr/bin/clangd",
+        "files.eol": "\n"
+      }
+    }
+  }
+}

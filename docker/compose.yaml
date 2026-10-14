@@ -1,0 +1,78 @@
+# Fieldproof local stack (task P0-T03). Drive it through the Makefile at the repository root:
+#   make images   build base-ros2, sim and dev
+#   make up       start the headless Gazebo server and the dev container
+#   make shell    open a shell in the dev container
+#   make down     stop everything
+#
+# Profiles
+#   sim     headless Gazebo Harmonic server (software rendering by default; add compose.gpu.yaml
+#           for a /dev/dri render node, which the Makefile does automatically)
+#   dev     development container with the repository bind-mounted at /workspace
+#   images  build-only service for the base image; never started
+#
+# Image names follow docs/plan/04-engineering-standards.md: <prefix><name>:<tag>. The build
+# arguments GIT_SHA, BUILD_DATE and VERSION feed the OCI labels and are set by the Makefile.
+name: fieldproof
+
+x-build-args: &build-args
+  GIT_SHA: ${GIT_SHA:-unknown}
+  BUILD_DATE: ${BUILD_DATE:-1970-01-01T00:00:00Z}
+  VERSION: ${VERSION:-0.0.0}
+
+x-env: &env
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  GZ_PARTITION: fieldproof
+  # Mesa treats 0/false as off; compose.gpu.yaml overrides this to 0 when a render node is mapped.
+  LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
+
+services:
+  base-ros2:
+    image: ${FIELDPROOF_IMAGE_PREFIX:-ghcr.io/dimitrios-kafetzis/fieldproof-}base-ros2:${FIELDPROOF_IMAGE_TAG:-local}
+    build:
+      context: ./base-ros2
+      args: *build-args
+    profiles: [images]
+    command: ["true"]
+
+  sim:
+    image: ${FIELDPROOF_IMAGE_PREFIX:-ghcr.io/dimitrios-kafetzis/fieldproof-}sim:${FIELDPROOF_IMAGE_TAG:-local}
+    build:
+      context: ./sim
+      additional_contexts:
+        fieldproof-base-ros2: service:base-ros2
+      args:
+        <<: *build-args
+        BASE_IMAGE: fieldproof-base-ros2
+    profiles: [sim]
+    hostname: sim
+    command: ["gz", "sim", "-s", "-r", "--headless-rendering", "${FIELDPROOF_WORLD:-empty.sdf}"]
+    environment: *env
+    networks: [fieldproof]
+    stop_grace_period: 10s
+
+  dev:
+    image: ${FIELDPROOF_IMAGE_PREFIX:-ghcr.io/dimitrios-kafetzis/fieldproof-}dev:${FIELDPROOF_IMAGE_TAG:-local}
+    build:
+      context: ./dev
+      additional_contexts:
+        fieldproof-sim: service:sim
+      args:
+        <<: *build-args
+        BASE_IMAGE: fieldproof-sim
+    profiles: [dev]
+    hostname: dev
+    command: ["sleep", "infinity"]
+    environment: *env
+    volumes:
+      - ..:/workspace
+      - dev-cache:/home/fieldproof/.cache
+    working_dir: /workspace
+    networks: [fieldproof]
+    stop_grace_period: 2s
+
+networks:
+  fieldproof:
+    name: fieldproof
+
+volumes:
+  dev-cache:

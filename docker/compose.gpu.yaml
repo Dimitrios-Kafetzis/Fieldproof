@@ -1,0 +1,15 @@
+# Override that maps the host's GPU render node into the sim and dev containers and turns off
+# forced software rendering. The Makefile adds this file automatically when /dev/dri/renderD* exists
+# and exports FIELDPROOF_RENDER_GID from the host's `render` group.
+#   docker compose -f docker/compose.yaml -f docker/compose.gpu.yaml ...
+services:
+  sim:
+    devices: ["/dev/dri:/dev/dri"]
+    group_add: ["${FIELDPROOF_RENDER_GID:-992}"]
+    environment:
+      LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-0}
+  dev:
+    devices: ["/dev/dri:/dev/dri"]
+    group_add: ["${FIELDPROOF_RENDER_GID:-992}"]
+    environment:
+      LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-0}
