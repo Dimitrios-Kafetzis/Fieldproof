@@ -21,7 +21,8 @@ please read the plan before proposing changes.
 3. Add or update tests at the appropriate level of the testing pyramid. Code without tests is not merged.
 4. Run `pre-commit run --all-files` (available after task P0-T04) and the relevant test target.
 5. Update documentation in the same PR.
-6. Open a pull request using the template. Fill every checklist item honestly; "not applicable" is acceptable with a reason.
+6. Open a pull request using the template. Fill every checklist item honestly; "not applicable" is
+   acceptable with a reason.
 7. One approval from a code owner and green CI are required. PRs are squash-merged.
 
 ## Pull request expectations

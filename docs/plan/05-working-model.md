@@ -56,7 +56,7 @@ own PR, then reflected in the backlog and roadmap in the same PR.
 ## What the maintainer provides, by phase
 
 | When | Needed | Why |
-|---|---|---|
+| --- | --- | --- |
 | Before P0-T01 | GitHub owner (user or org), visibility, final name | Create the remote and set protections |
 | P0-T02 | Sudo approvals during the session | Docker, binfmt, nvm install |
 | P0-T05 | Confirm GHCR for images, enable GitHub Pages | Publishing |

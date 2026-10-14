@@ -2,7 +2,7 @@
 
 ## Layer diagram
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  L5  Cockpit (browser)  React + Three.js  ── Foxglove WS protocol + REST ──┐ │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -78,7 +78,7 @@ driver_swap:
 
 Python 3.12 package `fieldproof`, installed as a CLI.
 
-```
+```text
 fieldproof validate scenario.yaml
 fieldproof run scenario.yaml [--tier sil|target|hil] [--rtf 4] [--headless] [--record]
 fieldproof replay run-id

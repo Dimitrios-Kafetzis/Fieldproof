@@ -1,0 +1,32 @@
+# yamllint (task P0-T04). Applies to every YAML file: scenarios, manifests, bridge configs,
+# GitHub workflows, compose files and the tool configs themselves.
+extends: default
+ignore: |
+  node_modules/
+  assets/
+  build/
+  install/
+  log/
+rules:
+  document-start: disable
+  document-end: disable
+  line-length:
+    max: 120
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+  indentation:
+    spaces: 2
+    indent-sequences: consistent
+  truthy:
+    allowed-values: ["true", "false", "on", "off"]
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  braces:
+    max-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

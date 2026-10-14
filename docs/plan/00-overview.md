@@ -33,18 +33,19 @@ drift by running the real stack and removes the proof gap by recording, assertin
 ## Fidelity tiers
 
 | Tier | What runs | Timing | Use | Limits |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **T1 SIL** (software in the loop) | Real source rebuilt for x86-64 in a container | Sim time, faster or slower than real time | CI on every commit, regression, parameter sweeps | Different CPU architecture and compiler output. Scheduling differs from target |
 | **T2 Emulated target** | The actual ARM64 image under QEMU (user-mode binfmt for containers, system-mode with KVM for full images) | Real-time locked, with compute budget matching the target | Pre-release validation, timing bugs, binary-identical confidence | GPU code (CUDA on Jetson) cannot be emulated. Slower |
 | **T3 HIL** (hardware in the loop) | Real flight controller and optionally companion computer on the bench | Wall clock | Final gate before field | Needs hardware present. One run at a time |
 
-A fourth input, **log replay**, feeds recorded field data (MCAP) into the stack open-loop. It is not a
+A fourth input, **log replay**, feeds recorded field data (MCAP) into the stack open-loop. It is not
+a
 tier but a scenario source, used for regression against real sensor data.
 
 ## Domains
 
 | Domain | Vehicles | Physics needs | Autopilot/stack |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Ground (UGV) | Differential drive, skid steer, Ackermann | Rigid body, wheel friction, terrain | Nav2, custom |
 | Aerial (UAV) | Quadrotor, fixed wing, VTOL | Aerodynamics, wind, propulsion | PX4, ArduPilot via SITL, MAVROS or MAVSDK companions |
 | Surface (USV) | Catamaran, monohull | Hydrodynamics, buoyancy, waves, wind, currents | ArduPilot Rover marine frames, custom |

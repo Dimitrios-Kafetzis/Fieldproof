@@ -9,7 +9,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 0 — Foundations
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P0-T01 | Repository bootstrap and GitHub setup | done | #1 | 2026-10-14: bootstrap commit pushed to `main`; Apache-2.0, NOTICE, CoC 2.1, CONTRIBUTING, SECURITY, CODEOWNERS, templates, editorconfig, session guide added; `main` protected (PR required, linear history, enforce admins, conversation resolution, no force push); squash-only merges; 24 project labels; private vulnerability reporting on. Required status checks list is empty until P0-T05 wires CI. |
 | P0-T02 | Host environment setup | in-review | #2 | 2026-10-14: host prepared and verified. Installed (pinned): Docker 29.9.0 + Compose 5.6.0 + Buildx 0.38.0, containerd 2.4.2, qemu-user-static 1:8.2.2 (binfmt `POF`), gh 2.45.0, nvm v0.40.8, Node 22.23.3, pnpm 12.11.2, uv 0.13.1, pre-commit 4.7.0. `tools/host-setup.sh` (idempotent, one sudo), `tools/host-check.sh` (passes twice), `tests/host/test_host_check.sh` (18 pass), `docs/setup/host.md`, `.nvmrc`. Both definition-of-done container commands pass. Hand-off: the maintainer must log out and back in once so the `docker` group is active without `sg docker`. Sudo from editor tasks works through `SUDO_ASKPASS` with a clean-env zenity helper (VS Code snap breaks GTK); documented in the troubleshooting section. |
 | P0-T03 | Base container images | todo | | |
@@ -21,7 +21,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 1 — Vertical slice
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P1-T01 | Reference UGV model | todo | | |
 | P1-T02 | Reference world and asset pipeline | todo | | |
 | P1-T03 | Bridge configuration generator and contract tests | todo | | |
@@ -33,7 +33,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 2 — Scenario engine
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P2-T01 | Multi-vehicle orchestration and resource budgets | todo | | |
 | P2-T02 | Network emulation | todo | | |
 | P2-T03 | Event injection framework (×2) | todo | | |
@@ -46,7 +46,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 3 — Cockpit
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P3-T01 | Cockpit backend | todo | | |
 | P3-T02 | Frontend scaffold and design system | todo | | |
 | P3-T03 | 3D world view (×2) | todo | | |
@@ -58,7 +58,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 4 — Drones
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P4-T01 | PX4 SITL integration | todo | | |
 | P4-T02 | ArduPilot SITL integration | todo | | |
 | P4-T03 | Reference UAV models | todo | | |
@@ -68,7 +68,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 5 — USVs
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P5-T01 | Hydrodynamics and environment plugins (×2) | todo | | |
 | P5-T02 | Reference USV model | todo | | |
 | P5-T03 | Marine worlds | todo | | |
@@ -78,7 +78,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 6 — Fidelity
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P6-T01 | ARM64 target emulation (×2) | todo | | |
 | P6-T02 | Compute budget profiles | todo | | |
 | P6-T03 | Sensor noise calibration from field logs | todo | | |
@@ -89,7 +89,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 7 — Product
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P7-T01 | Scenario library and templates | todo | | |
 | P7-T02 | World editor in the cockpit | todo | | |
 | P7-T03 | Run history dashboard and trends | todo | | |
