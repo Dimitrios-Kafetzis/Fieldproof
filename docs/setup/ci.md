@@ -175,3 +175,5 @@ with the token.
 
 **`make lint-title` says the pre-commit configuration is unstaged.** pre-commit refuses to run
 while `.pre-commit-config.yaml` has unstaged changes; stage the file first.
+
+The two throwaway pull requests of P0-T05 verified this page against the real pipeline.
