@@ -262,7 +262,7 @@ then pass "Dependabot: github-actions, docker, pip and npm, weekly, grouped, bui
 # build contexts relative to its working directory and profile-aware versions drop base-ros2.
 if targets="$(cd docker && COMPOSE_PROFILES=images,sim,dev docker buildx bake -f compose.yaml --print 2>/dev/null \
   | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["target"])))')" \
-  && [[ "$targets" == "base-ros2 dev sim" ]]; then
+  && [[ "$targets" == "apt-lists base-ros2 dev sim" ]]; then
   pass "docker buildx bake reads docker/compose.yaml: targets $targets"
 else
   fail "docker buildx bake targets: '${targets:-none}'"

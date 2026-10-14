@@ -5,8 +5,12 @@
 #   UBUNTU_DIGEST  ubuntu:24.04 image digest
 #   APT_SNAPSHOT   Ubuntu archive snapshot id served by https://snapshot.ubuntu.com
 #   ROS_SNAPSHOT   ROS 2 apt snapshot date served by http://snapshots.ros.org/jazzy/<date>
+#
+# Stages: `base` is the image; `apt-lists` is a scratch image holding only the package lists that
+# `base` fetched from the snapshots, published as fieldproof-apt-lists:<APT_SNAPSHOT>-<ROS_SNAPSHOT>
+# so later builds seed their lists from GHCR instead of the slow Ubuntu snapshot host (issue #4).
 ARG UBUNTU_DIGEST=sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
-FROM ubuntu:24.04@${UBUNTU_DIGEST}
+FROM ubuntu:24.04@${UBUNTU_DIGEST} AS base
 
 ARG UBUNTU_DIGEST
 ARG APT_SNAPSHOT=20261010T000000Z
@@ -50,6 +54,16 @@ COPY --chmod=755 apt-install.sh /usr/local/bin/fieldproof-apt-install
 COPY --chmod=644 ros-snapshot-keyring.gpg /usr/share/keyrings/ros-snapshot-keyring.gpg
 RUN printf 'Types: deb\nURIs: http://snapshots.ros.org/%s/%s/ubuntu\nSuites: noble\nComponents: main\nSigned-By: /usr/share/keyrings/ros-snapshot-keyring.gpg\n' \
         "${ROS_DISTRO}" "${ROS_SNAPSHOT}" > /etc/apt/sources.list.d/ros2.sources
+
+# Package lists seeded from the build context `fieldproof-apt-lists`: docker/apt-lists-context.sh
+# points it at the published fieldproof-apt-lists image for these snapshot ids when that image is
+# reachable (locally or on GHCR) and at the empty directory apt-lists-empty/ otherwise, in which
+# case the first fieldproof-apt-install below refreshes the lists from the snapshot hosts. The
+# helper only skips the refresh when lists for every configured source are present, so lists from
+# another snapshot are never used. DL3022 is ignored because the source is a named build
+# context, not a stage.
+# hadolint ignore=DL3022
+COPY --from=fieldproof-apt-lists / /var/lib/apt/lists/
 
 # ROS 2 ros-base plus the small set of tools every Fieldproof container needs. Versions are fixed
 # by the snapshots above, which is why DL3008 (per-package pins) is ignored here and below.
@@ -98,3 +112,9 @@ LABEL org.opencontainers.image.title="fieldproof-base-ros2" \
       org.opencontainers.image.base.digest="${UBUNTU_DIGEST}" \
       io.fieldproof.apt-snapshot="${APT_SNAPSHOT}" \
       io.fieldproof.ros-snapshot="${ROS_SNAPSHOT}"
+
+# The package lists alone, for publishing (see the stage comment at the top). Built from `base`
+# so the lists are exactly the ones the image installed from, whether they were seeded or fetched.
+# hadolint ignore=DL3002
+FROM scratch AS apt-lists
+COPY --from=base /var/lib/apt/lists/ /

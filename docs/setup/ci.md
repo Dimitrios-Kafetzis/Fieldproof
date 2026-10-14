@@ -72,7 +72,11 @@ first, because the images and their cache need about 12 GB.
 | `main` | the last push to `main` whose images passed the scan |
 | `vX.Y.Z` | the release of that version, pointing at the same digest as its `sha-` tag |
 
-Images are `ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2`, `-sim` and `-dev`. Pull one with
+Images are `ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2`, `-sim` and `-dev`. The same push
+also publishes `fieldproof-apt-lists:<APT_SNAPSHOT>-<ROS_SNAPSHOT>`, the base image's package
+lists, which every later build (CI and local) seeds from instead of the slow Ubuntu snapshot host
+([containers.md](containers.md#package-lists-from-ghcr), issue #4); it is not scanned or
+retagged because it contains no packages and its tag is the immutable snapshot pair. Pull one with
 `FIELDPROOF_IMAGE_TAG=main make up` instead of building locally. The `main` and `vX.Y.Z` tags
 are created with `docker buildx imagetools create`, so they share the digest of the scanned
 `sha-` image; nothing is rebuilt between scan and tag.

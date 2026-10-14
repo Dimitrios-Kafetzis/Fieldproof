@@ -8,10 +8,12 @@
 #   sim     headless Gazebo Harmonic server (software rendering by default; add compose.gpu.yaml
 #           for a /dev/dri render node, which the Makefile does automatically)
 #   dev     development container with the repository bind-mounted at /workspace
-#   images  build-only service for the base image; never started
+#   images  build-only services: the base image and the apt-lists image; never started
 #
 # Image names follow docs/plan/04-engineering-standards.md: <prefix><name>:<tag>. The build
-# arguments GIT_SHA, BUILD_DATE and VERSION feed the OCI labels and are set by the Makefile.
+# arguments GIT_SHA, BUILD_DATE and VERSION feed the OCI labels and are set by the Makefile, as
+# are FIELDPROOF_APT_LISTS_CONTEXT (where the base image takes its package lists from, see
+# docker/apt-lists-context.sh) and FIELDPROOF_APT_LISTS_TAG (<APT_SNAPSHOT>-<ROS_SNAPSHOT>).
 name: fieldproof
 
 x-build-args: &build-args
@@ -30,6 +32,20 @@ services:
     image: ${FIELDPROOF_IMAGE_PREFIX:-ghcr.io/dimitrios-kafetzis/fieldproof-}base-ros2:${FIELDPROOF_IMAGE_TAG:-local}
     build:
       context: ./base-ros2
+      target: base
+      additional_contexts:
+        fieldproof-apt-lists: ${FIELDPROOF_APT_LISTS_CONTEXT:-./base-ros2/apt-lists-empty}
+      args: *build-args
+    profiles: [images]
+    command: ["true"]
+
+  apt-lists:
+    image: ${FIELDPROOF_IMAGE_PREFIX:-ghcr.io/dimitrios-kafetzis/fieldproof-}apt-lists:${FIELDPROOF_APT_LISTS_TAG:-local}
+    build:
+      context: ./base-ros2
+      target: apt-lists
+      additional_contexts:
+        fieldproof-apt-lists: ${FIELDPROOF_APT_LISTS_CONTEXT:-./base-ros2/apt-lists-empty}
       args: *build-args
     profiles: [images]
     command: ["true"]

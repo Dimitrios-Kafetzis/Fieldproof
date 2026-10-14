@@ -145,6 +145,8 @@ jobs:
             echo "GIT_SHA=$(git rev-parse HEAD)"
             echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "VERSION=$(cat version.txt)"
+            echo "FIELDPROOF_APT_LISTS_TAG=$(docker/apt-lists-context.sh --tag)"
+            echo "FIELDPROOF_APT_LISTS_CONTEXT=$(docker/apt-lists-context.sh)"
             echo "BAKE_SET<<END_OF_SET"
             if [ "$CAN_WRITE_CACHE" = "true" ]; then
               tools/ci/bake-cache.sh --read buildcache-pr --read buildcache --write buildcache-pr

@@ -32,6 +32,12 @@ RENDER_NODE := $(firstword $(wildcard /dev/dri/renderD*))
 RENDER      ?= $(if $(RENDER_NODE),gpu,software)
 export FIELDPROOF_RENDER_GID ?= $(shell getent group render | cut -d: -f3)
 
+# Package lists for the base image (issue #4): docker/apt-lists-context.sh looks for the published
+# fieldproof-apt-lists image for the pinned snapshots at build time; FIELDPROOF_APT_LISTS=off
+# forces the refresh from the snapshot hosts. Expanded lazily, only by the targets that build.
+export FIELDPROOF_APT_LISTS_TAG ?= $(shell docker/apt-lists-context.sh --tag)
+APT_LISTS_CONTEXT = $(shell docker/apt-lists-context.sh)
+
 COMPOSE_FILES := -f docker/compose.yaml
 ifeq ($(RENDER),gpu)
 COMPOSE_FILES += -f docker/compose.gpu.yaml
@@ -118,8 +124,8 @@ branch-protection: ## Wire the CI status checks into the protection of main (nee
 clean: ## Remove pre-commit's installed hook environments (they are rebuilt on the next run)
 	$(PRE_COMMIT) clean
 
-images: ## Build the base-ros2, sim and dev images (NO_CACHE=1 for a cold build)
-	$(COMPOSE) --profile images $(PROFILES) build $(NO_CACHE_FLAGS) $(BUILD_FLAGS)
+images: ## Build the base-ros2, sim, dev and apt-lists images (NO_CACHE=1 for a cold build, FIELDPROOF_APT_LISTS=off to skip the published lists)
+	FIELDPROOF_APT_LISTS_CONTEXT="$(APT_LISTS_CONTEXT)" $(COMPOSE) --profile images $(PROFILES) build $(NO_CACHE_FLAGS) $(BUILD_FLAGS)
 
 up: ## Start the headless Gazebo server and the dev container (RENDER=gpu|software, auto-detected)
 	$(COMPOSE) $(PROFILES) up -d --wait
