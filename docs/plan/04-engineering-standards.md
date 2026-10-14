@@ -47,7 +47,8 @@ fieldproof/
   `adr/<nnnn>-<slug>` for decisions.
 - **Conventional Commits** (`feat`, `fix`, `docs`, `test`, `refactor`, `build`, `ci`, `chore`,
   `perf`) with a scope equal to the layer (`engine`, `sim`, `bridge`, `robots`, `cockpit`, `docker`,
-  `docs`). Breaking changes carry `!`.
+  `docs`, `ci`) or, for repository-wide changes, `repo`, `plan`, `tools`, `deps` or `release`.
+  Breaking changes carry `!`. Enforced by commitlint (P0-T04).
 - Squash-merge; the squash message is the PR title plus a body summarising the change and `Task: P0-T01`.
 - Tags `vX.Y.Z` created by release-please. SemVer applies to the CLI, the scenario schema
   (`apiVersion`) and the plugin APIs independently; the repo version tracks the CLI.

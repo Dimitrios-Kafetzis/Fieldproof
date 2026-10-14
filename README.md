@@ -24,6 +24,7 @@ test with pass/fail assertions, so field testing becomes verification of what al
 | [docs/plan/STATUS.md](docs/plan/STATUS.md) | Live task board, updated at the end of every session |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 | [docs/setup/host.md](docs/setup/host.md) | Prepare an Ubuntu 24.04 workstation: `tools/host-setup.sh`, `tools/host-check.sh` |
+| [docs/setup/tooling.md](docs/setup/tooling.md) | Quality gates: `make setup`, `make lint`, `make fmt`, `make test`, commit message rules |
 
 ## Core principle
 
