@@ -4,14 +4,14 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 
 **Current milestone:** M0 Hello, CI — in progress
 **Repository:** https://github.com/Dimitrios-Kafetzis/Fieldproof
-**Next task:** P0-T02 Host environment setup (needs sudo approval in-session). P0-T04 may run in parallel.
+**Next task:** P0-T03 Base container images (after #2 merges). P0-T04 Developer tooling may run in parallel.
 
 ## Phase 0 — Foundations
 
 | Task | Title | State | PR | Notes |
 |---|---|---|---|---|
-| P0-T01 | Repository bootstrap and GitHub setup | in-review | #1 | 2026-10-14: bootstrap commit pushed to `main`; Apache-2.0, NOTICE, CoC 2.1, CONTRIBUTING, SECURITY, CODEOWNERS, templates, editorconfig, session guide added; `main` protected (PR required, linear history, enforce admins, conversation resolution, no force push); squash-only merges; 24 project labels; private vulnerability reporting on. Required status checks list is empty until P0-T05 wires CI. |
-| P0-T02 | Host environment setup | todo | | Maintainer has confirmed sudo availability; ask once at session start |
+| P0-T01 | Repository bootstrap and GitHub setup | done | #1 | 2026-10-14: bootstrap commit pushed to `main`; Apache-2.0, NOTICE, CoC 2.1, CONTRIBUTING, SECURITY, CODEOWNERS, templates, editorconfig, session guide added; `main` protected (PR required, linear history, enforce admins, conversation resolution, no force push); squash-only merges; 24 project labels; private vulnerability reporting on. Required status checks list is empty until P0-T05 wires CI. |
+| P0-T02 | Host environment setup | in-review | #2 | 2026-10-14: host prepared and verified. Installed (pinned): Docker 29.9.0 + Compose 5.6.0 + Buildx 0.38.0, containerd 2.4.2, qemu-user-static 1:8.2.2 (binfmt `POF`), gh 2.45.0, nvm v0.40.8, Node 22.23.3, pnpm 12.11.2, uv 0.13.1, pre-commit 4.7.0. `tools/host-setup.sh` (idempotent, one sudo), `tools/host-check.sh` (passes twice), `tests/host/test_host_check.sh` (18 pass), `docs/setup/host.md`, `.nvmrc`. Both definition-of-done container commands pass. Hand-off: the maintainer must log out and back in once so the `docker` group is active without `sg docker`. Sudo from editor tasks works through `SUDO_ASKPASS` with a clean-env zenity helper (VS Code snap breaks GTK); documented in the troubleshooting section. |
 | P0-T03 | Base container images | todo | | |
 | P0-T04 | Developer tooling and quality gates | todo | | |
 | P0-T05 | CI/CD pipeline | todo | | |
