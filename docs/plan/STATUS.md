@@ -2,15 +2,16 @@
 
 Updated at the end of every session. States: `todo` · `in-progress` · `in-review` · `done` · `blocked`.
 
-**Current milestone:** M0 Hello, CI — not started
-**Next task:** P0-T01 Repository bootstrap (needs GitHub owner and visibility from the maintainer)
+**Current milestone:** M0 Hello, CI — in progress
+**Repository:** https://github.com/Dimitrios-Kafetzis/Fieldproof
+**Next task:** P0-T02 Host environment setup (needs sudo approval in-session). P0-T04 may run in parallel.
 
 ## Phase 0 — Foundations
 
 | Task | Title | State | PR | Notes |
 |---|---|---|---|---|
-| P0-T01 | Repository bootstrap and GitHub setup | todo | | Planning docs and ADRs written 2026-10-14, awaiting first commit |
-| P0-T02 | Host environment setup | todo | | Can run before or in parallel with P0-T01 |
+| P0-T01 | Repository bootstrap and GitHub setup | in-review | #1 | 2026-10-14: bootstrap commit pushed to `main`; Apache-2.0, NOTICE, CoC 2.1, CONTRIBUTING, SECURITY, CODEOWNERS, templates, editorconfig, session guide added; `main` protected (PR required, linear history, enforce admins, conversation resolution, no force push); squash-only merges; 24 project labels; private vulnerability reporting on. Required status checks list is empty until P0-T05 wires CI. |
+| P0-T02 | Host environment setup | todo | | Maintainer has confirmed sudo availability; ask once at session start |
 | P0-T03 | Base container images | todo | | |
 | P0-T04 | Developer tooling and quality gates | todo | | |
 | P0-T05 | CI/CD pipeline | todo | | |
