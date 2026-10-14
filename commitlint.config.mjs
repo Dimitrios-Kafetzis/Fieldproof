@@ -15,7 +15,7 @@ export default {
     "scope-enum": [2, "always", [...layers, ...repoScopes]],
     "scope-empty": [2, "never"],
     "scope-case": [2, "always", "kebab-case"],
-    "subject-case": [2, "never", ["start-case", "pascal-case", "upper-case"]],
+    "subject-case": [2, "never", ["sentence-case", "start-case", "pascal-case", "upper-case"]],
     "subject-empty": [2, "never"],
     "subject-full-stop": [2, "never", "."],
     "header-max-length": [2, "always", 100],
