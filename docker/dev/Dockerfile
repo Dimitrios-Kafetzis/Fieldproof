@@ -10,7 +10,7 @@ FROM ${UV_IMAGE} AS uv
 FROM ${BASE_IMAGE}
 ARG BASE_IMAGE
 ARG UV_IMAGE
-ARG USERNAME=fieldproof
+ARG FIELDPROOF_USER=fieldproof
 # Commit of colcon/colcon-mixin-repository that the default mixins are taken from.
 ARG COLCON_MIXIN_COMMIT=7558e35befbff0d88d9b8f701b3ab1b073cbcaba
 
@@ -51,21 +51,21 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         sudo \
         wget \
     && rosdep init \
-    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-${USERNAME} \
-    && chmod 0440 /etc/sudoers.d/90-${USERNAME}
+    && echo "${FIELDPROOF_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-${FIELDPROOF_USER} \
+    && chmod 0440 /etc/sudoers.d/90-${FIELDPROOF_USER}
 
 # uv (Python environments and tools) copied from the pinned upstream image.
 COPY --from=uv /uv /uvx /usr/local/bin/
 
-USER ${USERNAME}
-WORKDIR /home/${USERNAME}
+USER ${FIELDPROOF_USER}
+WORKDIR /home/${FIELDPROOF_USER}
 
 # colcon mixins from a pinned commit of the mixin repository.
 RUN colcon mixin add default \
         "https://raw.githubusercontent.com/colcon/colcon-mixin-repository/${COLCON_MIXIN_COMMIT}/index.yaml" \
     && colcon mixin update default
 
-ENV CCACHE_DIR=/home/${USERNAME}/.cache/ccache \
+ENV CCACHE_DIR=/home/${FIELDPROOF_USER}/.cache/ccache \
     UV_LINK_MODE=copy
 
 WORKDIR /workspace

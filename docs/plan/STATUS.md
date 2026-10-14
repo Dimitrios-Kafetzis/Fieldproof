@@ -4,7 +4,8 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 
 **Current milestone:** M0 Hello, CI — in progress
 **Repository:** https://github.com/Dimitrios-Kafetzis/Fieldproof
-**Next task:** P0-T05 CI/CD pipeline once #5 (P0-T03) merges (#3 P0-T04 is merged); P0-T06 and P0-T07 follow.
+**Next task:** P0-T05 CI/CD pipeline once #5 (P0-T03) merges (#3 P0-T04 is merged); P0-T06 and
+P0-T07 follow.
 
 ## Phase 0 — Foundations
 
@@ -110,4 +111,8 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 5. commitlint requires a scope and accepts the repository-wide scopes `repo`, `plan`, `tools`,
    `deps`, `release` in addition to the layers (the history already used `repo` and `plan`). Confirm
    or trim the list in `commitlint.config.mjs`.
-6. Parallel sessions share one clone. On 2026-10-14 the P0-T04 session switched branches inside the main working tree while P0-T03 was on its branch; both sessions then moved to `git worktree` checkouts under an ignored directory. Should `05-working-model.md` require a worktree per session (`git worktree add ../fieldproof-<task> task/<id>-<slug>`)? Proposed as a one-line amendment for the maintainer to approve.
+6. Parallel sessions share one clone. On 2026-10-14 the P0-T04 session switched branches inside the
+   main working tree while P0-T03 was on its branch; both sessions then moved to `git worktree`
+   checkouts under an ignored directory. Should `05-working-model.md` require a worktree per session
+   (`git worktree add ../fieldproof-<task> task/<id>-<slug>`)? Proposed as a one-line amendment for
+   the maintainer to approve.

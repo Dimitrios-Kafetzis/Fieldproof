@@ -42,9 +42,9 @@ ENV EGL_PLATFORM=surfaceless \
 
 COPY --chmod=755 render-info.sh /usr/local/bin/fieldproof-render-info
 
-ARG USERNAME=fieldproof
-USER ${USERNAME}
-WORKDIR /home/${USERNAME}
+ARG FIELDPROOF_USER=fieldproof
+USER ${FIELDPROOF_USER}
+WORKDIR /home/${FIELDPROOF_USER}
 
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=1970-01-01T00:00:00Z

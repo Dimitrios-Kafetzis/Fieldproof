@@ -19,7 +19,7 @@ make prune      # also remove the project's images and dangling build layers
 ## Images
 
 | Image | Dockerfile | Contents | Size |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2` | `docker/base-ros2/Dockerfile` | Ubuntu 24.04, ROS 2 Jazzy `ros-base`, `tini`, non-root user `fieldproof` (uid 1000) | 0.9 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-sim` | `docker/sim/Dockerfile` | base + `ros-jazzy-ros-gz` (Gazebo Harmonic via the Jazzy vendor packages), Mesa EGL stack, headless defaults | 3.1 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-dev` | `docker/dev/Dockerfile` | sim + build-essential, cmake, ninja, clang/clang-format/clang-tidy/clangd, gdb, colcon with mixins, rosdep, vcstool, uv, passwordless sudo | 4.1 GB |
@@ -47,7 +47,7 @@ Every apt source inside the images is a dated snapshot, so a rebuild months late
 package versions:
 
 | Pin | Where | Value |
-|---|---|---|
+| --- | --- | --- |
 | Ubuntu base image digest | `UBUNTU_DIGEST` in `docker/base-ros2/Dockerfile` | `sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55` (`ubuntu:24.04`, 2026-09-18) |
 | Ubuntu archive snapshot | `APT_SNAPSHOT` | `20261010T000000Z` at `https://snapshot.ubuntu.com/ubuntu/<id>` (main, updates, backports, security) |
 | ROS 2 apt snapshot | `ROS_SNAPSHOT` | `2026-10-05` at `http://snapshots.ros.org/jazzy/<date>/ubuntu` |
@@ -103,7 +103,7 @@ initialised to `~/.gz/rendering/ogre2.log` (`GL_RENDERER` line).
 ## Compose profiles and networking
 
 | Profile | Service | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `sim` | `sim` | `gz sim -s -r --headless-rendering ${FIELDPROOF_WORLD:-empty.sdf}` |
 | `dev` | `dev` | development container, repository bind-mounted at `/workspace`, `sleep infinity` |
 | `images` | `base-ros2` | build-only service that the other two build on; never started |

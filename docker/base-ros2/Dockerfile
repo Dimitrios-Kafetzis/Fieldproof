@@ -12,7 +12,7 @@ ARG UBUNTU_DIGEST
 ARG APT_SNAPSHOT=20261010T000000Z
 ARG ROS_SNAPSHOT=2026-10-05
 ARG ROS_DISTRO=jazzy
-ARG USERNAME=fieldproof
+ARG FIELDPROOF_USER=fieldproof
 ARG UID=1000
 ARG GID=1000
 
@@ -67,17 +67,17 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # `video` (GID 44) grants /dev/dri access; the host's `render` group is added at run time.
 # hadolint ignore=SC2016
 RUN userdel -r ubuntu \
-    && groupadd --gid "${GID}" "${USERNAME}" \
-    && useradd --uid "${UID}" --gid "${GID}" --groups video --create-home --shell /bin/bash "${USERNAME}" \
+    && groupadd --gid "${GID}" "${FIELDPROOF_USER}" \
+    && useradd --uid "${UID}" --gid "${GID}" --groups video --create-home --shell /bin/bash "${FIELDPROOF_USER}" \
     && printf '\n# ROS 2 environment for interactive shells\nsource /opt/ros/%s/setup.bash\n' "${ROS_DISTRO}" \
-        >> "/home/${USERNAME}/.bashrc" \
+        >> "/home/${FIELDPROOF_USER}/.bashrc" \
     && printf '# ROS 2 environment for login shells (docker exec ... bash -lc)\nif [ -n "${BASH_VERSION:-}" ]; then . /opt/ros/%s/setup.bash; else . /opt/ros/%s/setup.sh; fi\n' \
         "${ROS_DISTRO}" "${ROS_DISTRO}" > /etc/profile.d/10-ros2.sh
 
 COPY --chmod=755 entrypoint.sh /usr/local/bin/fieldproof-entrypoint
 
-USER ${USERNAME}
-WORKDIR /home/${USERNAME}
+USER ${FIELDPROOF_USER}
+WORKDIR /home/${FIELDPROOF_USER}
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/fieldproof-entrypoint"]
 CMD ["bash"]
 
