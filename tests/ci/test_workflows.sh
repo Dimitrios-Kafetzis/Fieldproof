@@ -258,12 +258,21 @@ for u in doc["updates"]:
 PY
 then pass "Dependabot: github-actions, docker, pip and npm, weekly, grouped, build(deps) prefix"; else fail "Dependabot configuration"; fi
 
-if targets="$(docker buildx bake -f docker/compose.yaml --print 2>/dev/null \
+# Run from docker/ with every profile enabled, exactly as the workflows do: bake resolves the
+# build contexts relative to its working directory and profile-aware versions drop base-ros2.
+if targets="$(cd docker && COMPOSE_PROFILES=images,sim,dev docker buildx bake -f compose.yaml --print 2>/dev/null \
   | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["target"])))')" \
   && [[ "$targets" == "base-ros2 dev sim" ]]; then
   pass "docker buildx bake reads docker/compose.yaml: targets $targets"
 else
   fail "docker buildx bake targets: '${targets:-none}'"
+fi
+if contexts="$(cd docker && COMPOSE_PROFILES=images,sim,dev docker buildx bake -f compose.yaml --print 2>/dev/null \
+  | python3 -c 'import json,sys; print(" ".join(sorted(t["context"] for t in json.load(sys.stdin)["target"].values())))')" \
+  && (cd docker && for c in $contexts; do [[ -f "$c/Dockerfile" ]] || exit 1; done); then
+  pass "bake build contexts exist under docker/: $contexts"
+else
+  fail "bake build contexts do not resolve from docker/: '${contexts:-none}'"
 fi
 
 # ---------------------------------------------------------------------------------------------

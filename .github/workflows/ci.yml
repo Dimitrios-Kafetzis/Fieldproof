@@ -155,8 +155,9 @@ jobs:
           # `images`) unless every profile is enabled.
           COMPOSE_PROFILES: images,sim,dev
         with:
-          source: .
-          files: docker/compose.yaml
+          # Bake resolves the build contexts of compose.yaml relative to its working directory.
+          source: ./docker
+          files: compose.yaml
           load: true
           set: ${{ env.BAKE_SET }}
       - name: Image tests (tests/images, against the images just built)
