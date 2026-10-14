@@ -44,8 +44,10 @@ finish in a few minutes thanks to the cached pre-commit environments.
 
 ### Image build and registry cache
 
-The image job builds the three targets of `docker/compose.yaml` with `docker buildx bake`, which
-reads the compose file directly (the `service:` build contexts become `target:` contexts), and
+The image job builds the three targets of `docker/compose.yaml` with `docker buildx bake`
+(pinned to v0.38.0, with every compose profile enabled so the build-only `base-ros2` service is
+not filtered out), which reads the compose file directly (the `service:` build contexts become
+`target:` contexts), and
 loads the result into the runner's Docker so `tests/images/test_images.sh --quick --no-build` can
 run `make up`, the topic checks and the software-rendering camera check against them.
 `tools/ci/bake-cache.sh` adds a registry layer cache to every target:
