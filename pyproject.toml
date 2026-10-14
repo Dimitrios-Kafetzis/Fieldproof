@@ -1,0 +1,81 @@
+# Root tool configuration for Fieldproof (task P0-T04). This file carries no [project] table: the
+# installable Python packages live in engine/ and bridge/ (P0-T07) with their own pyproject.toml.
+# Python 3.12, 100 columns, ruff for lint + format, mypy strict (04-engineering-standards.md).
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+indent-width = 4
+src = ["engine/src", "bridge", "tools", "tests"]
+extend-exclude = ["assets", "build", "install", "log", "node_modules", "runs"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",    # pycodestyle
+  "F",         # pyflakes
+  "I",         # isort
+  "N",         # pep8-naming
+  "UP",        # pyupgrade
+  "B",         # bugbear
+  "A",         # builtins shadowing
+  "C4",        # comprehensions
+  "SIM",       # simplify
+  "RET",       # return
+  "ARG",       # unused arguments
+  "PTH",       # pathlib
+  "PL",        # pylint
+  "RUF",       # ruff specific
+  "S",         # bandit
+  "T20",       # print (use Rich / logging)
+  "PT",        # pytest style
+  "D",         # pydocstyle
+]
+ignore = [
+  "D100", "D104", "D105", "D107",  # module/package/magic/__init__ docstrings are optional
+  "D203", "D213",                  # incompatible with D211 / D212 (Google style)
+  "PLR0913",                       # many-arguments: Typer commands and Pydantic models
+  "PLR2004",                       # magic values: too noisy for assertions on streams
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "D", "PLR2004", "ARG"]   # asserts, no docstrings, literals, fixtures
+"tests/**" = ["S101", "D", "PLR2004", "ARG"]
+"tools/**" = ["T20"]                               # host scripts may print
+"**/launch/**" = ["D"]                             # ROS 2 launch files
+"**/setup.py" = ["D"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fieldproof", "fieldproof_bridge", "fieldproof_robots"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+plugins = []
+exclude = ["^build/", "^install/", "^log/", "^node_modules/", "^assets/"]
+# ROS 2 Python packages (rclpy, launch, ament) ship without type information.
+[[tool.mypy.overrides]]
+module = ["rclpy.*", "launch.*", "launch_ros.*", "launch_testing.*", "ament_index_python.*",
+          "std_msgs.*", "geometry_msgs.*", "sensor_msgs.*", "nav_msgs.*", "tf2_ros.*", "mcap.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["engine/tests", "bridge", "tests"]
+xfail_strict = true
+markers = [
+  "integration: needs the simulator containers (sim + bridge + vehicle)",
+  "slow: longer than one minute",
+]

@@ -6,7 +6,7 @@ on their machine. Session counts are planning estimates: one task is sized for o
 of roughly three to four hours; tasks marked ×2 are expected to need two.
 
 | Phase | Milestone | Exit criteria | Tasks | Sessions |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 0 Foundations | **M0 Hello, CI** | Repo public on GitHub with licence, ADRs, standards. Docker, ROS 2 Jazzy and Gazebo Harmonic images build in CI and run headless locally. Pre-commit and CI gates enforced. Docs site deployed. | P0-T01 … P0-T07 | 8 |
 | 1 Vertical slice | **M1 First scenario passes** | A differential-drive UGV runs real Nav2 in its own container, navigates to a goal in a Gazebo world, scenario runner records MCAP and reports PASS. Same scenario runs headless in CI. | P1-T01 … P1-T07 | 8 |
 | 2 Scenario engine | **M2 Fleet, faults, two clocks** | Three UGVs with namespaces and resource budgets. Network degradation and events from the timeline. Sim-time and real-time-locked modes. Parameter sweep produces a JUnit report. Field MCAP replays into the stack. External repo onboards through a manifest. | P2-T01 … P2-T08 | 10 |
@@ -19,7 +19,7 @@ of roughly three to four hours; tasks marked ×2 are expected to need two.
 
 ## Phase dependencies
 
-```
+```text
 P0 ─▶ P1 ─▶ P2 ─┬─▶ P3 (cockpit) ─────────────┐
                  ├─▶ P4 (drones) ──┐           │
                  │                 ├─▶ P6 ─────┼─▶ P7
@@ -39,7 +39,8 @@ match their priorities (for example, drones before cockpit if a drone team is wa
 - **M2:** `fieldproof matrix examples/ugv_fleet_sweep.yaml` runs 3 robots × 4 loss profiles and
   produces JUnit consumed by CI; one run uses real-time lock and reports zero drift.
 - **M3:** `fieldproof cockpit` opens the browser; inject an obstacle mid-run and watch Nav2 replan.
-- **M4:** `fieldproof run examples/uav_mission_gps_denied.yaml --autopilot px4` and `--autopilot ardupilot` both PASS.
+- **M4:** `fieldproof run examples/uav_mission_gps_denied.yaml --autopilot px4` and `--autopilot
+  ardupilot` both PASS.
 - **M5:** `fieldproof run examples/usv_station_keeping_ss3.yaml` PASS with position error KPI.
 - **M6:** same UGV scenario at `--tier target` on an ARM64 image; divergence report vs field log.
 - **M7:** fresh clone to first scenario in under 15 minutes following the tutorial.
@@ -47,7 +48,7 @@ match their priorities (for example, drones before cockpit if a drone team is wa
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
-|---|---|---|
+| --- | --- | --- |
 | Gazebo Harmonic rendering on AMD Mesa inside containers is flaky | Camera sensors unusable | Validate in P0-T03 with `/dev/dri`; software rendering fallback; GPU-less sensor set for CI |
 | VRX plugins lag behind Harmonic | USV phase slips | Pin to the VRX release targeting Harmonic; budget P5-T01 ×2 |
 | PX4/ArduPilot Gazebo glue changes between versions | Drone phase churn | Pin autopilot versions; contract tests on MAVLink/uXRCE topics |

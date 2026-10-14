@@ -8,7 +8,7 @@ Task: <!-- e.g. P0-T03 --> · Closes #
 
 <!-- Paste the real commands and their output, as written in the task's verification section. -->
 
-```
+```text
 ```
 
 ## Checklist

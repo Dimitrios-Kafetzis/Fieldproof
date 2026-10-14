@@ -1,0 +1,11 @@
+# Prettier (task P0-T04): TypeScript, JavaScript, JSON, CSS and HTML only. YAML is yamllint's,
+# Markdown is markdownlint's, Python is ruff's, C++ is clang-format's.
+printWidth: 100
+tabWidth: 2
+useTabs: false
+semi: true
+singleQuote: false
+trailingComma: all
+bracketSpacing: true
+arrowParens: always
+endOfLine: lf

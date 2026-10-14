@@ -1,0 +1,148 @@
+# Quality gates for Fieldproof (task P0-T04). Every hook is pinned; update with
+# `pre-commit autoupdate` in its own PR. `make setup` installs the hooks, `make lint` runs them
+# on every file, `make fmt` applies the formatters only. See docs/setup/tooling.md.
+#
+# Toolchain versions: Python 3.12 (ruff, mypy, yamllint, cmake-format, shellcheck via wheel),
+# Node 22 (eslint, prettier, markdownlint, commitlint), Go (gitleaks, downloaded by pre-commit),
+# Docker (hadolint). Nothing is installed on the host outside pre-commit's own cache.
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
+minimum_pre_commit_version: "4.0.0"
+
+exclude: |
+  (?x)^(
+    assets/.*|
+    .*/LICENSES/.*|
+    .*\.(mcap|db3)$
+  )$
+
+repos:
+  # ---------------------------------------------------------------- generic hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: destroyed-symlinks
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-toml
+      - id: detect-private-key
+
+  # ---------------------------------------------------------------- Python
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
+    hooks:
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+        types_or: [python, pyi]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.4.0
+    hooks:
+      - id: mypy
+        # Strict settings live in pyproject.toml. Packages the engine imports (pydantic, typer,
+        # ...) are added here as additional_dependencies when the packages appear (P0-T07).
+        args: []
+        additional_dependencies: []
+
+  # ---------------------------------------------------------------- C++ and CMake
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v23.1.3
+    hooks:
+      - id: clang-format
+        types_or: [c++, c]
+  # clang-tidy needs a compile_commands.json from a colcon build, so it runs inside the sim
+  # container (P0-T07) with the configuration in .clang-tidy, not as a pre-commit hook.
+
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format
+      - id: cmake-lint
+
+  # ---------------------------------------------------------------- TypeScript and JavaScript
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v10.12.0
+    hooks:
+      - id: eslint
+        files: \.([cm]?[jt]s|[jt]sx)$
+        types: [file]
+        args: [--max-warnings=0]
+        additional_dependencies:
+          - eslint@10.12.0
+          - "@eslint/js@10.0.1"
+          - typescript@5.9.3
+          - typescript-eslint@8.71.2
+          - eslint-config-prettier@10.1.8
+          - globals@17.13.0
+
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: prettier --write --ignore-unknown
+        language: node
+        types_or: [javascript, jsx, ts, tsx, json, css, scss, html, graphql]
+        additional_dependencies:
+          - prettier@3.9.10
+
+  # ---------------------------------------------------------------- YAML, Markdown, shell, Docker
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [--strict]
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.23.3
+    hooks:
+      - id: markdownlint-cli2
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=style, --external-sources]
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.15.1
+    hooks:
+      - id: hadolint-docker
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.2
+    hooks:
+      - id: check-github-workflows
+      - id: check-dependabot
+
+  # ---------------------------------------------------------------- secrets and commit messages
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: commitlint
+        name: commitlint (Conventional Commits)
+        entry: commitlint --edit
+        language: node
+        stages: [commit-msg]
+        pass_filenames: true
+        always_run: true
+        additional_dependencies:
+          - "@commitlint/cli@21.2.3"
+          - "@commitlint/config-conventional@21.2.3"

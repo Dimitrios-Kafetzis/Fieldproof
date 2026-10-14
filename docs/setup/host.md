@@ -23,7 +23,7 @@ If `gh` is not authenticated yet, run `gh auth login --web --git-protocol https`
 ## What gets installed
 
 | Component | Version pinned in `tools/host-setup.sh` | Source | Why |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Docker Engine, CLI | 5:29.9.0-1~ubuntu.24.04~noble | Docker apt repository (key fingerprint verified) | Runs every simulator, bridge and vehicle container |
 | containerd.io | 2.4.2-1~ubuntu.24.04~noble | Docker apt repository | Container runtime |
 | Docker Buildx plugin | 0.38.0-1~ubuntu.24.04~noble | Docker apt repository | BuildKit builds, multi-platform images, registry cache |

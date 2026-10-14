@@ -20,7 +20,16 @@ body:
     id: phase
     attributes:
       label: Suggested phase
-      options: ["0 Foundations", "1 Vertical slice", "2 Scenario engine", "3 Cockpit", "4 Drones", "5 USVs", "6 Fidelity", "7 Product", "Not sure"]
+      options:
+        - "0 Foundations"
+        - "1 Vertical slice"
+        - "2 Scenario engine"
+        - "3 Cockpit"
+        - "4 Drones"
+        - "5 USVs"
+        - "6 Fidelity"
+        - "7 Product"
+        - "Not sure"
   - type: checkboxes
     id: adr
     attributes:

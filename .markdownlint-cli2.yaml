@@ -1,0 +1,34 @@
+# markdownlint (task P0-T04) for plan documents, ADRs, setup guides and the MkDocs site (P0-T06).
+config:
+  default: true
+  # Prose wraps at 100 columns; tables, code blocks and headings may run longer.
+  MD013:
+    line_length: 100
+    heading_line_length: 120
+    code_block_line_length: 120
+    tables: false
+  # Inline HTML is needed for the PR and issue templates (comments) and MkDocs admonitions.
+  MD033: false
+  # Templates and partial pages do not start with a level-one heading.
+  MD041: false
+  # ADRs and plan documents repeat section headings (Context, Decision, ...) under different parents.
+  MD024:
+    siblings_only: true
+  # Bare URLs are acceptable in plan tables and ADR references.
+  MD034: false
+  # A bold line is used as a tagline below the title in README.md.
+  MD036: false
+  # Mixed lists in the backlog use the style of their surroundings.
+  MD004:
+    style: dash
+  MD029:
+    style: ordered
+ignores:
+  # Verbatim Contributor Covenant 2.1 text; kept as published upstream.
+  - "CODE_OF_CONDUCT.md"
+  - "node_modules/**"
+  - "assets/**"
+  - "build/**"
+  - "install/**"
+  - "log/**"
+  - "CHANGELOG.md"

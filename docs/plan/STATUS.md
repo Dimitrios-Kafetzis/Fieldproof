@@ -4,16 +4,17 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 
 **Current milestone:** M0 Hello, CI — in progress
 **Repository:** https://github.com/Dimitrios-Kafetzis/Fieldproof
-**Next task:** P0-T03 Base container images (after #2 merges). P0-T04 Developer tooling may run in parallel.
+**Next task:** P0-T03 Base container images (in progress in a parallel session). P0-T05 CI/CD pipeline
+once #3 and P0-T03 merge.
 
 ## Phase 0 — Foundations
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P0-T01 | Repository bootstrap and GitHub setup | done | #1 | 2026-10-14: bootstrap commit pushed to `main`; Apache-2.0, NOTICE, CoC 2.1, CONTRIBUTING, SECURITY, CODEOWNERS, templates, editorconfig, session guide added; `main` protected (PR required, linear history, enforce admins, conversation resolution, no force push); squash-only merges; 24 project labels; private vulnerability reporting on. Required status checks list is empty until P0-T05 wires CI. |
-| P0-T02 | Host environment setup | in-review | #2 | 2026-10-14: host prepared and verified. Installed (pinned): Docker 29.9.0 + Compose 5.6.0 + Buildx 0.38.0, containerd 2.4.2, qemu-user-static 1:8.2.2 (binfmt `POF`), gh 2.45.0, nvm v0.40.8, Node 22.23.3, pnpm 12.11.2, uv 0.13.1, pre-commit 4.7.0. `tools/host-setup.sh` (idempotent, one sudo), `tools/host-check.sh` (passes twice), `tests/host/test_host_check.sh` (18 pass), `docs/setup/host.md`, `.nvmrc`. Both definition-of-done container commands pass. Hand-off: the maintainer must log out and back in once so the `docker` group is active without `sg docker`. Sudo from editor tasks works through `SUDO_ASKPASS` with a clean-env zenity helper (VS Code snap breaks GTK); documented in the troubleshooting section. |
+| P0-T02 | Host environment setup | done | #2 | 2026-10-14: host prepared and verified. Installed (pinned): Docker 29.9.0 + Compose 5.6.0 + Buildx 0.38.0, containerd 2.4.2, qemu-user-static 1:8.2.2 (binfmt `POF`), gh 2.45.0, nvm v0.40.8, Node 22.23.3, pnpm 12.11.2, uv 0.13.1, pre-commit 4.7.0. `tools/host-setup.sh` (idempotent, one sudo), `tools/host-check.sh` (passes twice), `tests/host/test_host_check.sh` (18 pass), `docs/setup/host.md`, `.nvmrc`. Both definition-of-done container commands pass. Hand-off: the maintainer must log out and back in once so the `docker` group is active without `sg docker`. Sudo from editor tasks works through `SUDO_ASKPASS` with a clean-env zenity helper (VS Code snap breaks GTK); documented in the troubleshooting section. |
 | P0-T03 | Base container images | todo | | |
-| P0-T04 | Developer tooling and quality gates | todo | | |
+| P0-T04 | Developer tooling and quality gates | in-review | #3 | 2026-10-14: `.pre-commit-config.yaml` with 29 pinned hooks (ruff, mypy, clang-format, cmake-format/lint, eslint, prettier, yamllint, markdownlint-cli2, shellcheck, hadolint container, check-jsonschema, gitleaks, commitlint, pre-commit-hooks); root `pyproject.toml`, `.clang-format`, `.clang-tidy` (config only, runs in the sim container from P0-T07), `.cmake-format.yaml`, `eslint.config.cjs` (CommonJS on purpose, see tooling.md), `.prettierrc.yaml`, `.yamllint.yaml`, `.markdownlint-cli2.yaml`, `.hadolint.yaml`, `commitlint.config.mjs`, `.gitleaks.toml`; `Makefile` (`setup`, `lint`, `lint-files`, `lint-commits`, `secrets`, `fmt`, `test`, `test-tooling`, `test-host`, `clean`); `tests/tooling/test_quality_gates.sh` (29 pass); `docs/setup/tooling.md`; CONTRIBUTING, README and the standards updated. Planning docs reflowed (whitespace only) to pass markdownlint. Both definition-of-done checks pass: `pre-commit run --all-files` is green and `git commit -m 'Added developer tooling'` is rejected by the commit-msg hook. Hand-off: P0-T07 adds the engine's packages to the mypy hook's `additional_dependencies` and wires clang-tidy into the sim container build; P0-T05 runs `make lint` and `make test` in CI. |
 | P0-T05 | CI/CD pipeline | todo | | |
 | P0-T06 | Documentation site | todo | | |
 | P0-T07 | Monorepo layout and package skeletons | todo | | |
@@ -21,7 +22,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 1 — Vertical slice
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P1-T01 | Reference UGV model | todo | | |
 | P1-T02 | Reference world and asset pipeline | todo | | |
 | P1-T03 | Bridge configuration generator and contract tests | todo | | |
@@ -33,7 +34,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 2 — Scenario engine
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P2-T01 | Multi-vehicle orchestration and resource budgets | todo | | |
 | P2-T02 | Network emulation | todo | | |
 | P2-T03 | Event injection framework (×2) | todo | | |
@@ -46,7 +47,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 3 — Cockpit
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P3-T01 | Cockpit backend | todo | | |
 | P3-T02 | Frontend scaffold and design system | todo | | |
 | P3-T03 | 3D world view (×2) | todo | | |
@@ -58,7 +59,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 4 — Drones
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P4-T01 | PX4 SITL integration | todo | | |
 | P4-T02 | ArduPilot SITL integration | todo | | |
 | P4-T03 | Reference UAV models | todo | | |
@@ -68,7 +69,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 5 — USVs
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P5-T01 | Hydrodynamics and environment plugins (×2) | todo | | |
 | P5-T02 | Reference USV model | todo | | |
 | P5-T03 | Marine worlds | todo | | |
@@ -78,7 +79,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 6 — Fidelity
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P6-T01 | ARM64 target emulation (×2) | todo | | |
 | P6-T02 | Compute budget profiles | todo | | |
 | P6-T03 | Sensor noise calibration from field logs | todo | | |
@@ -89,7 +90,7 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 ## Phase 7 — Product
 
 | Task | Title | State | PR | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P7-T01 | Scenario library and templates | todo | | |
 | P7-T02 | World editor in the cockpit | todo | | |
 | P7-T03 | Run history dashboard and trends | todo | | |
@@ -102,3 +103,11 @@ Updated at the end of every session. States: `todo` · `in-progress` · `in-revi
 1. ~~GitHub owner and visibility~~ Resolved 2026-10-14: public repo at https://github.com/Dimitrios-Kafetzis/Fieldproof.
 2. Any real vehicle repository, URDF, field logs or flight controller available for the optional inputs.
 3. Preferred PX4 and ArduPilot releases (defaults: latest stable at the time of P4).
+4. Squash-merge commits on `main` carry the PR title (`P0-T02 Host environment setup (#2)`), which
+   is not a Conventional Commit, so release-please (P0-T05) will not see `feat:`/`fix:` on `main`.
+   commitlint exempts that shape for now. Options for P0-T05: title PRs as `type(scope): summary`
+   and keep the task ID in the body, or configure release-please to read PR labels. Decision needed
+   before P0-T05.
+5. commitlint requires a scope and accepts the repository-wide scopes `repo`, `plan`, `tools`,
+   `deps`, `release` in addition to the layers (the history already used `repo` and `plan`). Confirm
+   or trim the list in `commitlint.config.mjs`.

@@ -1,0 +1,14 @@
+# gitleaks (task P0-T04): default rule set plus repository allowlists.
+title = "Fieldproof gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths that never carry credentials"
+paths = [
+  '''^assets/.*''',
+  '''^docs/plan/.*''',
+  '''(^|/)pnpm-lock\.yaml$''',
+  '''(^|/)uv\.lock$''',
+]
