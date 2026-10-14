@@ -25,6 +25,7 @@ test with pass/fail assertions, so field testing becomes verification of what al
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 | [docs/setup/host.md](docs/setup/host.md) | Prepare an Ubuntu 24.04 workstation: `tools/host-setup.sh`, `tools/host-check.sh` |
 | [docs/setup/tooling.md](docs/setup/tooling.md) | Quality gates: `make setup`, `make lint`, `make fmt`, `make test`, commit message rules |
+| [docs/setup/containers.md](docs/setup/containers.md) | Container images, pins, rendering modes, `make images`/`up`/`shell`/`down` |
 
 ## Core principle
 

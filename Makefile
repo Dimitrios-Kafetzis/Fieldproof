@@ -1,7 +1,8 @@
-# Fieldproof developer entry points (task P0-T04). Run `make` for the list of targets.
+# Fieldproof developer entry points. Run `make` for the list of targets.
 #
-# Everything here delegates to pre-commit (hooks pinned in .pre-commit-config.yaml) or to a
-# container, so nothing beyond Docker, Node and pre-commit itself is installed on the host.
+# Quality gates (task P0-T04) delegate to pre-commit (hooks pinned in .pre-commit-config.yaml) or
+# to a container, so nothing beyond Docker, Node and pre-commit itself is installed on the host.
+# Containers (task P0-T03) are driven through docker/compose.yaml; see docs/setup/containers.md.
 # Later tasks add per-layer targets (engine, sim, bridge, cockpit) underneath `test` and `lint`.
 
 SHELL := /usr/bin/env bash
@@ -16,7 +17,37 @@ FORMAT_HOOKS := trailing-whitespace end-of-file-fixer mixed-line-ending ruff-che
 # Base ref for the commit message check of the current branch.
 BASE_REF ?= origin/main
 
-.PHONY: help setup lint lint-files lint-commits secrets fmt test test-host test-tooling clean
+# --- Containers -------------------------------------------------------------------------------
+# Rendering: when the host has a /dev/dri render node, compose.gpu.yaml is added so the sim and
+# dev containers use the GPU through Mesa; otherwise everything renders in software. Force one or
+# the other with RENDER=gpu or RENDER=software.
+GIT_SHA    := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+VERSION    ?= 0.0.0
+export GIT_SHA BUILD_DATE VERSION
+
+RENDER_NODE := $(firstword $(wildcard /dev/dri/renderD*))
+RENDER      ?= $(if $(RENDER_NODE),gpu,software)
+export FIELDPROOF_RENDER_GID ?= $(shell getent group render | cut -d: -f3)
+
+COMPOSE_FILES := -f docker/compose.yaml
+ifeq ($(RENDER),gpu)
+COMPOSE_FILES += -f docker/compose.gpu.yaml
+endif
+COMPOSE     := docker compose $(COMPOSE_FILES)
+PROFILES    := --profile sim --profile dev
+BUILD_FLAGS ?=
+# NO_CACHE=1 ignores the layer cache and starts from empty apt cache mounts (a fresh BuildKit cache
+# mount namespace), which is what a cold build on a new machine or in CI sees.
+ifeq ($(NO_CACHE),1)
+NO_CACHE_FLAGS := --no-cache --build-arg BUILDKIT_CACHE_MOUNT_NS=cold-$(BUILD_DATE)
+endif
+# `make test` runs the image tests with the cached build; `make test-images IMAGE_TEST_FLAGS=`
+# adds the timed cold build.
+IMAGE_TEST_FLAGS ?= --quick
+
+.PHONY: help setup lint lint-files lint-commits secrets fmt test test-host test-tooling test-images clean \
+	images up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -56,7 +87,7 @@ secrets: ## Scan the full git history for secrets with the pinned gitleaks conta
 fmt: ## Apply the formatters (ruff, clang-format, cmake-format, prettier, whitespace fixers)
 	@for hook in $(FORMAT_HOOKS); do $(PRE_COMMIT) run "$$hook" --all-files || true; done
 
-test: test-tooling test-host ## Run every test suite available at this stage of the plan
+test: test-tooling test-host test-images ## Run every test suite available at this stage of the plan
 
 test-tooling: ## Quality-gate tests: hooks pass on the repo, each gate catches a bad file, commitlint rejects bad messages
 	tests/tooling/test_quality_gates.sh
@@ -64,5 +95,25 @@ test-tooling: ## Quality-gate tests: hooks pass on the repo, each gate catches a
 test-host: ## Host prerequisite tests (set FIELDPROOF_SKIP_HOST=1 on machines that are not prepared)
 	tests/host/test_host_check.sh
 
+test-images: ## Container image tests (IMAGE_TEST_FLAGS=--quick by default; empty for the timed cold build)
+	tests/images/test_images.sh $(IMAGE_TEST_FLAGS)
+
 clean: ## Remove pre-commit's installed hook environments (they are rebuilt on the next run)
 	$(PRE_COMMIT) clean
+
+images: ## Build the base-ros2, sim and dev images (NO_CACHE=1 for a cold build)
+	$(COMPOSE) --profile images $(PROFILES) build $(NO_CACHE_FLAGS) $(BUILD_FLAGS)
+
+up: ## Start the headless Gazebo server and the dev container (RENDER=gpu|software, auto-detected)
+	$(COMPOSE) $(PROFILES) up -d --wait
+
+down: ## Stop the container stack
+	$(COMPOSE) $(PROFILES) down --remove-orphans
+
+shell: ## Open a shell in the dev container
+	$(COMPOSE) exec dev bash
+
+prune: down ## Remove the stack, the project's images and dangling Fieldproof build layers
+	$(COMPOSE) --profile images $(PROFILES) down --remove-orphans --volumes --rmi all
+	docker image prune -f --filter label=org.opencontainers.image.vendor=Fieldproof
+	@echo "Build cache is shared across projects; reclaim it with: docker builder prune"
