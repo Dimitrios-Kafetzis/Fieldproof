@@ -35,7 +35,6 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean \
 # Fieldproof needs (fewer index files to fetch from a slow host).
 # hadolint ignore=DL3008
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
@@ -54,9 +53,11 @@ RUN printf 'Types: deb\nURIs: http://snapshots.ros.org/%s/%s/ubuntu\nSuites: nob
 
 # ROS 2 ros-base plus the small set of tools every Fieldproof container needs. Versions are fixed
 # by the snapshots above, which is why DL3008 (per-package pins) is ignored here and below.
+# The package lists stay in the image on purpose (DL3009): they describe immutable snapshots, so
+# derived images (sim, dev, vehicle images) install from them without refreshing the index from
+# the slow snapshot host. Downloaded .deb files live in a BuildKit cache mount instead.
 # hadolint ignore=DL3008,DL3009
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     fieldproof-apt-install \
         "ros-${ROS_DISTRO}-ros-base" \
         tini

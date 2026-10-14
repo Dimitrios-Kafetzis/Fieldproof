@@ -19,9 +19,9 @@ USER root
 # Compilers and build systems, ROS developer tools (colcon, rosdep, vcstool), clang tooling for the
 # C++ quality gates, debugging and everyday shell utilities. Every package comes from the snapshots
 # configured in the base image (DL3008 ignored for that reason).
+# The pinned package lists come with the base image, so no index refresh is needed (DL3009).
 # hadolint ignore=DL3008,DL3009
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     fieldproof-apt-install \
         bash-completion \
         build-essential \

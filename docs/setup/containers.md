@@ -73,14 +73,16 @@ Ubuntu pool files are tried on the regular archive mirror first (`FIELDPROOF_APT
 `http://archive.ubuntu.com/ubuntu`, which carries the same files under the same paths for as long
 as the version is current) and fall back to the snapshot host with retries. The real
 `apt-get install` then verifies every cached file against the signed snapshot index before
-unpacking, so the mirror cannot change what gets installed. `apt-get update` is skipped when the
-lists for every configured source are already in the cache mount, because snapshot sources never
-change. `FIELDPROOF_APT_PARALLEL` tunes the concurrency; both knobs are environment variables read
-by the script, so pass them as `ENV` or `ARG` lines in a derived Dockerfile.
+unpacking, so the mirror cannot change what gets installed. The package lists fetched from the
+snapshots are kept in the base image (about 30 MB): they describe immutable snapshots, so the sim
+and dev images, and any vehicle image built on the base, install from them without another index
+refresh from the slow host; `fieldproof-apt-install` only runs `apt-get update` when a configured
+source has no lists yet. `FIELDPROOF_APT_PARALLEL` and `FIELDPROOF_APT_MIRROR` are environment
+variables read by the script, so pass them as `ENV` or `ARG` lines in a derived Dockerfile.
 
-Package downloads and apt lists live in BuildKit cache mounts, so a rebuild after changing a
-Dockerfile line does not re-download the ROS and Gazebo packages. `NO_CACHE=1 make images` ignores
-the layer cache and uses a fresh cache-mount namespace, which is what a new machine or CI sees.
+Downloaded `.deb` files live in a BuildKit cache mount, so a rebuild after changing a Dockerfile
+line does not re-download the ROS and Gazebo packages. `NO_CACHE=1 make images` ignores the layer
+cache and uses a fresh cache-mount namespace, which is what a new machine or CI sees.
 
 ## Rendering
 

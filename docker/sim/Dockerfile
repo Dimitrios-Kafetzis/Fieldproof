@@ -19,9 +19,9 @@ USER root
 #   libgbm1                  buffer management for the EGL device platform on /dev/dri
 #   mesa-utils-bin           eglinfo, used by the image tests to show which renderer is active
 # Versions are fixed by the apt snapshots configured in the base image (DL3008 ignored).
+# The pinned package lists come with the base image, so no index refresh is needed (DL3009).
 # hadolint ignore=DL3008,DL3009
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     fieldproof-apt-install \
         "ros-${ROS_DISTRO}-ros-gz-sim" \
         "ros-${ROS_DISTRO}-ros-gz-bridge" \
