@@ -105,20 +105,33 @@ fi
 
 # ---------------------------------------------------------------------------------------------
 section "Build"
+BUILD_LOG="${TMPDIR:-/tmp}/fieldproof-images-build.log"
+# Apt steps report how long the index refresh and the package fetch took; print them so a slow
+# build can be attributed to the snapshot hosts (see docs/setup/containers.md).
+build_summary() {
+  grep -oE '^#[0-9]+ [0-9.]+ fieldproof-apt-install: .*|^#[0-9]+ DONE [0-9]{2,}[0-9.]*s' "$BUILD_LOG" \
+    | sed 's/^/        /' || true
+  echo "        full log: $BUILD_LOG"
+}
 if [[ "$QUICK" -eq 1 ]]; then
   start=$SECONDS
-  if make images >/dev/null 2>&1; then pass "make images (cached) in $((SECONDS - start)) s"; else fail "make images"; fi
+  if make images BUILD_FLAGS=--progress=plain >"$BUILD_LOG" 2>&1; then
+    pass "make images (cached) in $((SECONDS - start)) s"
+  else
+    fail "make images"; build_summary
+  fi
 else
   start=$SECONDS
-  if NO_CACHE=1 make images >/dev/null 2>&1; then
+  if NO_CACHE=1 make images BUILD_FLAGS=--progress=plain >"$BUILD_LOG" 2>&1; then
     elapsed=$((SECONDS - start))
     if [[ "$elapsed" -le "$COLD_BUILD_LIMIT_S" ]]; then
       pass "make images cold (NO_CACHE=1) in $elapsed s (limit $COLD_BUILD_LIMIT_S s)"
     else
       fail "make images cold (NO_CACHE=1) took $elapsed s, limit $COLD_BUILD_LIMIT_S s"
     fi
+    build_summary
   else
-    fail "make images cold (NO_CACHE=1)"
+    fail "make images cold (NO_CACHE=1)"; build_summary
   fi
 fi
 
