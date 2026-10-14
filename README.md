@@ -3,11 +3,10 @@
 **Run the real stack. Prove it before the field.**
 
 Fieldproof is a multi-domain robotics emulation and simulation platform. Ground robots (UGV), drones
-(UAV)
-and surface vessels (USV) run their *unmodified* ROS 2 (and bridged ROS 1) codebases inside isolated
-containers, fed by simulated sensors from a physics engine, orchestrated by a declarative scenario engine,
-and observed through a browser-based 3D cockpit. Every scenario is an automated test with pass/fail
-assertions, so field testing becomes verification of what already passed.
+(UAV) and surface vessels (USV) run their *unmodified* ROS 2 (and bridged ROS 1) codebases inside
+isolated containers, fed by simulated sensors from a physics engine, orchestrated by a declarative
+scenario engine, and observed through a browser-based 3D cockpit. Every scenario is an automated
+test with pass/fail assertions, so field testing becomes verification of what already passed.
 
 > Status: Phase 0 (Foundations) in progress. See [docs/plan/STATUS.md](docs/plan/STATUS.md).
 

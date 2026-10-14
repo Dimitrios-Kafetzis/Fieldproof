@@ -17,8 +17,7 @@ recordings.
 We will build our own cockpit as a TypeScript web application (React, Three.js via react-three-fiber)
 served by the engine, consuming topics through the Foxglove WebSocket protocol and controlling the
 engine through a small REST/WebSocket API. The cockpit renders a twin for humans; sensor images used
-by
-the robot stack are rendered by Gazebo.
+by the robot stack are rendered by Gazebo.
 
 ## Alternatives considered
 

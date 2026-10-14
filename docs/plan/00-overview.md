@@ -39,8 +39,7 @@ drift by running the real stack and removes the proof gap by recording, assertin
 | **T3 HIL** (hardware in the loop) | Real flight controller and optionally companion computer on the bench | Wall clock | Final gate before field | Needs hardware present. One run at a time |
 
 A fourth input, **log replay**, feeds recorded field data (MCAP) into the stack open-loop. It is not
-a
-tier but a scenario source, used for regression against real sensor data.
+a tier but a scenario source, used for regression against real sensor data.
 
 ## Domains
 
