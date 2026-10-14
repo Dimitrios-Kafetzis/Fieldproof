@@ -31,9 +31,10 @@ please read the plan before proposing changes.
 
 ## Pull request expectations
 
-- Title: `<task-id> <title>` for planned tasks, otherwise a Conventional Commits summary.
+- Title: a Conventional Commits summary, `type(scope): summary`, because it becomes the squash
+  commit on `main` and drives the changelog. CI checks it (`make lint-title TITLE="..."`).
 - Body: what changed, why, how it was verified (paste real command output), and links to the task,
-  issue or ADR.
+  issue or ADR (`Task: P0-T05` for planned tasks).
 - Keep PRs focused. Unrelated improvements go in their own PR or an issue.
 
 ## Reporting bugs and requesting features

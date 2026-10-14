@@ -1,5 +1,9 @@
 # Fieldproof
 
+[![CI](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/ci.yml)
+[![Images](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/images.yml)
+[![Licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
+
 **Run the real stack. Prove it before the field.**
 
 Fieldproof is a multi-domain robotics emulation and simulation platform. Ground robots (UGV), drones
@@ -26,6 +30,7 @@ test with pass/fail assertions, so field testing becomes verification of what al
 | [docs/setup/host.md](docs/setup/host.md) | Prepare an Ubuntu 24.04 workstation: `tools/host-setup.sh`, `tools/host-check.sh` |
 | [docs/setup/tooling.md](docs/setup/tooling.md) | Quality gates: `make setup`, `make lint`, `make fmt`, `make test`, commit message rules |
 | [docs/setup/containers.md](docs/setup/containers.md) | Container images, pins, rendering modes, `make images`/`up`/`shell`/`down` |
+| [docs/setup/ci.md](docs/setup/ci.md) | GitHub Actions workflows, required checks, published image tags, releases, Dependabot |
 
 ## Core principle
 

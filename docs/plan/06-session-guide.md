@@ -13,7 +13,9 @@ project is built one backlog task per session; this guide is the contract a sess
 ## Non-negotiables
 
 - Decisions live in `docs/adr/`. Do not contradict an accepted ADR; propose a new ADR instead.
-- Conventional Commits. One task per branch, one PR per task, squash-merged to `main`.
+- Conventional Commits. One task per branch, one PR per task, squash-merged to `main`. The PR
+  title is a Conventional Commit as well (it becomes the squash subject); the task ID goes in
+  the PR body and in commit bodies (`Task: P0-T05`).
 - Commits are authored by the maintainer only. No co-author trailers, no tool attribution in commit
   messages, PR descriptions, code comments or documentation.
 - Every change ships with tests at the appropriate layer (see `docs/plan/04-engineering-standards.md`).

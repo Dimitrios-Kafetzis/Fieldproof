@@ -49,7 +49,9 @@ fieldproof/
   `perf`) with a scope equal to the layer (`engine`, `sim`, `bridge`, `robots`, `cockpit`, `docker`,
   `docs`, `ci`) or, for repository-wide changes, `repo`, `plan`, `tools`, `deps` or `release`.
   Breaking changes carry `!`. Enforced by commitlint (P0-T04).
-- Squash-merge; the squash message is the PR title plus a body summarising the change and `Task: P0-T01`.
+- Squash-merge; the squash message is the PR title plus a body summarising the change and
+  `Task: P0-T01`. PR titles are therefore Conventional Commits too (`type(scope): summary`,
+  checked by CI), and the task ID lives in the body, not the title.
 - Tags `vX.Y.Z` created by release-please. SemVer applies to the CLI, the scenario schema
   (`apiVersion`) and the plugin APIs independently; the repo version tracks the CLI.
 - Every PR links its task ID and ticks the checklist: tests added, docs updated, ADR impact
@@ -82,8 +84,8 @@ ROS packages, `gz sdf --check` for SDF, JSON Schema validation for scenarios and
   `--no-install-recommends`, cache mounts.
 - OCI labels: source, revision, created, licence, title.
 - Images published to GHCR as `ghcr.io/dimitrios-kafetzis/fieldproof-<name>:<tag>` with `main`,
-  `vX.Y.Z` and `sha-<short>` tags; SBOM (syft) and vulnerability scan (Trivy, fail on critical) in
-  CI.
+  `vX.Y.Z` and `sha-<short>` tags; SBOM (syft) and vulnerability scan (Trivy, fail on a fixed
+  critical vulnerability; `main` and `vX.Y.Z` are only tagged after the scan passes) in CI.
 - Nothing from ROS or Gazebo installs on the host.
 
 ## Documentation

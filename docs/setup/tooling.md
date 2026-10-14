@@ -3,8 +3,8 @@
 Task P0-T04 makes the rules in [04-engineering-standards.md](../plan/04-engineering-standards.md)
 enforceable automatically. One pre-commit configuration drives every linter and formatter for the
 three toolchains, commitlint checks commit messages, gitleaks scans for secrets, and a `Makefile`
-wraps the common commands. CI (P0-T05) runs the same targets, so a change that passes locally
-passes in CI.
+wraps the common commands. CI ([ci.md](ci.md)) runs the same targets, so a change that passes
+locally passes in CI.
 
 Nothing is installed on the host beyond what [host.md](host.md) already provides: pre-commit
 creates its own environments in `~/.cache/pre-commit` (Python virtualenvs, a Node prefix, a Go
@@ -28,8 +28,9 @@ created.
 | `make lint-files` | All pre-commit hooks on all tracked files (`pre-commit run --all-files`) |
 | `make lint-commits` | commitlint on every commit since `origin/main` (`BASE_REF=<ref>` to change the base) |
 | `make secrets` | gitleaks over the whole git history, from the pinned container image |
+| `make lint-title TITLE="..."` | commitlint on a pull request title (the squash-merge subject; see [ci.md](ci.md#pull-request-titles)) |
 | `make fmt` | Only the formatters: whitespace fixers, ruff, clang-format, cmake-format, prettier |
-| `make test` | Every test suite available so far: tooling tests, host tests |
+| `make test` | Every test suite available so far: tooling, CI workflow, host and image tests |
 | `make clean` | Delete the hook environments; they are rebuilt on the next run |
 | `SKIP=mypy git commit …` | Skip one hook for one commit; use sparingly and say why in the PR |
 
@@ -50,6 +51,7 @@ created.
 | shellcheck | `*.sh`, scripts with a shell shebang | hook args | severity `style`, external sources followed |
 | hadolint | `Dockerfile*` | `.hadolint.yaml` | container image; `:latest`, unpinned apt packages, missing `--no-install-recommends` and a root final user are errors |
 | check-jsonschema | `.github/workflows/*.yml`, `.github/dependabot.yml` | hook defaults | GitHub Actions and Dependabot schemas |
+| actionlint | `.github/workflows/*.yml` | hook defaults | workflow semantics: expressions, job references, runner labels, shellcheck on `run` steps |
 | gitleaks | staged changes on commit; full history in `make secrets` | `.gitleaks.toml` | default rules plus repository allowlists |
 | commitlint | commit message | `commitlint.config.mjs` | see below |
 
@@ -72,8 +74,9 @@ the `commit-msg` hook:
 - **subject**: imperative, lower-case start, no trailing full stop, header at most 100 characters.
 - Breaking changes carry `!` after the scope: `feat(engine)!: rename the scenario apiVersion`.
 - Body and footer lines wrap at 100 characters. Reference the task in the body: `Task: P0-T04`.
-- Squash-merge commits created by GitHub carry the PR title (`P0-T04 Developer tooling (#3)`) and
-  are exempt.
+- Squash-merge commits carry the pull request title, so titles follow the same rules and are
+  checked by CI ([ci.md](ci.md#pull-request-titles)). The four squash commits that predate the
+  rule (`P0-T04 Developer tooling and quality gates (#3)`) stay exempt.
 
 Examples that pass: `feat(engine): add scenario loader`, `fix(cockpit)!: drop the legacy protocol`,
 `docs(plan): mark P0-T04 in review`. Examples that fail: `Added some stuff`, `feat: scope is

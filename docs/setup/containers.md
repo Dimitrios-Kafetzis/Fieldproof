@@ -14,7 +14,9 @@ make down       # stop the stack
 make prune      # also remove the project's images and dangling build layers
 ```
 
-`make test-images` runs `tests/images/test_images.sh`, the verification for this task.
+`make test-images` runs `tests/images/test_images.sh`, the verification for this task
+(`--quick` reuses the build cache, `--no-build` tests images that are already present, which is
+what CI does after building them with `docker buildx bake`).
 
 ## Images
 
@@ -24,8 +26,10 @@ make prune      # also remove the project's images and dangling build layers
 | `ghcr.io/dimitrios-kafetzis/fieldproof-sim` | `docker/sim/Dockerfile` | base + `ros-jazzy-ros-gz` (Gazebo Harmonic via the Jazzy vendor packages), Mesa EGL stack, headless defaults | 3.1 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-dev` | `docker/dev/Dockerfile` | sim + build-essential, cmake, ninja, clang/clang-format/clang-tidy/clangd, gdb, colcon with mixins, rosdep, vcstool, uv, passwordless sudo | 4.1 GB |
 
-Local builds are tagged `:local`. CI (P0-T05) will push `main`, `vX.Y.Z` and `sha-<short>` tags.
-Override the name or tag with `FIELDPROOF_IMAGE_PREFIX` and `FIELDPROOF_IMAGE_TAG`.
+Local builds are tagged `:local`. CI pushes `sha-<short>`, `main` and `vX.Y.Z` tags after a
+syft SBOM and a Trivy scan ([ci.md](ci.md#published-images)). Override the name or tag with
+`FIELDPROOF_IMAGE_PREFIX` and `FIELDPROOF_IMAGE_TAG`; `FIELDPROOF_IMAGE_TAG=main make up` runs
+the published images instead of local builds.
 
 Each image runs as the non-root user `fieldproof`, starts through `tini` and an entry point that
 sources `/opt/ros/jazzy/setup.bash`, and carries OCI labels (`org.opencontainers.image.source`,
@@ -55,6 +59,7 @@ package versions:
 | uv | `UV_IMAGE` in `docker/dev/Dockerfile` | `ghcr.io/astral-sh/uv:0.13.1` by digest, same version as the host |
 | colcon mixins | `COLCON_MIXIN_COMMIT` in `docker/dev/Dockerfile` | commit of `colcon/colcon-mixin-repository` |
 | Lint containers | `tests/images/test_images.sh` | `hadolint/hadolint:v2.12.0`, `koalaman/shellcheck:v0.10.0` by digest |
+| Scanners in CI | `.github/workflows/images.yml`, `tests/ci/test_workflows.sh` | Trivy `v0.76.0` (policy in `docker/trivy-policy.rego`), syft through `anchore/sbom-action` |
 
 The only packages fetched from the live Ubuntu archive are `ca-certificates` and its dependencies,
 installed before the sources are switched to the HTTPS snapshot host (the base image ships without
@@ -82,7 +87,8 @@ variables read by the script, so pass them as `ENV` or `ARG` lines in a derived 
 
 Downloaded `.deb` files live in a BuildKit cache mount, so a rebuild after changing a Dockerfile
 line does not re-download the ROS and Gazebo packages. `NO_CACHE=1 make images` ignores the layer
-cache and uses a fresh cache-mount namespace, which is what a new machine or CI sees.
+cache and uses a fresh cache-mount namespace, which is what a new machine sees. CI keeps a layer
+cache in GHCR instead ([ci.md](ci.md#image-build-and-registry-cache)).
 
 ## Rendering
 
@@ -137,7 +143,8 @@ rosdistro index. Run it in the container when you need rosdep key resolution.
    snapshot id is any `YYYYMMDDTHHMMSSZ` timestamp; ROS snapshot dates are listed at
    `http://snapshots.ros.org/jazzy/`.
 2. Change the `ARG` default in the Dockerfile and the table above in the same commit.
-3. `make images` then `make test-images`.
+3. `make images` then `make test-images`. The Trivy scan in CI fails on a fixed CRITICAL
+   vulnerability, which is the usual reason to move a snapshot forward.
 
 ## Troubleshooting
 
