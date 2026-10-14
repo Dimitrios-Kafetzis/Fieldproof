@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Dimitrios-Kafetzis/Fieldproof/security/advisories/new
+    about: Report privately. Do not open a public issue.
+  - name: Project plan and status
+    url: https://github.com/Dimitrios-Kafetzis/Fieldproof/blob/main/docs/plan/STATUS.md
+    about: See what is planned and in progress before filing.

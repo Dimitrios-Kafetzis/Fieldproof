@@ -1,0 +1,27 @@
+# Build outputs
+build/
+install/
+log/
+dist/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+coverage/
+# Recordings and run artefacts
+runs/
+*.mcap
+*.db3
+# Environment
+.env
+.venv/
+venv/
+# IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+# OS
+.DS_Store

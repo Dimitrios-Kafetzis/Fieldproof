@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a capability or improvement
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can you not do today, and why does it matter for field readiness?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How it could work. Reference the layer and, if relevant, a backlog task or ADR.
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Suggested phase
+      options: ["0 Foundations", "1 Vertical slice", "2 Scenario engine", "3 Cockpit", "4 Drones", "5 USVs", "6 Fidelity", "7 Product", "Not sure"]
+  - type: checkboxes
+    id: adr
+    attributes:
+      label: Architecture impact
+      options:
+        - label: This changes or contradicts an accepted ADR and needs a new ADR

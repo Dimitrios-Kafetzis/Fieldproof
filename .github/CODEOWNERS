@@ -1,0 +1,5 @@
+# Default owner for everything
+*                   @Dimitrios-Kafetzis
+# Decisions and plan require the maintainer
+/docs/adr/          @Dimitrios-Kafetzis
+/docs/plan/         @Dimitrios-Kafetzis

@@ -1,0 +1,44 @@
+name: Bug report
+description: Something does not behave as documented
+labels: ["type:bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Fieldproof version or commit
+      placeholder: v0.3.0 or 1a2b3c4
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Layer
+      options: [engine, sim, bridge, robots, cockpit, docker, docs, ci, unknown]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the scenario file or command, the expected behaviour and the actual behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. fieldproof run examples/...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Output of `tools/host-check.sh` (after P0-T02) or OS, Docker and GPU details.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, report or MCAP excerpt
+      render: shell

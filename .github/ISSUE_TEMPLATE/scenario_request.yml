@@ -1,0 +1,35 @@
+name: Scenario request
+description: Ask for a scenario, event, assertion or vehicle type to be supported
+labels: ["type:scenario"]
+body:
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Domain
+      options: [UGV, UAV, USV, multi-domain]
+    validations:
+      required: true
+  - type: textarea
+    id: mission
+    attributes:
+      label: Mission and environment
+      description: What the vehicle must do, where, under which conditions (weather, sea state, GPS, link quality).
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Pass/fail criteria
+      description: What must be true for the run to pass. These become assertions.
+    validations:
+      required: true
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Fidelity tier needed
+      options: ["T1 SIL", "T2 emulated target", "T3 HIL", "Not sure"]
+  - type: textarea
+    id: stack
+    attributes:
+      label: Vehicle stack
+      description: ROS distro, autopilot, companion computer, repository link if public.
