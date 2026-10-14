@@ -5,13 +5,14 @@
 # 1. Static checks: shellcheck and hadolint (pinned containers when no local binary), compose
 #    config validation, the vendored ROS snapshot keyring fingerprint.
 # 2. Build: `make images` cold (NO_CACHE=1) must finish in under 15 minutes. With --quick the
-#    build reuses the cache and the time limit is not asserted.
+#    build reuses the cache and the time limit is not asserted; with --no-build the images already
+#    present are used (CI builds them with `docker buildx bake` and the registry cache first).
 # 3. Stack: `make up` starts `gz sim -s -r empty.sdf`; `ros2 topic list` and `gz topic -l` work
 #    from the dev container; `make down` stops it.
 # 4. Rendering: a camera sensor renders a frame headless through /dev/dri (skipped when the host
 #    has no render node) and with software rendering (LIBGL_ALWAYS_SOFTWARE=1).
 #
-# Usage: tests/images/test_images.sh [--quick] [--help]
+# Usage: tests/images/test_images.sh [--quick] [--no-build] [--help]
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -25,15 +26,17 @@ SCRIPTS=(docker/base-ros2/entrypoint.sh docker/base-ros2/apt-install.sh docker/s
 DOCKERFILES=(docker/base-ros2/Dockerfile docker/sim/Dockerfile docker/dev/Dockerfile)
 
 QUICK=0
+NO_BUILD=0
 for arg in "$@"; do
   case "$arg" in
     --quick) QUICK=1 ;;
+    --no-build) NO_BUILD=1 ;;
     -h | --help)
-      sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
-      echo "unknown argument '$arg' (expected --quick or --help)" >&2
+      echo "unknown argument '$arg' (expected --quick, --no-build or --help)" >&2
       exit 2
       ;;
   esac
@@ -113,7 +116,9 @@ build_summary() {
     | sed 's/^/        /' || true
   echo "        full log: $BUILD_LOG"
 }
-if [[ "$QUICK" -eq 1 ]]; then
+if [[ "$NO_BUILD" -eq 1 ]]; then
+  skip "make images (--no-build: using the images already present)"
+elif [[ "$QUICK" -eq 1 ]]; then
   start=$SECONDS
   if make images BUILD_FLAGS=--progress=plain >"$BUILD_LOG" 2>&1; then
     pass "make images (cached) in $((SECONDS - start)) s"

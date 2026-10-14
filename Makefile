@@ -3,6 +3,7 @@
 # Quality gates (task P0-T04) delegate to pre-commit (hooks pinned in .pre-commit-config.yaml) or
 # to a container, so nothing beyond Docker, Node and pre-commit itself is installed on the host.
 # Containers (task P0-T03) are driven through docker/compose.yaml; see docs/setup/containers.md.
+# CI (task P0-T05) runs the same targets from .github/workflows; see docs/setup/ci.md.
 # Later tasks add per-layer targets (engine, sim, bridge, cockpit) underneath `test` and `lint`.
 
 SHELL := /usr/bin/env bash
@@ -23,7 +24,8 @@ BASE_REF ?= origin/main
 # the other with RENDER=gpu or RENDER=software.
 GIT_SHA    := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-VERSION    ?= 0.0.0
+# version.txt is maintained by release-please (see docs/setup/ci.md).
+VERSION    ?= $(shell cat $(CURDIR)/version.txt 2>/dev/null || echo 0.0.0)
 export GIT_SHA BUILD_DATE VERSION
 
 RENDER_NODE := $(firstword $(wildcard /dev/dri/renderD*))
@@ -46,8 +48,8 @@ endif
 # adds the timed cold build.
 IMAGE_TEST_FLAGS ?= --quick
 
-.PHONY: help setup lint lint-files lint-commits secrets fmt test test-host test-tooling test-images clean \
-	images up down shell prune
+.PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
+	test-images test-ci branch-protection clean images up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -73,6 +75,15 @@ lint-commits: ## Check the branch's commit messages against Conventional Commits
 	    fi; \
 	done; exit $$status
 
+lint-title: ## Check a pull request title against commitlint (TITLE="feat(engine): add x")
+	@[ -n "$(TITLE)" ] || { echo "lint-title: pass the title as TITLE=\"...\"" >&2; exit 2; }; \
+	tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; printf '%s\n' "$(TITLE)" > "$$tmp"; \
+	if $(PRE_COMMIT) run commitlint --hook-stage commit-msg --commit-msg-filename "$$tmp"; then \
+	    printf '  ok    %s\n' "$(TITLE)"; \
+	else \
+	    printf '  FAIL  %s\n' "$(TITLE)"; exit 1; \
+	fi
+
 # The checkout and its common git directory are mounted at their own absolute paths so that git
 # worktrees (whose .git is a pointer file) resolve inside the container. A scan that sees no
 # commits is an error, not a pass.
@@ -87,7 +98,7 @@ secrets: ## Scan the full git history for secrets with the pinned gitleaks conta
 fmt: ## Apply the formatters (ruff, clang-format, cmake-format, prettier, whitespace fixers)
 	@for hook in $(FORMAT_HOOKS); do $(PRE_COMMIT) run "$$hook" --all-files || true; done
 
-test: test-tooling test-host test-images ## Run every test suite available at this stage of the plan
+test: test-tooling test-ci test-host test-images ## Run every test suite available at this stage of the plan
 
 test-tooling: ## Quality-gate tests: hooks pass on the repo, each gate catches a bad file, commitlint rejects bad messages
 	tests/tooling/test_quality_gates.sh
@@ -97,6 +108,12 @@ test-host: ## Host prerequisite tests (set FIELDPROOF_SKIP_HOST=1 on machines th
 
 test-images: ## Container image tests (IMAGE_TEST_FLAGS=--quick by default; empty for the timed cold build)
 	tests/images/test_images.sh $(IMAGE_TEST_FLAGS)
+
+test-ci: ## Workflow tests: actionlint, SHA pins, path filter, release-please and Dependabot configuration
+	tests/ci/test_workflows.sh
+
+branch-protection: ## Wire the CI status checks into the protection of main (needs gh as an admin)
+	tools/ci/branch-protection.sh
 
 clean: ## Remove pre-commit's installed hook environments (they are rebuilt on the next run)
 	$(PRE_COMMIT) clean

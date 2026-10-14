@@ -1,0 +1,33 @@
+# Fieldproof documentation site (placeholder from task P0-T05). Task P0-T06 replaces the single
+# step with the MkDocs build and the GitHub Pages deployment (`pages: write`, `id-token: write`,
+# `actions/deploy-pages`). Pages is already configured to deploy from a workflow. Until then this
+# workflow only confirms that the docs tree builds nothing and is not a required status check.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  site:
+    name: Docs site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Placeholder until P0-T06 adds MkDocs
+        run: |
+          echo "Documentation sources: $(find docs -name '*.md' | wc -l) Markdown files."
+          echo "P0-T06 adds the MkDocs build and the GitHub Pages deployment here."

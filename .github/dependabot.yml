@@ -1,0 +1,65 @@
+# Dependabot (task P0-T05): one grouped pull request per ecosystem every Monday, titled
+# `build(deps): ...` so it passes commitlint and the PR title check. GitHub Actions are pinned to
+# commit SHAs; Dependabot bumps the SHA and the version comment together. The pip and npm entries
+# point at the engine and cockpit workspaces that P0-T07 creates and report "directory not found"
+# until then. Hook pins in .pre-commit-config.yaml are updated by hand with `pre-commit autoupdate`.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Athens
+    labels: [layer:ci]
+    commit-message:
+      prefix: build(deps)
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories:
+      - /docker/base-ros2
+      - /docker/sim
+      - /docker/dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Athens
+    labels: [layer:docker]
+    commit-message:
+      prefix: build(deps)
+    groups:
+      images:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /engine
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Athens
+    labels: [layer:engine]
+    commit-message:
+      prefix: build(deps)
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /cockpit
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Athens
+    labels: [layer:cockpit]
+    commit-message:
+      prefix: build(deps)
+    groups:
+      node:
+        patterns: ["*"]

@@ -1,0 +1,187 @@
+# Fieldproof image publishing (task P0-T05). Builds base-ros2, sim and dev from the registry
+# cache, pushes them to GHCR as `sha-<short>`, scans every image (syft SBOM, Trivy) and only then
+# adds the floating tags: `main` for a push to main, `vX.Y.Z` when release.yml calls this workflow
+# for a tag. The `sha-<short>` tag is therefore the only one that can point at an unscanned image.
+name: Images
+
+on:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build and publish (a `vX.Y.Z` tag when called from release.yml)
+        type: string
+        required: true
+      release-tag:
+        description: Release tag that receives the `vX.Y.Z` image tag and the SBOM assets
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build (defaults to the branch the workflow runs from)
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ inputs.release-tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_PREFIX: ghcr.io/dimitrios-kafetzis/fieldproof-
+  IMAGES: base-ros2 sim dev
+  TRIVY_VERSION: v0.76.0
+
+jobs:
+  build:
+    name: Build and push sha tags
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      sha-tag: ${{ steps.meta.outputs.sha-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: Free disk space for the image build
+        run: tools/ci/free-disk.sh
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set the build arguments, the image tag and the registry cache overrides
+        id: meta
+        run: |
+          sha_tag="sha-$(git rev-parse --short=7 HEAD)"
+          echo "sha-tag=$sha_tag" >> "$GITHUB_OUTPUT"
+          {
+            echo "GIT_SHA=$(git rev-parse HEAD)"
+            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "VERSION=$(cat version.txt)"
+            echo "FIELDPROOF_IMAGE_TAG=$sha_tag"
+            echo "BAKE_SET<<END_OF_SET"
+            tools/ci/bake-cache.sh --read buildcache --read buildcache-pr --write buildcache
+            echo "END_OF_SET"
+          } >> "$GITHUB_ENV"
+      - name: Build and push ${{ steps.meta.outputs.sha-tag }}
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        with:
+          source: .
+          files: docker/compose.yaml
+          push: true
+          set: ${{ env.BAKE_SET }}
+
+  scan:
+    name: SBOM and vulnerability scan
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [base-ros2, sim, dev]
+    env:
+      IMAGE_REF: ghcr.io/dimitrios-kafetzis/fieldproof-${{ matrix.image }}:${{ needs.build.outputs.sha-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull ${{ env.IMAGE_REF }}
+        run: docker pull "$IMAGE_REF"
+      - name: SBOM (syft, SPDX JSON)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.IMAGE_REF }}
+          format: spdx-json
+          output-file: sbom-fieldproof-${{ matrix.image }}.spdx.json
+          artifact-name: sbom-fieldproof-${{ matrix.image }}
+          upload-artifact: true
+          upload-release-assets: false
+      - name: Vulnerability report for code scanning (Trivy, HIGH and CRITICAL, SARIF)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ env.IMAGE_REF }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          ignore-policy: docker/trivy-policy.rego
+          format: sarif
+          output: trivy-${{ matrix.image }}.sarif
+          exit-code: "0"
+      - name: Upload the report to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: trivy-${{ matrix.image }}.sarif
+          category: trivy-${{ matrix.image }}
+      - name: Gate (Trivy, fail on a fixed CRITICAL vulnerability)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          skip-setup-trivy: true
+          image-ref: ${{ env.IMAGE_REF }}
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          ignore-policy: docker/trivy-policy.rego
+          format: table
+          exit-code: "1"
+
+  tag:
+    name: Tag ${{ inputs.release-tag || 'main' }}
+    needs: [build, scan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+    env:
+      SHA_TAG: ${{ needs.build.outputs.sha-tag }}
+      FLOATING_TAG: ${{ inputs.release-tag || 'main' }}
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Point ${{ env.FLOATING_TAG }} at the scanned ${{ env.SHA_TAG }} images
+        run: |
+          for image in $IMAGES; do
+            docker buildx imagetools create \
+              --tag "${IMAGE_PREFIX}${image}:${FLOATING_TAG}" \
+              "${IMAGE_PREFIX}${image}:${SHA_TAG}"
+            docker buildx imagetools inspect "${IMAGE_PREFIX}${image}:${FLOATING_TAG}" | head -n 3
+          done
+      - name: Download the SBOMs
+        if: inputs.release-tag != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sbom-fieldproof-*
+          path: sbom
+          merge-multiple: true
+      - name: Attach the SBOMs to release ${{ inputs.release-tag }}
+        if: inputs.release-tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: gh release upload "$RELEASE_TAG" sbom/*.spdx.json --clobber --repo "$GITHUB_REPOSITORY"
