@@ -232,6 +232,12 @@ if [[ "$rp_version_file" == "version.txt" ]]; then
 else
   fail "release-please version-file is '$rp_version_file'"
 fi
+rp_initial="$(python3 -c 'import json; print(json.load(open("release-please-config.json")).get("initial-version", "1.0.0"))')"
+if [[ "$rp_initial" == 0.* ]]; then
+  pass "release-please starts below 1.0 (initial-version $rp_initial)"
+else
+  fail "release-please initial-version is '$rp_initial'; the first release must be below 1.0 (v1.0.0 is P7-T06)"
+fi
 rp_title="$(python3 -c 'import json; print(json.load(open("release-please-config.json"))["pull-request-title-pattern"])')"
 rp_title="${rp_title//\$\{version\}/0.1.0}"
 if make -s lint-title TITLE="$rp_title" >/dev/null 2>&1; then
