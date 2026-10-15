@@ -1,0 +1,112 @@
+# Fieldproof documentation site (task P0-T06): MkDocs Material over docs/, published to GitHub
+# Pages by .github/workflows/docs.yml on every push to main and built with `--strict` in CI so
+# that a broken link, a missing anchor or a page outside the navigation fails the pull request.
+# Build locally with `make docs`, preview with `make docs-serve` (tools/docs pins the toolchain).
+site_name: Fieldproof
+site_description: >-
+  Multi-domain robotics emulation and simulation platform: real ROS 2 stacks for ground, aerial and
+  surface vehicles in containers, fed by Gazebo, driven by declarative scenarios with assertions.
+site_url: https://dimitrios-kafetzis.github.io/Fieldproof/
+site_author: Dimitris Kafetzis
+copyright: Copyright &copy; 2026 Dimitris Kafetzis. Licensed under Apache-2.0.
+repo_url: https://github.com/Dimitrios-Kafetzis/Fieldproof
+repo_name: Dimitrios-Kafetzis/Fieldproof
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/robot-industrial
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - search.suggest
+    - search.highlight
+    - toc.follow
+    - content.code.copy
+    - content.action.edit
+    - content.action.view
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  # Mermaid: ```mermaid fences are rendered in the browser by Material's bundled integration.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+
+# tools/docs/mkdocs_hooks.py regenerates docs/adr/README.md and fills the Decisions section below
+# with one entry per ADR, in order, followed by the template.
+hooks:
+  - tools/docs/mkdocs_hooks.py
+
+# Every validation is a warning, and `mkdocs build --strict` turns warnings into a failed build.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+
+nav:
+  - Home: index.md
+  - Plan:
+      - Overview: plan/00-overview.md
+      - Architecture: plan/01-architecture.md
+      - Roadmap and milestones: plan/02-roadmap.md
+      - Task backlog: plan/03-task-backlog.md
+      - Engineering standards: plan/04-engineering-standards.md
+      - Working model: plan/05-working-model.md
+      - Session guide: plan/06-session-guide.md
+      - Status board: plan/STATUS.md
+  - Decisions: []
+  - Setup:
+      - Host: setup/host.md
+      - Tooling and quality gates: setup/tooling.md
+      - Container images: setup/containers.md
+      - CI/CD pipeline: setup/ci.md
+      - Documentation site: setup/docs.md
+  - Reference:
+      - reference/index.md

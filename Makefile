@@ -4,6 +4,8 @@
 # to a container, so nothing beyond Docker, Node and pre-commit itself is installed on the host.
 # Containers (task P0-T03) are driven through docker/compose.yaml; see docs/setup/containers.md.
 # CI (task P0-T05) runs the same targets from .github/workflows; see docs/setup/ci.md.
+# The documentation site (task P0-T06) builds from mkdocs.yml with the toolchain pinned in
+# tools/docs; see docs/setup/docs.md.
 # Later tasks add per-layer targets (engine, sim, bridge, cockpit) underneath `test` and `lint`.
 
 SHELL := /usr/bin/env bash
@@ -14,9 +16,20 @@ PRE_COMMIT ?= pre-commit
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 # Hooks that rewrite files; `make fmt` runs only these and ignores their "files were modified" exit.
 FORMAT_HOOKS := trailing-whitespace end-of-file-fixer mixed-line-ending ruff-check ruff-format \
-	clang-format cmake-format prettier
+	clang-format cmake-format prettier adr-index
 # Base ref for the commit message check of the current branch.
 BASE_REF ?= origin/main
+
+# --- Documentation ----------------------------------------------------------------------------
+# MkDocs runs from the locked project in tools/docs (uv creates tools/docs/.venv on first use).
+UV ?= uv
+MKDOCS := $(UV) run --locked --project tools/docs mkdocs
+DOCS_ADDR ?= 127.0.0.1:8000
+# Path of the site under its host (site_url in mkdocs.yml is https://dimitrios-kafetzis.github.io/Fieldproof/).
+DOCS_BASE_PATH ?= Fieldproof
+LYCHEE_IMAGE ?= lycheeverse/lychee:0.24.2@sha256:e2d19e57cf6ab037026f20b8e449a1f30d9d7f81eef4194763aab2eab20bd28d
+# Extra lychee flags, for example LYCHEE_ARGS=--offline to check only the internal links.
+LYCHEE_ARGS ?=
 
 # --- Containers -------------------------------------------------------------------------------
 # Rendering: when the host has a /dev/dri render node, compose.gpu.yaml is added so the sim and
@@ -55,7 +68,8 @@ endif
 IMAGE_TEST_FLAGS ?= --quick
 
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
-	test-images test-ci branch-protection clean pins images up down shell prune
+	test-images test-ci test-docs docs docs-serve docs-links branch-protection clean pins images up \
+	down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -104,7 +118,7 @@ secrets: ## Scan the full git history for secrets with the pinned gitleaks conta
 fmt: ## Apply the formatters (ruff, clang-format, cmake-format, prettier, whitespace fixers)
 	@for hook in $(FORMAT_HOOKS); do $(PRE_COMMIT) run "$$hook" --all-files || true; done
 
-test: test-tooling test-ci test-host test-images ## Run every test suite available at this stage of the plan
+test: test-tooling test-ci test-docs test-host test-images ## Run every test suite available at this stage of the plan
 
 test-tooling: ## Quality-gate tests: hooks pass on the repo, each gate catches a bad file, commitlint rejects bad messages
 	tests/tooling/test_quality_gates.sh
@@ -117,6 +131,21 @@ test-images: ## Container image tests (IMAGE_TEST_FLAGS=--quick by default; empt
 
 test-ci: ## Workflow tests: actionlint, SHA pins, path filter, release-please and Dependabot configuration
 	tests/ci/test_workflows.sh
+
+test-docs: ## Documentation tests: ADR index generator, strict site build, navigation, docs.yml rules, internal links
+	tests/docs/test_docs.sh
+
+docs: ## Build the documentation site into site/ (strict: a broken link or a page outside the nav fails)
+	$(MKDOCS) build --strict
+
+docs-serve: ## Serve the documentation site with live reload (DOCS_ADDR=127.0.0.1:8000)
+	$(MKDOCS) serve --strict --dev-addr $(DOCS_ADDR)
+
+# The built site is mounted read-only under the path it has on GitHub Pages so that the
+# root-relative links of the 404 page (/Fieldproof/...) resolve like the relative ones.
+docs-links: docs ## Check every link of the built site, external ones included (LYCHEE_ARGS=--offline for internal only)
+	docker run --rm --init -v "$(CURDIR)/site:/srv/$(DOCS_BASE_PATH):ro" -v "$(CURDIR)/.lychee.toml:/lychee.toml:ro" \
+	    "$(LYCHEE_IMAGE)" --config /lychee.toml --root-dir /srv $(LYCHEE_ARGS) "/srv/$(DOCS_BASE_PATH)/**/*.html"
 
 branch-protection: ## Wire the CI status checks into the protection of main (needs gh as an admin)
 	tools/ci/branch-protection.sh

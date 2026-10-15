@@ -97,6 +97,7 @@ chmod +x "$BAD/lint.sh"
 printf 'FROM ubuntu:latest\nRUN apt-get install curl\n' > "$BAD/Dockerfile"     # hadolint DL3007, DL3008
 printf 'token = "ghp_%s"\n' "$(head -c 256 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 36)" > "$BAD/secret.txt"  # gitleaks
 printf 'on: push\njobs:\n  build:\n    steps: []\n' > "$SCRATCH/.github/workflows/bad.yml"  # schema: runs-on missing
+printf '# ADR-0099 — Wrong number\n\n- **Status:** Proposed\n- **Date:** 2026-10-15\n' > "$SCRATCH/docs/adr/0042-bad.md"  # adr-index: heading number differs
 git -C "$SCRATCH" add -A
 OUT="$SCRATCH/bad-files.log"
 if (cd "$SCRATCH" && pre-commit run --all-files) > "$OUT" 2>&1; then
@@ -105,7 +106,7 @@ else
   pass "pre-commit run --all-files fails on the bad files"
 fi
 for id in ruff-check ruff-format mypy clang-format cmake-format eslint prettier yamllint \
-  markdownlint-cli2 shellcheck hadolint-docker gitleaks check-github-workflows; do
+  markdownlint-cli2 shellcheck hadolint-docker gitleaks check-github-workflows adr-index; do
   if grep -qx -- "- hook id: $id" "$OUT"; then pass "$id catches its bad file"; else fail "$id catches its bad file"; fi
 done
 
