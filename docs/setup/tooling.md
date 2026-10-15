@@ -29,8 +29,9 @@ created.
 | `make lint-commits` | commitlint on every commit since `origin/main` (`BASE_REF=<ref>` to change the base) |
 | `make secrets` | gitleaks over the whole git history, from the pinned container image |
 | `make lint-title TITLE="..."` | commitlint on a pull request title (the squash-merge subject; see [ci.md](ci.md#pull-request-titles)) |
-| `make fmt` | Only the formatters: whitespace fixers, ruff, clang-format, cmake-format, prettier |
-| `make test` | Every test suite available so far: tooling, CI workflow, host and image tests |
+| `make fmt` | Only the formatters: whitespace fixers, ruff, clang-format, cmake-format, prettier, the ADR index |
+| `make test` | Every test suite available so far: tooling, CI workflow, documentation, host and image tests |
+| `make docs`, `make docs-serve` | Build or preview the documentation site ([docs.md](docs.md)) |
 | `make clean` | Delete the hook environments; they are rebuilt on the next run |
 | `SKIP=mypy git commit …` | Skip one hook for one commit; use sparingly and say why in the PR |
 
@@ -48,6 +49,7 @@ created.
 | prettier | TS, JS, JSON, CSS, HTML | `.prettierrc.yaml`, `.prettierignore` | 100 columns, double quotes, trailing commas; not YAML or Markdown |
 | yamllint | `*.yaml`, `*.yml` | `.yamllint.yaml` | strict, 120 columns, two-space indent, `on`/`off` allowed for GitHub workflows |
 | markdownlint-cli2 | `*.md` | `.markdownlint-cli2.yaml` | 100-column prose, tables and code exempt; `CODE_OF_CONDUCT.md` is upstream text and skipped |
+| adr-index | `docs/adr/*.md` | `tools/docs/adr_index.py` | regenerates `docs/adr/README.md` from the ADRs and fails the commit once so the result gets staged; rejects an ADR whose heading, status or date line is malformed ([docs.md](docs.md#the-adr-index)) |
 | shellcheck | `*.sh`, scripts with a shell shebang | hook args | severity `style`, external sources followed |
 | hadolint | `Dockerfile*` | `.hadolint.yaml` | container image; `:latest`, unpinned apt packages, missing `--no-install-recommends` and a root final user are errors |
 | check-jsonschema | `.github/workflows/*.yml`, `.github/dependabot.yml` | hook defaults | GitHub Actions and Dependabot schemas |

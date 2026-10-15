@@ -2,7 +2,7 @@
 # `build(deps): ...` so it passes commitlint and the PR title check. GitHub Actions are pinned to
 # commit SHAs; Dependabot bumps the SHA and the version comment together. The pip and npm entries
 # point at the engine and cockpit workspaces that P0-T07 creates and report "directory not found"
-# until then. Hook pins in .pre-commit-config.yaml are updated by hand with `pre-commit autoupdate`.
+# until then. The pip entry for tools/docs covers the documentation toolchain (uv.lock).
 # There is no docker entry (issue #9): the Dockerfiles reference every base image through a build
 # argument and pin apt to dated snapshots, which the docker updater does not understand (and its
 # Docker Hub lookups fail unauthenticated); the weekly Pins workflow (docker/pins-check.sh) is the
@@ -35,6 +35,20 @@ updates:
       prefix: build(deps)
     groups:
       python:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /tools/docs
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Athens
+    labels: [layer:docs]
+    commit-message:
+      prefix: build(deps)
+    groups:
+      docs:
         patterns: ["*"]
 
   - package-ecosystem: npm

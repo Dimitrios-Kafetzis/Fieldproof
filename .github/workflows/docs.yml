@@ -1,7 +1,9 @@
-# Fieldproof documentation site (placeholder from task P0-T05). Task P0-T06 replaces the single
-# step with the MkDocs build and the GitHub Pages deployment (`pages: write`, `id-token: write`,
-# `actions/deploy-pages`). Pages is already configured to deploy from a workflow. Until then this
-# workflow only confirms that the docs tree builds nothing and is not a required status check.
+# Fieldproof documentation site (task P0-T06): builds docs/ with MkDocs Material (`make docs`,
+# toolchain pinned in tools/docs), checks every link of the built site including the external ones
+# (`make docs-links`), uploads the site as a Pages artifact and, on main, deploys it to GitHub
+# Pages (the repository is set to deploy from a workflow). Pull requests get the build and the
+# link check as a preview of the deployment but not the deployment itself; the required `CI` check
+# runs the deterministic `make test-docs` in ci.yml, so a flaky external link cannot block a merge.
 name: Docs
 
 on:
@@ -10,24 +12,65 @@ on:
     paths:
       - docs/**
       - mkdocs.yml
+      - tools/docs/**
+      - .lychee.toml
+      - .github/workflows/docs.yml
+  pull_request:
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - tools/docs/**
+      - .lychee.toml
       - .github/workflows/docs.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# One deployment at a time; a newer push waits for the running one instead of cancelling it, so a
+# deployment is never left half done. Pull request runs are cancelled by a newer push.
 concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.13.1"
+  FORCE_COLOR: "1"
 
 jobs:
-  site:
+  build:
     name: Docs site
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Placeholder until P0-T06 adds MkDocs
-        run: |
-          echo "Documentation sources: $(find docs -name '*.md' | wc -l) Markdown files."
-          echo "P0-T06 adds the MkDocs build and the GitHub Pages deployment here."
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: tools/docs/uv.lock
+      - name: Build the site (mkdocs build --strict)
+        run: make docs
+      - name: Check every link of the built site, external ones included (lychee)
+        run: make docs-links
+      - name: Upload the site as the Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy the artifact
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
