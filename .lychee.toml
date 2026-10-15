@@ -1,0 +1,27 @@
+# lychee configuration for `make docs-links` (task P0-T06): every link of the built site under
+# site/, external ones included, run from the pinned lycheeverse/lychee container. The Makefile
+# mounts site/ at /srv/Fieldproof and passes --root-dir /srv, so the root-relative links of the 404
+# page (`/Fieldproof/...`, the site's path on GitHub Pages) resolve like the relative ones.
+# Fragments (#anchors) of local pages are verified too. Rate limits (429) are not failures;
+# transient errors are retried. The theme's "edit this page" and "view source" links point at
+# GitHub paths that exist only after the pull request merges, so they are excluded, and so are the
+# canonical links to the live site: its pages are checked as local files, and a page added by a pull
+# request does not exist online until the merge.
+no_progress = true
+include_fragments = "full"
+# Directory links (`plan/overview/`, the MkDocs URL style) are checked against their index page.
+index_files = ["index.html"]
+max_concurrency = 8
+max_retries = 2
+retry_wait_time = 5
+timeout = 30
+accept = ["100..=103", "200..=299", "429"]
+accept_timeouts = true
+user_agent = "fieldproof-docs-link-check (lychee)"
+exclude = [
+  "^https://dimitrios-kafetzis\\.github\\.io/Fieldproof/",
+  "^https://github\\.com/Dimitrios-Kafetzis/Fieldproof/(edit|blob|raw)/main/",
+  "^https?://(127\\.0\\.0\\.1|localhost)",
+  "^mailto:",
+]
+exclude_loopback = true

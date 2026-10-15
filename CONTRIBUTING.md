@@ -24,7 +24,8 @@ please read the plan before proposing changes.
 3. Add or update tests at the appropriate level of the testing pyramid. Code without tests is not merged.
 4. Run `make setup` once to install the git hooks, then `make lint` and `make test` before
    pushing; `make fmt` applies the formatters. See [docs/setup/tooling.md](docs/setup/tooling.md).
-5. Update documentation in the same PR.
+5. Update documentation in the same PR; `make docs-serve` previews the site and `make docs` must
+   pass (strict: broken links fail the build, see [docs/setup/docs.md](docs/setup/docs.md)).
 6. Open a pull request using the template. Fill every checklist item honestly; "not applicable" is
    acceptable with a reason.
 7. One approval from a code owner and green CI are required. PRs are squash-merged.

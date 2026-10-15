@@ -11,8 +11,8 @@
 # 3. Helpers: changed-areas.sh in a scratch repository (no base, docs-only change, docker change),
 #    bake-cache.sh output, free-disk.sh outside GitHub Actions.
 # 4. Configuration: release-please config and manifest agree with version.txt and produce a
-#    pull request title that commitlint accepts; Dependabot covers github-actions, pip and npm
-#    with grouped weekly updates and a `build(deps)` prefix; `docker buildx bake --print`
+#    pull request title that commitlint accepts; Dependabot covers github-actions, pip (engine and
+#    the docs toolchain) and npm with grouped weekly updates and a `build(deps)` prefix; `docker buildx bake --print`
 #    on docker/compose.yaml lists the three image targets the workflows build.
 # 5. Trivy policy: when the base-ros2 image is present locally, the pinned Trivy container with
 #    docker/trivy-policy.rego reports no fixed CRITICAL vulnerability (skipped otherwise).
@@ -256,13 +256,15 @@ if python3 - <<'PY'
 import yaml
 doc = yaml.safe_load(open(".github/dependabot.yml"))
 eco = sorted(u["package-ecosystem"] for u in doc["updates"])
-assert eco == ["github-actions", "npm", "pip"], eco  # no docker: issue #9, see pins.yml
+assert sorted(set(eco)) == ["github-actions", "npm", "pip"], eco  # no docker: issue #9, see pins.yml
+dirs = sorted(u["directory"] for u in doc["updates"] if u["package-ecosystem"] == "pip")
+assert dirs == ["/engine", "/tools/docs"], dirs
 for u in doc["updates"]:
     assert u["schedule"]["interval"] == "weekly", u
     assert u["commit-message"]["prefix"] == "build(deps)", u
     assert u["groups"], u
 PY
-then pass "Dependabot: github-actions, pip and npm, weekly, grouped, build(deps) prefix"; else fail "Dependabot configuration"; fi
+then pass "Dependabot: github-actions, pip (engine, tools/docs) and npm, weekly, grouped, build(deps) prefix"; else fail "Dependabot configuration"; fi
 
 # Run from docker/ with every profile enabled, exactly as the workflows do: bake resolves the
 # build contexts relative to its working directory and profile-aware versions drop base-ros2.

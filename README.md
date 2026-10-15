@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/ci.yml)
 [![Images](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/images.yml)
+[![Docs](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/docs.yml/badge.svg?branch=main)](https://dimitrios-kafetzis.github.io/Fieldproof/)
 [![Licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
 **Run the real stack. Prove it before the field.**
@@ -15,6 +16,9 @@ test with pass/fail assertions, so field testing becomes verification of what al
 > Status: Phase 0 (Foundations) in progress. See [docs/plan/STATUS.md](docs/plan/STATUS.md).
 
 ## Documentation map
+
+The same documents are published as a site at https://dimitrios-kafetzis.github.io/Fieldproof/
+on every merge to `main` ([docs/setup/docs.md](docs/setup/docs.md)).
 
 | Document | Purpose |
 | --- | --- |
@@ -31,6 +35,7 @@ test with pass/fail assertions, so field testing becomes verification of what al
 | [docs/setup/tooling.md](docs/setup/tooling.md) | Quality gates: `make setup`, `make lint`, `make fmt`, `make test`, commit message rules |
 | [docs/setup/containers.md](docs/setup/containers.md) | Container images, pins, rendering modes, `make images`/`up`/`shell`/`down` |
 | [docs/setup/ci.md](docs/setup/ci.md) | GitHub Actions workflows, required checks, published image tags, releases, Dependabot |
+| [docs/setup/docs.md](docs/setup/docs.md) | The documentation site: `make docs`, `make docs-serve`, writing pages, the generated ADR index, deployment |
 
 ## Core principle
 

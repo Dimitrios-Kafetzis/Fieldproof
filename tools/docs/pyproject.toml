@@ -1,0 +1,15 @@
+# Documentation toolchain for Fieldproof (task P0-T06). This is not a package: it pins MkDocs
+# Material (which carries MkDocs and pymdown-extensions) so that `make docs` builds the site from
+# an isolated environment under tools/docs/.venv, locally and in CI, with `uv run --locked`.
+# Update with `uv lock --upgrade --project tools/docs`; Dependabot proposes the bumps weekly.
+[project]
+name = "fieldproof-docs"
+version = "0.0.0"
+description = "Build environment for the Fieldproof documentation site (MkDocs Material)"
+requires-python = ">=3.12"
+dependencies = [
+  "mkdocs-material==9.7.7",
+]
+
+[tool.uv]
+package = false

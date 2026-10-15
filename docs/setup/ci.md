@@ -10,11 +10,11 @@ Makefile targets.
 
 | Workflow | File | Runs on | Does |
 | --- | --- | --- | --- |
-| CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-host`, and when the change touches the images: build `base-ros2`, `sim`, `dev` from the GHCR layer cache and run `make test-images` against them |
+| CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-docs`, `make test-host`, and when the change touches the images: build `base-ros2`, `sim`, `dev` from the GHCR layer cache and run `make test-images` against them |
 | PR title | `.github/workflows/pr-title.yml` | pull request opened, edited, synchronised | the title must be a Conventional Commit (`make lint-title`), see [Pull request titles](#pull-request-titles) |
 | Images | `.github/workflows/images.yml` | push to `main`, called by Release, manual | build and push `sha-<short>` tags, syft SBOM and Trivy scan per image, then tag `main` (or `vX.Y.Z`) |
 | Release | `.github/workflows/release.yml` | push to `main` | release-please keeps the release pull request current; when it merges, tags `vX.Y.Z`, creates the GitHub release and calls Images |
-| Docs | `.github/workflows/docs.yml` | push to `main` under `docs/`, manual | placeholder; P0-T06 adds the MkDocs build and the Pages deployment |
+| Docs | `.github/workflows/docs.yml` | pull requests and pushes to `main` that touch `docs/`, `mkdocs.yml` or `tools/docs/`; manual | `make docs` and `make docs-links` (external links included), upload the site as a Pages artifact; on `main`, deploy it to GitHub Pages ([docs.md](docs.md#continuous-integration-and-deployment)) |
 | Pins | `.github/workflows/pins.yml` | Mondays, manual | `docker/pins-check.sh`: fails when the pinned `ubuntu:24.04` digest, ROS snapshot or uv release is behind its upstream |
 
 Every action is pinned to a commit SHA with the version in a trailing comment, which Dependabot
@@ -136,9 +136,10 @@ commitlint keeps exempting that exact shape so `make lint-commits` stays clean o
 ## Dependabot
 
 `.github/dependabot.yml` opens one grouped pull request per ecosystem every Monday, titled
-`build(deps): ...`: GitHub Actions (SHA pins and version comments), pip in `engine/` and npm in
-`cockpit/`. The last two directories arrive with P0-T07; until then Dependabot reports them as
-not found, which is harmless. Hook pins in `.pre-commit-config.yaml` are updated by hand with
+`build(deps): ...`: GitHub Actions (SHA pins and version comments), pip in `tools/docs/` (the
+documentation toolchain, `uv.lock`) and `engine/`, and npm in `cockpit/`. The last two
+directories arrive with P0-T07; until then Dependabot reports them as not found, which is
+harmless. Hook pins in `.pre-commit-config.yaml` are updated by hand with
 `pre-commit autoupdate` ([tooling.md](tooling.md#updating-the-hooks)).
 
 The container images are not covered by Dependabot (issue #9): every base image is referenced
@@ -156,7 +157,8 @@ but never fails the check, because any timestamp is a valid snapshot and it move
 | Command | Mirrors |
 | --- | --- |
 | `make lint` | the Lint job |
-| `make test-tooling`, `make test-ci`, `make test-host` | the tooling and host jobs |
+| `make test-tooling`, `make test-ci`, `make test-docs`, `make test-host` | the tooling, docs and host jobs |
+| `make docs-links` | the link check of the Docs workflow |
 | `make test-images IMAGE_TEST_FLAGS="--quick --no-build"` | the image job's tests against images already built |
 | `make lint-title TITLE="..."` | the PR title check |
 | `make branch-protection` / `tools/ci/branch-protection.sh --check` | the required checks wiring |
