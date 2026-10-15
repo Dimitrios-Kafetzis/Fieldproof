@@ -1,0 +1,29 @@
+# Weekly check of the container image pins against their upstreams (issue #9). Dependabot cannot
+# update them (every base image is referenced through a build argument and the apt sources are
+# dated snapshots), so docker/pins-check.sh compares the pinned ubuntu:24.04 digest, the ROS
+# snapshot date and the uv release with what is current and fails when one has moved. The run
+# stays red, and GitHub notifies the maintainer, until the pins are updated as described in
+# docs/setup/containers.md.
+name: Pins
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC, with the Dependabot updates
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pins
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compare the pins with their upstreams
+        run: docker/pins-check.sh --summary "$GITHUB_STEP_SUMMARY"

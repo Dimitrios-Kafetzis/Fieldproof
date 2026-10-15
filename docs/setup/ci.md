@@ -15,6 +15,7 @@ Makefile targets.
 | Images | `.github/workflows/images.yml` | push to `main`, called by Release, manual | build and push `sha-<short>` tags, syft SBOM and Trivy scan per image, then tag `main` (or `vX.Y.Z`) |
 | Release | `.github/workflows/release.yml` | push to `main` | release-please keeps the release pull request current; when it merges, tags `vX.Y.Z`, creates the GitHub release and calls Images |
 | Docs | `.github/workflows/docs.yml` | push to `main` under `docs/`, manual | placeholder; P0-T06 adds the MkDocs build and the Pages deployment |
+| Pins | `.github/workflows/pins.yml` | Mondays, manual | `docker/pins-check.sh`: fails when the pinned `ubuntu:24.04` digest, ROS snapshot or uv release is behind its upstream |
 
 Every action is pinned to a commit SHA with the version in a trailing comment, which Dependabot
 keeps in sync; the repository setting *require actions to be pinned to a full-length commit SHA*
@@ -135,11 +136,20 @@ commitlint keeps exempting that exact shape so `make lint-commits` stays clean o
 ## Dependabot
 
 `.github/dependabot.yml` opens one grouped pull request per ecosystem every Monday, titled
-`build(deps): ...`: GitHub Actions (SHA pins and version comments), the three Dockerfiles under
-`docker/`, pip in `engine/` and npm in `cockpit/`. The last two directories arrive with P0-T07;
-until then Dependabot reports them as not found, which is harmless. Hook pins in
-`.pre-commit-config.yaml` are updated by hand with `pre-commit autoupdate`
-([tooling.md](tooling.md#updating-the-hooks)).
+`build(deps): ...`: GitHub Actions (SHA pins and version comments), pip in `engine/` and npm in
+`cockpit/`. The last two directories arrive with P0-T07; until then Dependabot reports them as
+not found, which is harmless. Hook pins in `.pre-commit-config.yaml` are updated by hand with
+`pre-commit autoupdate` ([tooling.md](tooling.md#updating-the-hooks)).
+
+The container images are not covered by Dependabot (issue #9): every base image is referenced
+through a build argument (`FROM ubuntu:24.04@${UBUNTU_DIGEST}`, `FROM ${UV_IMAGE}`) and the apt
+sources are dated snapshots, which its docker updater cannot bump, and its Docker Hub lookups
+fail unauthenticated. The `Pins` workflow is the replacement: every Monday
+`docker/pins-check.sh` (`make pins` locally) compares the pinned `ubuntu:24.04` digest, ROS
+snapshot date and uv release with the current upstream values, writes a table to the job summary
+and fails when one has moved. A red run is the cue to update the pins
+([containers.md](containers.md#updating-a-pin)); the Ubuntu snapshot id is reported with its age
+but never fails the check, because any timestamp is a valid snapshot and it moves with the ROS one.
 
 ## Running the CI checks locally
 

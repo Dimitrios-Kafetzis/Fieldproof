@@ -55,7 +55,7 @@ endif
 IMAGE_TEST_FLAGS ?= --quick
 
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
-	test-images test-ci branch-protection clean images up down shell prune
+	test-images test-ci branch-protection clean pins images up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -123,6 +123,9 @@ branch-protection: ## Wire the CI status checks into the protection of main (nee
 
 clean: ## Remove pre-commit's installed hook environments (they are rebuilt on the next run)
 	$(PRE_COMMIT) clean
+
+pins: ## Compare the image pins (ubuntu digest, ROS snapshot, uv) with their upstreams
+	docker/pins-check.sh
 
 images: ## Build the base-ros2, sim, dev and apt-lists images (NO_CACHE=1 for a cold build, FIELDPROOF_APT_LISTS=off to skip the published lists)
 	FIELDPROOF_APT_LISTS_CONTEXT="$(APT_LISTS_CONTEXT)" $(COMPOSE) --profile images $(PROFILES) build $(NO_CACHE_FLAGS) $(BUILD_FLAGS)

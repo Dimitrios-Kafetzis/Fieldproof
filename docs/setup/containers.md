@@ -158,6 +158,9 @@ rosdistro index. Run it in the container when you need rosdep key resolution.
 
 ## Updating a pin
 
+`make pins` (`docker/pins-check.sh`, run every Monday by the `Pins` workflow) reports which pins are
+behind their upstream; Dependabot does not cover them ([ci.md](ci.md#dependabot)).
+
 1. Pick the new value: `docker buildx imagetools inspect ubuntu:24.04` for the digest; the Ubuntu
    snapshot id is any `YYYYMMDDTHHMMSSZ` timestamp; ROS snapshot dates are listed at
    `http://snapshots.ros.org/jazzy/`.
