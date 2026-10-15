@@ -15,8 +15,8 @@
 # 5. Configuration: tools/docs/uv.lock matches pyproject.toml; the Makefile builds with --strict;
 #    docs.yml builds on pull requests and pushes to main, uploads site/ and deploys only outside
 #    pull requests with the Pages permissions; ci.yml has a Docs job running make test-docs.
-# 6. Links: when Docker is available, lychee (offline) finds no broken internal link or fragment in
-#    the built site.
+# 6. Links: when Docker is available, lychee (offline, image pulled with retries) finds no broken
+#    internal link or fragment in the built site.
 #
 # Needs uv, pre-commit and python3 on the host (tools/host-setup.sh); Docker for section 6.
 set -euo pipefail
@@ -332,12 +332,29 @@ fi
 
 # ---------------------------------------------------------------------------------------------
 section "6. Links of the built site (lychee, offline)"
+# The image comes from Docker Hub, whose anonymous pulls are rate limited per address and shared
+# by the GitHub runners, so the pull is retried before the check runs and its error is shown.
+pull_lychee() {
+  local image attempt
+  image="$(sed -n 's/^LYCHEE_IMAGE ?= //p' Makefile)"
+  for attempt in 1 2 3; do
+    docker pull -q "$image" >"$SCRATCH/pull.log" 2>&1 && return 0
+    [[ "$attempt" -lt 3 ]] && sleep 20
+  done
+  return 1
+}
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  if make -s docs-links LYCHEE_ARGS=--offline >"$SCRATCH/lychee.log" 2>&1; then
+  if ! pull_lychee; then
+    fail "the lychee image cannot be pulled after three attempts"
+    show "$SCRATCH/pull.log" 5
+  elif make -s docs-links LYCHEE_ARGS=--offline >"$SCRATCH/lychee.log" 2>&1; then
     pass "lychee finds no broken internal link or fragment: $(grep -o '🔍.*' "$SCRATCH/lychee.log" | tail -n 1)"
-  else
+  elif grep -q '🔍' "$SCRATCH/lychee.log"; then
     fail "lychee reports broken internal links or fragments"
-    grep -E "ERR|Total" "$SCRATCH/lychee.log" | sed 's/^/        /' | tail -n 30
+    grep -E "ERR|🔍" "$SCRATCH/lychee.log" | sed 's/^/        /' | tail -n 30
+  else
+    fail "lychee did not run (build or container error)"
+    show "$SCRATCH/lychee.log" 15
   fi
 else
   skip "lychee link check (Docker is not available)"
