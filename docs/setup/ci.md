@@ -85,13 +85,13 @@ are created with `docker buildx imagetools create`, so they share the digest of 
 ### SBOM and vulnerability scan
 
 For each image the `scan` job pulls the `sha-` tag, writes an SPDX JSON SBOM with syft (workflow
-artifact `sbom-fieldproof-<name>`, attached to the GitHub release on `vX.Y.Z`), uploads a Trivy
-report of fixed HIGH and CRITICAL vulnerabilities to the repository's code scanning tab, and then
-fails on any fixed CRITICAL vulnerability. Unfixed advisories are ignored because the snapshot-
-pinned images cannot pick up a fix that does not exist. `docker/trivy-policy.rego` excludes
-`linux-libc-dev`: its advisories describe kernel bugs and no kernel code from the header package
-runs in a container. The policy is the only exemption; a failing scan means it is time to move
-`APT_SNAPSHOT` and `ROS_SNAPSHOT` in `docker/base-ros2/Dockerfile` forward.
+artifact `sbom-fieldproof-<name>.spdx.json`, attached to the GitHub release on `vX.Y.Z`), uploads
+a Trivy report of fixed HIGH and CRITICAL vulnerabilities to the repository's code scanning tab,
+and then fails on any fixed CRITICAL vulnerability. Unfixed advisories are ignored because the
+snapshot-pinned images cannot pick up a fix that does not exist. `docker/trivy-policy.rego`
+excludes `linux-libc-dev`: its advisories describe kernel bugs and no kernel code from the header
+package runs in a container. The policy is the only exemption; a failing scan means it is time to
+move `APT_SNAPSHOT` and `ROS_SNAPSHOT` in `docker/base-ros2/Dockerfile` forward.
 
 ## Releases
 

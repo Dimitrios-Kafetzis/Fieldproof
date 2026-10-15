@@ -122,7 +122,10 @@ jobs:
           image: ${{ env.IMAGE_REF }}
           format: spdx-json
           output-file: sbom-fieldproof-${{ matrix.image }}.spdx.json
-          artifact-name: sbom-fieldproof-${{ matrix.image }}
+          # The action stores the SBOM inside the artifact under the artifact name, so the name
+          # carries the extension; the tag job downloads `sbom-fieldproof-*` and uploads
+          # `sbom/*.spdx.json` to the release.
+          artifact-name: sbom-fieldproof-${{ matrix.image }}.spdx.json
           upload-artifact: true
           upload-release-assets: false
       - name: Vulnerability report for code scanning (Trivy, HIGH and CRITICAL, SARIF)
