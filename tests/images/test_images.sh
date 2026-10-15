@@ -26,7 +26,7 @@ COLD_BUILD_LIMIT_S=900
 RENDER_TIMEOUT_S=180
 
 SCRIPTS=(docker/base-ros2/entrypoint.sh docker/base-ros2/apt-install.sh docker/sim/render-info.sh
-  docker/apt-lists-context.sh tests/images/test_images.sh)
+  docker/apt-lists-context.sh docker/pins-check.sh tests/images/test_images.sh)
 DOCKERFILES=(docker/base-ros2/Dockerfile docker/sim/Dockerfile docker/dev/Dockerfile)
 
 QUICK=0
@@ -91,6 +91,12 @@ for df in "${DOCKERFILES[@]}"; do
   fi
 done
 if [[ "$hadolint_ok" -eq 1 ]]; then pass "hadolint ${DOCKERFILES[*]}"; else fail "hadolint"; fi
+
+if docker/pins-check.sh --help | grep -q '^Usage:' && ! docker/pins-check.sh --bogus >/dev/null 2>&1; then
+  pass "pins-check.sh --help and argument handling"
+else
+  fail "pins-check.sh --help and argument handling"
+fi
 
 if docker compose -f docker/compose.yaml --profile '*' config --quiet \
   && docker compose -f docker/compose.yaml -f docker/compose.gpu.yaml --profile '*' config --quiet; then
