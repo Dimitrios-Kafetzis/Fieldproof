@@ -96,13 +96,15 @@ runs in a container. The policy is the only exemption; a failing scan means it i
 
 release-please reads the Conventional Commits on `main` since the last tag and maintains a
 release pull request titled `chore(release): release X.Y.Z` that updates `version.txt` and
-`CHANGELOG.md`. The project is below 1.0: `feat` bumps the minor version, `fix` the patch, and a
-breaking change (`!`) bumps the minor version too (`bump-minor-pre-major`,
-`bump-patch-for-minor-pre-major` in `release-please-config.json`). Merging the release pull
-request creates the `vX.Y.Z` tag and the GitHub release; `release.yml` then calls `images.yml`
-for that tag, which builds from the cache, scans, tags the images `vX.Y.Z` and attaches the
-SBOMs to the release. The Makefile reads `version.txt` into the `VERSION` build argument, so the
-OCI `version` label of a release image matches its tag.
+`CHANGELOG.md`. The project is below 1.0: the first release is `0.1.0` (`initial-version`, because
+release-please ignores the manifest for a first release and would otherwise start at 1.0.0),
+`feat` bumps the minor version, `fix` the patch, and a breaking change (`!`) bumps the minor
+version too (`bump-minor-pre-major`, `bump-patch-for-minor-pre-major` in
+`release-please-config.json`). Merging the release pull request creates the `vX.Y.Z` tag and the
+GitHub release; `release.yml` then calls `images.yml` for that tag, which builds from the cache,
+scans, tags the images `vX.Y.Z` and attaches the SBOMs to the release. The Makefile reads
+`version.txt` into the `VERSION` build argument, so the OCI `version` label of a release image
+matches its tag.
 
 Because squash merges carry the pull request title, the title is what release-please sees; see
 the next section. Only `feat`, `fix`, `perf`, `revert`, `docs` and `build` commits appear in the
