@@ -14,7 +14,9 @@ make down       # stop the stack
 make prune      # also remove the project's images and dangling build layers
 ```
 
-`make test-images` runs `tests/images/test_images.sh`, the verification for this task.
+`make test-images` runs `tests/images/test_images.sh`, the verification for this task
+(`--quick` reuses the build cache, `--no-build` tests images that are already present, which is
+what CI does after building them with `docker buildx bake`).
 
 ## Images
 
@@ -23,9 +25,12 @@ make prune      # also remove the project's images and dangling build layers
 | `ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2` | `docker/base-ros2/Dockerfile` | Ubuntu 24.04, ROS 2 Jazzy `ros-base`, `tini`, non-root user `fieldproof` (uid 1000) | 0.9 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-sim` | `docker/sim/Dockerfile` | base + `ros-jazzy-ros-gz` (Gazebo Harmonic via the Jazzy vendor packages), Mesa EGL stack, headless defaults | 3.1 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-dev` | `docker/dev/Dockerfile` | sim + build-essential, cmake, ninja, clang/clang-format/clang-tidy/clangd, gdb, colcon with mixins, rosdep, vcstool, uv, passwordless sudo | 4.1 GB |
+| `ghcr.io/dimitrios-kafetzis/fieldproof-apt-lists` | `docker/base-ros2/Dockerfile`, stage `apt-lists` | only `/var/lib/apt/lists` of the base image, tagged `<APT_SNAPSHOT>-<ROS_SNAPSHOT>`; seeds later builds (see [Package lists](#package-lists-from-ghcr)) | 46 MB |
 
-Local builds are tagged `:local`. CI (P0-T05) will push `main`, `vX.Y.Z` and `sha-<short>` tags.
-Override the name or tag with `FIELDPROOF_IMAGE_PREFIX` and `FIELDPROOF_IMAGE_TAG`.
+Local builds are tagged `:local`. CI pushes `sha-<short>`, `main` and `vX.Y.Z` tags after a
+syft SBOM and a Trivy scan ([ci.md](ci.md#published-images)). Override the name or tag with
+`FIELDPROOF_IMAGE_PREFIX` and `FIELDPROOF_IMAGE_TAG`; `FIELDPROOF_IMAGE_TAG=main make up` runs
+the published images instead of local builds.
 
 Each image runs as the non-root user `fieldproof`, starts through `tini` and an entry point that
 sources `/opt/ros/jazzy/setup.bash`, and carries OCI labels (`org.opencontainers.image.source`,
@@ -55,6 +60,7 @@ package versions:
 | uv | `UV_IMAGE` in `docker/dev/Dockerfile` | `ghcr.io/astral-sh/uv:0.13.1` by digest, same version as the host |
 | colcon mixins | `COLCON_MIXIN_COMMIT` in `docker/dev/Dockerfile` | commit of `colcon/colcon-mixin-repository` |
 | Lint containers | `tests/images/test_images.sh` | `hadolint/hadolint:v2.12.0`, `koalaman/shellcheck:v0.10.0` by digest |
+| Scanners in CI | `.github/workflows/images.yml`, `tests/ci/test_workflows.sh` | Trivy `v0.76.0` (policy in `docker/trivy-policy.rego`), syft through `anchore/sbom-action` |
 
 The only packages fetched from the live Ubuntu archive are `ca-certificates` and its dependencies,
 installed before the sources are switched to the HTTPS snapshot host (the base image ships without
@@ -80,9 +86,28 @@ refresh from the slow host; `fieldproof-apt-install` only runs `apt-get update` 
 source has no lists yet. `FIELDPROOF_APT_PARALLEL` and `FIELDPROOF_APT_MIRROR` are environment
 variables read by the script, so pass them as `ENV` or `ARG` lines in a derived Dockerfile.
 
+### Package lists from GHCR
+
+The one request the mitigations above cannot avoid is the index refresh itself (about 30 MB in
+eight requests to the slow snapshot host, with the odd 500 to retry). Since the snapshots never
+change, the lists are fetched once and published: the `apt-lists` stage of the base Dockerfile is
+a scratch image holding `/var/lib/apt/lists`, pushed by CI as
+`ghcr.io/dimitrios-kafetzis/fieldproof-apt-lists:<APT_SNAPSHOT>-<ROS_SNAPSHOT>` on every push to
+`main`. At build time `docker/apt-lists-context.sh` looks for that image (locally first, then on
+GHCR) and hands it to the base build as the `fieldproof-apt-lists` context; the Dockerfile copies
+it into `/var/lib/apt/lists` before the first install, so `fieldproof-apt-install` finds lists
+for every configured source and skips `apt-get update`. When the image does not exist (a new
+snapshot id, no network, or `FIELDPROOF_APT_LISTS=off`), the context is the empty directory
+`docker/base-ros2/apt-lists-empty` and the refresh from the snapshot hosts happens as before.
+The tag carries both snapshot ids, and the helper only skips the refresh when lists for every
+configured source are present, so lists from another snapshot can never be used by mistake.
+Changing a snapshot pin therefore costs one slow refresh on the first build, after which CI
+publishes the new lists image.
+
 Downloaded `.deb` files live in a BuildKit cache mount, so a rebuild after changing a Dockerfile
 line does not re-download the ROS and Gazebo packages. `NO_CACHE=1 make images` ignores the layer
-cache and uses a fresh cache-mount namespace, which is what a new machine or CI sees.
+cache and uses a fresh cache-mount namespace, which is what a new machine sees. CI keeps a layer
+cache in GHCR instead ([ci.md](ci.md#image-build-and-registry-cache)).
 
 ## Rendering
 
@@ -106,7 +131,7 @@ initialised to `~/.gz/rendering/ogre2.log` (`GL_RENDERER` line).
 | --- | --- | --- |
 | `sim` | `sim` | `gz sim -s -r --headless-rendering ${FIELDPROOF_WORLD:-empty.sdf}` |
 | `dev` | `dev` | development container, repository bind-mounted at `/workspace`, `sleep infinity` |
-| `images` | `base-ros2` | build-only service that the other two build on; never started |
+| `images` | `base-ros2`, `apt-lists` | build-only services (the base image the other two build on, and its package lists); never started |
 
 `make up` enables `sim` and `dev`. The services share the `fieldproof` bridge network; Gazebo
 transport and DDS discovery use multicast on it, and `GZ_PARTITION=fieldproof` is set in every
@@ -137,7 +162,10 @@ rosdistro index. Run it in the container when you need rosdep key resolution.
    snapshot id is any `YYYYMMDDTHHMMSSZ` timestamp; ROS snapshot dates are listed at
    `http://snapshots.ros.org/jazzy/`.
 2. Change the `ARG` default in the Dockerfile and the table above in the same commit.
-3. `make images` then `make test-images`.
+3. `make images` then `make test-images`. The Trivy scan in CI fails on a fixed CRITICAL
+   vulnerability, which is the usual reason to move a snapshot forward. The first build after a
+   snapshot change refreshes the lists from the snapshot hosts; once the change is on `main`, CI
+   publishes the matching `fieldproof-apt-lists` image and later builds skip the refresh.
 
 ## Troubleshooting
 

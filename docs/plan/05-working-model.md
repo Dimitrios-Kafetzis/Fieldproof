@@ -21,8 +21,9 @@
 5. **Verify.** Run the task's verification exactly as written in the backlog. Paste the real output
    in the PR body.
 6. **Document.** Update docs, reference pages, ADRs if needed.
-7. **PR.** Open the PR with the template filled, CI green. Do not merge; the maintainer merges
-   (or explicitly delegates merging for the session).
+7. **PR.** Open the PR with the template filled and a Conventional Commit title
+   (`type(scope): summary`; the task ID goes in the body), CI green. Do not merge; the maintainer
+   merges (or explicitly delegates merging for the session).
 8. **Hand-off.** Update `STATUS.md`: task state, PR link, what was verified, what is left, open
    questions, and the recommended next task. End with a short message to the maintainer listing what
    they need to do (merge, approve, provide an input, run the demo).

@@ -5,13 +5,17 @@
 # 1. Static checks: shellcheck and hadolint (pinned containers when no local binary), compose
 #    config validation, the vendored ROS snapshot keyring fingerprint.
 # 2. Build: `make images` cold (NO_CACHE=1) must finish in under 15 minutes. With --quick the
-#    build reuses the cache and the time limit is not asserted.
+#    build reuses the cache and the time limit is not asserted; with --no-build the images already
+#    present are used (CI builds them with `docker buildx bake` and the registry cache first).
 # 3. Stack: `make up` starts `gz sim -s -r empty.sdf`; `ros2 topic list` and `gz topic -l` work
 #    from the dev container; `make down` stops it.
 # 4. Rendering: a camera sensor renders a frame headless through /dev/dri (skipped when the host
 #    has no render node) and with software rendering (LIBGL_ALWAYS_SOFTWARE=1).
+# 5. Package lists (issue #4): the apt-lists image holds the InRelease files of both pinned
+#    snapshots and matches the lists inside the base image; docker/apt-lists-context.sh picks the
+#    local image, the empty directory with FIELDPROOF_APT_LISTS=off, and prints the tag.
 #
-# Usage: tests/images/test_images.sh [--quick] [--help]
+# Usage: tests/images/test_images.sh [--quick] [--no-build] [--help]
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -21,19 +25,22 @@ ROS_SNAPSHOT_FINGERPRINT="4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA"
 COLD_BUILD_LIMIT_S=900
 RENDER_TIMEOUT_S=180
 
-SCRIPTS=(docker/base-ros2/entrypoint.sh docker/base-ros2/apt-install.sh docker/sim/render-info.sh tests/images/test_images.sh)
+SCRIPTS=(docker/base-ros2/entrypoint.sh docker/base-ros2/apt-install.sh docker/sim/render-info.sh
+  docker/apt-lists-context.sh tests/images/test_images.sh)
 DOCKERFILES=(docker/base-ros2/Dockerfile docker/sim/Dockerfile docker/dev/Dockerfile)
 
 QUICK=0
+NO_BUILD=0
 for arg in "$@"; do
   case "$arg" in
     --quick) QUICK=1 ;;
+    --no-build) NO_BUILD=1 ;;
     -h | --help)
-      sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
-      echo "unknown argument '$arg' (expected --quick or --help)" >&2
+      echo "unknown argument '$arg' (expected --quick, --no-build or --help)" >&2
       exit 2
       ;;
   esac
@@ -113,7 +120,9 @@ build_summary() {
     | sed 's/^/        /' || true
   echo "        full log: $BUILD_LOG"
 }
-if [[ "$QUICK" -eq 1 ]]; then
+if [[ "$NO_BUILD" -eq 1 ]]; then
+  skip "make images (--no-build: using the images already present)"
+elif [[ "$QUICK" -eq 1 ]]; then
   start=$SECONDS
   if make images BUILD_FLAGS=--progress=plain >"$BUILD_LOG" 2>&1; then
     pass "make images (cached) in $((SECONDS - start)) s"
@@ -236,6 +245,50 @@ if render_check "camera with LIBGL_ALWAYS_SOFTWARE=1" -e LIBGL_ALWAYS_SOFTWARE=1
   else
     fail "software rendering did not report llvmpipe: $RENDERER_LINE"
   fi
+fi
+
+# ---------------------------------------------------------------------------------------------
+section "Package lists (apt-lists image)"
+APT_SNAPSHOT="$(sed -n 's/^ARG APT_SNAPSHOT=//p' docker/base-ros2/Dockerfile)"
+ROS_SNAPSHOT="$(sed -n 's/^ARG ROS_SNAPSHOT=//p' docker/base-ros2/Dockerfile)"
+LISTS_TAG="$(docker/apt-lists-context.sh --tag)"
+if [[ "$LISTS_TAG" == "${APT_SNAPSHOT}-${ROS_SNAPSHOT}" ]]; then
+  pass "apt-lists tag is the snapshot pair ${LISTS_TAG}"
+else
+  fail "apt-lists tag '${LISTS_TAG}' is not ${APT_SNAPSHOT}-${ROS_SNAPSHOT}"
+fi
+LISTS_IMAGE="${SIM_IMAGE/sim:*/apt-lists:${LISTS_TAG}}"
+lists_dir="$(mktemp -d)"
+# A scratch image has no command; `docker create` needs one even though nothing runs.
+if cid="$(docker create "$LISTS_IMAGE" /none 2>/dev/null)" && docker cp "${cid}:/" "$lists_dir/lists" >/dev/null 2>&1; then
+  docker rm "$cid" >/dev/null
+  n_ubuntu="$(find "$lists_dir/lists" -name "snapshot.ubuntu.com_ubuntu_${APT_SNAPSHOT}_*_InRelease" | wc -l)"
+  n_ros="$(find "$lists_dir/lists" -name "snapshots.ros.org_*_${ROS_SNAPSHOT}_*_InRelease" | wc -l)"
+  if [[ "$n_ubuntu" -eq 3 && "$n_ros" -eq 1 ]]; then
+    pass "$LISTS_IMAGE holds the InRelease files of both snapshots ($(du -sh "$lists_dir/lists" | cut -f1))"
+  else
+    fail "$LISTS_IMAGE has $n_ubuntu Ubuntu and $n_ros ROS InRelease files (expected 3 and 1)"
+  fi
+  base_sums="$(docker run --rm "${SIM_IMAGE/sim:/base-ros2:}" bash -c 'cd /var/lib/apt/lists && sha256sum *_InRelease *_Packages*' | sort)"
+  lists_sums="$(cd "$lists_dir/lists" && sha256sum ./*_InRelease ./*_Packages* | sed 's# \./# #' | sort)"
+  if [[ "$base_sums" == "$lists_sums" ]]; then
+    pass "apt-lists content matches the lists inside the base image"
+  else
+    fail "apt-lists content differs from the lists inside the base image"
+  fi
+else
+  fail "$LISTS_IMAGE is not built (make images builds it)"
+fi
+rm -rf "$lists_dir"
+if [[ "$(docker/apt-lists-context.sh 2>/dev/null)" == "docker-image://${LISTS_IMAGE}" ]]; then
+  pass "apt-lists-context.sh selects the local ${LISTS_IMAGE}"
+else
+  fail "apt-lists-context.sh does not select the local image: $(docker/apt-lists-context.sh 2>/dev/null)"
+fi
+if [[ "$(FIELDPROOF_APT_LISTS=off docker/apt-lists-context.sh 2>/dev/null)" == "${REPO}/docker/base-ros2/apt-lists-empty" ]]; then
+  pass "FIELDPROOF_APT_LISTS=off selects the empty directory"
+else
+  fail "FIELDPROOF_APT_LISTS=off does not select the empty directory"
 fi
 
 # ---------------------------------------------------------------------------------------------

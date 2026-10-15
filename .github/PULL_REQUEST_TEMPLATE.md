@@ -1,6 +1,7 @@
 ## Summary
 
-<!-- What changed and why. Link the task, issue or ADR. -->
+<!-- Title: a Conventional Commit, `type(scope): summary`; it becomes the squash commit on main.
+     Body: what changed and why. Link the task, issue or ADR. -->
 
 Task: <!-- e.g. P0-T03 --> · Closes #
 

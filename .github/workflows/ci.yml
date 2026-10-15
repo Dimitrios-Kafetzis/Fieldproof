@@ -1,0 +1,191 @@
+# Fieldproof CI (task P0-T05): the quality gates and tests of docs/setup/tooling.md on every pull
+# request and on main. The `CI` job at the bottom is the single required status check; it fails
+# when any job failed and passes when the image job was skipped by the path filter.
+#
+# Every action is pinned to a commit SHA (the comment carries the tag Dependabot keeps in sync).
+# Workflow secrets are never needed here: the image build reads the GHCR registry cache
+# anonymously and only writes it from this repository's own branches (never from forks or
+# Dependabot, whose GITHUB_TOKEN is read-only).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRE_COMMIT_VERSION: "4.7.0"
+  UV_VERSION: "0.13.1"
+  FORCE_COLOR: "1"
+
+jobs:
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.areas.outputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect which areas the change touches
+        id: areas
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: tools/ci/changed-areas.sh "$BASE_SHA" | tee -a "$GITHUB_OUTPUT"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Install pre-commit
+        run: uv tool install "pre-commit==${PRE_COMMIT_VERSION}"
+      - name: Cache the pre-commit hook environments
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Run every quality gate (hooks on all files, commit messages, secret scan)
+        run: make lint BASE_REF=origin/main
+
+  tooling-tests:
+    name: Tooling tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Install pre-commit
+        run: uv tool install "pre-commit==${PRE_COMMIT_VERSION}"
+      - name: Cache the pre-commit hook environments
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Quality-gate tests (tests/tooling)
+        run: make test-tooling
+      - name: Workflow tests (tests/ci)
+        run: make test-ci
+
+  host-tests:
+    name: Host script tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Host script tests (the runner is not a prepared host, so the idempotence step is skipped)
+        run: make test-host
+        env:
+          FIELDPROOF_SKIP_HOST: "1"
+
+  images:
+    name: Container images
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # Branches of this repository may write the pull-request layer cache; forks and Dependabot
+      # only read the caches that main and earlier pull requests wrote.
+      CAN_WRITE_CACHE: >-
+        ${{ (github.event_name != 'pull_request'
+            || github.event.pull_request.head.repo.full_name == github.repository)
+            && github.actor != 'dependabot[bot]' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Free disk space for the image build
+        run: tools/ci/free-disk.sh
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.38.0
+      # The image tests drive the stack through docker compose; the runner's Compose rejects the
+      # `service:` build contexts of docker/compose.yaml, so the host's version is installed.
+      - uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a # v2.4.0
+        with:
+          version: v5.6.0
+      - name: Log in to GHCR
+        if: env.CAN_WRITE_CACHE == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set the build arguments and the registry cache overrides
+        run: |
+          {
+            echo "GIT_SHA=$(git rev-parse HEAD)"
+            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "VERSION=$(cat version.txt)"
+            echo "FIELDPROOF_APT_LISTS_TAG=$(docker/apt-lists-context.sh --tag)"
+            echo "FIELDPROOF_APT_LISTS_CONTEXT=$(docker/apt-lists-context.sh)"
+            echo "BAKE_SET<<END_OF_SET"
+            if [ "$CAN_WRITE_CACHE" = "true" ]; then
+              tools/ci/bake-cache.sh --read buildcache-pr --read buildcache --write buildcache-pr
+            else
+              tools/ci/bake-cache.sh --read buildcache-pr --read buildcache
+            fi
+            echo "END_OF_SET"
+          } >> "$GITHUB_ENV"
+      - name: Build base-ros2, sim and dev with the registry cache
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        env:
+          # Bake reads docker/compose.yaml; profile-aware buildx versions drop base-ros2 (profile
+          # `images`) unless every profile is enabled.
+          COMPOSE_PROFILES: images,sim,dev
+        with:
+          # Bake resolves the build contexts of compose.yaml relative to its working directory.
+          source: ./docker
+          files: compose.yaml
+          load: true
+          set: ${{ env.BAKE_SET }}
+      - name: Image tests (tests/images, against the images just built)
+        run: make test-images IMAGE_TEST_FLAGS="--quick --no-build"
+      - name: Show the sim container log on failure
+        if: failure()
+        run: docker compose -f docker/compose.yaml --profile sim logs sim || true
+
+  ci:
+    name: CI
+    needs: [changes, lint, tooling-tests, host-tests, images]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail when any job failed or was cancelled (skipped jobs are fine)
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq '"result": "(failure|cancelled)"'; then
+            echo "::error::at least one CI job failed or was cancelled"
+            exit 1
+          fi
