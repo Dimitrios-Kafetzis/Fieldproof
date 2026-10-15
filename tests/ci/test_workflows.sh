@@ -238,6 +238,13 @@ if [[ "$rp_initial" == 0.* ]]; then
 else
   fail "release-please initial-version is '$rp_initial'; the first release must be below 1.0 (v1.0.0 is P7-T06)"
 fi
+if python3 - <<'PY'
+import json
+cfg = json.load(open("release-please-config.json"))
+assert cfg.get("bump-minor-pre-major") is True, cfg
+assert not cfg.get("bump-patch-for-minor-pre-major", False), "feat must bump the minor version below 1.0"
+PY
+then pass "release-please: below 1.0 a feat bumps the minor version and a breaking change does too"; else fail "release-please bump options"; fi
 rp_title="$(python3 -c 'import json; print(json.load(open("release-please-config.json"))["pull-request-title-pattern"])')"
 rp_title="${rp_title//\$\{version\}/0.1.0}"
 if make -s lint-title TITLE="$rp_title" >/dev/null 2>&1; then

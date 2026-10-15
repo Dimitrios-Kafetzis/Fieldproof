@@ -3,7 +3,6 @@
   "release-type": "simple",
   "initial-version": "0.1.0",
   "bump-minor-pre-major": true,
-  "bump-patch-for-minor-pre-major": true,
   "include-v-in-tag": true,
   "pull-request-title-pattern": "chore(release): release ${version}",
   "pull-request-header": "Release prepared from the Conventional Commits merged to main since the last tag.",
