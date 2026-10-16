@@ -1,15 +1,16 @@
 # The Fieldproof scenario engine and CLI (task P0-T07, ADR-0009). A uv-managed Python 3.12 package
 # with a src/ layout; `uv sync --locked --project engine` creates engine/.venv and `uv run
 # --project engine fieldproof --version` runs the CLI. Lint and type-check settings are inherited
-# from the repository root pyproject.toml. The version is maintained by release-please together
-# with version.txt (extra-files in release-please-config.json); do not edit it by hand.
+# from the repository root pyproject.toml. The version is dynamic: hatchling reads it from the
+# repository's version.txt (maintained by release-please), so a release bump changes no file here
+# and uv.lock, which records no version for a dynamic project, stays current.
 [build-system]
 requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
 name = "fieldproof"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Fieldproof scenario engine and command line interface"
 readme = "README.md"
 license = "Apache-2.0"
@@ -48,8 +49,17 @@ dev = [
   "pytest==9.1.1",
 ]
 
+[tool.hatch.version]
+source = "regex"
+path = "../version.txt"
+pattern = "^(?P<version>\\d+\\.\\d+\\.\\d+.*)$"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/fieldproof"]
+
+[tool.uv]
+# Rebuild the editable install when the version file changes, not only on pyproject.toml edits.
+cache-keys = [{ file = "pyproject.toml" }, { file = "../version.txt" }]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

@@ -102,11 +102,11 @@ move `APT_SNAPSHOT` and `ROS_SNAPSHOT` in `docker/base-ros2/Dockerfile` forward.
 release-please reads the Conventional Commits on `main` since the last tag and maintains a
 release pull request titled `chore(release): release X.Y.Z` that updates `version.txt`,
 `CHANGELOG.md` and every other version file of the monorepo (the `extra-files` of
-`release-please-config.json`: the engine, the cockpit packages and the ROS packages, see
-[workspaces.md](workspaces.md#one-version-everywhere)). The project is below 1.0: the first
-release is `0.1.0` (`initial-version`, because release-please ignores the manifest for a first
-release and would otherwise start at 1.0.0), `feat` bumps the minor version, `fix` the patch, and
-a breaking change (`!`) bumps the minor version too (`bump-minor-pre-major`;
+`release-please-config.json`: the cockpit packages and the ROS packages; the engine reads
+`version.txt` itself, see [workspaces.md](workspaces.md#one-version-everywhere)). The project
+is below 1.0: the first release is `0.1.0` (`initial-version`, because release-please ignores the
+manifest for a first release and would otherwise start at 1.0.0), `feat` bumps the minor version,
+`fix` the patch, and a breaking change (`!`) bumps the minor version too (`bump-minor-pre-major`;
 `bump-patch-for-minor-pre-major` stays unset, because it would turn every feature into a patch
 bump below 1.0). Merging the release pull request creates the `vX.Y.Z` tag and the
 GitHub release; `release.yml` then calls `images.yml` for that tag, which builds from the cache,

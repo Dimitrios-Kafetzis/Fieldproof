@@ -7,8 +7,9 @@
 # 1. Static checks: bash -n and shellcheck on tools/ros/colcon.sh and this script.
 # 2. Layout: the layer directories and packages, their READMEs, ARCHITECTURE.md, examples/,
 #    assets/LICENSES/; every package has a test next to its code.
-# 3. Versions: version.txt equals the version of the engine, the cockpit packages, every
-#    package.xml and the bridge module; release-please's extra-files list covers each of them.
+# 3. Versions: version.txt equals the version of the cockpit packages, every package.xml and the
+#    bridge module, and release-please's extra-files list covers each of them; the engine reads
+#    version.txt directly (dynamic hatch version), so uv.lock never needs a re-lock for a release.
 # 4. Lock files: engine/uv.lock matches engine/pyproject.toml (uv lock --check);
 #    cockpit/pnpm-lock.yaml carries the exact specifiers of cockpit/apps/cockpit/package.json.
 # 5. Pins: the mypy hook's dependencies match engine/uv.lock; the eslint hook's TypeScript
@@ -111,7 +112,6 @@ trap 'rm -f "$VERSIONS_FILE"' EXIT
 python3 - >"$VERSIONS_FILE" <<'PY'
 import json, re, tomllib, xml.etree.ElementTree as ET
 rows = []
-rows.append(("engine/pyproject.toml", tomllib.load(open("engine/pyproject.toml", "rb"))["project"]["version"]))
 for p in ("cockpit/package.json", "cockpit/apps/cockpit/package.json"):
     rows.append((p, json.load(open(p))["version"]))
 for p in ("sim/fieldproof_worlds/package.xml", "sim/fieldproof_gz_plugins/package.xml",
@@ -136,6 +136,20 @@ missing = files - extra
 assert not missing, f"not maintained by release-please: {sorted(missing)}"
 PY
 then pass "release-please extra-files cover every version file"; else fail "release-please extra-files miss a version file"; fi
+if python3 - <<'PY'
+import tomllib
+cfg = tomllib.load(open("engine/pyproject.toml", "rb"))
+assert "version" in cfg["project"].get("dynamic", []), "the engine version must be dynamic"
+assert cfg["tool"]["hatch"]["version"]["path"] == "../version.txt", cfg["tool"]["hatch"]["version"]
+assert "version" not in cfg["project"], "a static engine version would be recorded in uv.lock"
+PY
+then pass "the engine version is dynamic and read from version.txt (no re-lock on release)"; else fail "engine version configuration"; fi
+if ! grep -qE '^name = "fieldproof"$' engine/uv.lock || python3 - <<'PY'
+import tomllib
+pkg = next(p for p in tomllib.load(open("engine/uv.lock", "rb"))["package"] if p["name"] == "fieldproof")
+assert "version" not in pkg, pkg
+PY
+then pass "engine/uv.lock records no version for the fieldproof project"; else fail "engine/uv.lock pins the project version; a release bump would invalidate it"; fi
 
 # ---------------------------------------------------------------------------------------------
 section "4. Lock files"
@@ -172,7 +186,7 @@ fi
 section "5. Pins that must agree"
 if python3 - <<'PY'
 import re, tomllib, yaml
-lock = {p["name"]: p["version"] for p in tomllib.load(open("engine/uv.lock", "rb"))["package"]}
+lock = {p["name"]: p.get("version") for p in tomllib.load(open("engine/uv.lock", "rb"))["package"]}
 cfg = yaml.safe_load(open(".pre-commit-config.yaml"))
 mypy = next(h for r in cfg["repos"] for h in r["hooks"] if h["id"] == "mypy")
 deps = dict(d.split("==") for d in mypy["additional_dependencies"])

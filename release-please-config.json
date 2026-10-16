@@ -23,7 +23,6 @@
     ".": {
       "version-file": "version.txt",
       "extra-files": [
-        { "type": "toml", "path": "engine/pyproject.toml", "jsonpath": "$.project.version" },
         { "type": "json", "path": "cockpit/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "cockpit/apps/cockpit/package.json", "jsonpath": "$.version" },
         {
