@@ -14,6 +14,8 @@ USER root
 # ros_gz (which vendors Gazebo Harmonic) and the Mesa stack for EGL headless rendering. The
 # individual ros_gz packages are listed instead of the ros-jazzy-ros-gz metapackage because the
 # latter pulls in ros_gz_sim_demos and with it rviz2, rqt and VTK (about 1.5 GB of GUI tooling).
+# xacro expands the reference vehicle descriptions (robots/, task P1-T01) both at build time and
+# when a spawn launch file renders them with launch arguments.
 #   libegl1 / libegl-mesa0  EGL front end and Mesa's EGL implementation (surfaceless and device platforms)
 #   libgl1-mesa-dri          radeonsi, iris, ... hardware drivers plus llvmpipe for software rendering
 #   libgbm1                  buffer management for the EGL device platform on /dev/dri
@@ -26,6 +28,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         "ros-${ROS_DISTRO}-ros-gz-sim" \
         "ros-${ROS_DISTRO}-ros-gz-bridge" \
         "ros-${ROS_DISTRO}-ros-gz-image" \
+        "ros-${ROS_DISTRO}-xacro" \
         libegl1 \
         libegl-mesa0 \
         libgl1 \
