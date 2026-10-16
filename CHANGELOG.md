@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.2.0...v0.3.0) (2026-10-16)
+
+
+### Features
+
+* **repo:** lay out the monorepo with a buildable, tested package per layer ([#18](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/18)) ([500bd89](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/500bd896b0424d28e7aefb374988b41087a4a0b1))
+
+
+### Bug fixes
+
+* **release:** read the engine version from version.txt so a release needs no re-lock ([#20](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/20)) ([197509e](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/197509eb768773a9b6f005a48bbc284c9261ab40))
+
 ## [0.2.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.1.0...v0.2.0) (2026-10-15)
 
 
