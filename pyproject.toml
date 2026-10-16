@@ -1,12 +1,13 @@
 # Root tool configuration for Fieldproof (task P0-T04). This file carries no [project] table: the
-# installable Python packages live in engine/ and bridge/ (P0-T07) with their own pyproject.toml.
+# installable Python packages live in engine/ (uv project with its own pyproject.toml) and
+# bridge/fieldproof_bridge (ament_python, built by colcon), see docs/setup/workspaces.md.
 # Python 3.12, 100 columns, ruff for lint + format, mypy strict (04-engineering-standards.md).
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
 indent-width = 4
-src = ["engine/src", "bridge", "tools", "tests"]
+src = ["engine/src", "bridge/fieldproof_bridge", "tools", "tests"]
 extend-exclude = ["assets", "build", "install", "log", "node_modules", "runs"]
 
 [tool.ruff.lint]
@@ -42,6 +43,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "D", "PLR2004", "ARG"]   # asserts, no docstrings, literals, fixtures
+"**/test/**" = ["S101", "D", "PLR2004", "ARG"]    # ament packages keep their tests in test/
 "tests/**" = ["S101", "D", "PLR2004", "ARG"]
 "tools/**" = ["T20"]                               # host scripts may print
 "**/launch/**" = ["D"]                             # ROS 2 launch files
@@ -64,16 +66,21 @@ show_error_codes = true
 pretty = true
 plugins = []
 exclude = ["^build/", "^install/", "^log/", "^node_modules/", "^assets/"]
+# Where the first-party packages live, so tests and tools importing them type-check.
+mypy_path = ["engine/src", "bridge/fieldproof_bridge"]
 # ROS 2 Python packages (rclpy, launch, ament) ship without type information.
 [[tool.mypy.overrides]]
 module = ["rclpy.*", "launch.*", "launch_ros.*", "launch_testing.*", "ament_index_python.*",
-          "std_msgs.*", "geometry_msgs.*", "sensor_msgs.*", "nav_msgs.*", "tf2_ros.*", "mcap.*"]
+          "std_msgs.*", "geometry_msgs.*", "sensor_msgs.*", "nav_msgs.*", "tf2_ros.*", "mcap.*",
+          "setuptools", "setuptools.*"]  # setuptools: the setup.py of ament_python packages
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra --strict-markers --strict-config"
-testpaths = ["engine/tests", "bridge", "tests"]
+# Cross-layer tests only: engine/ has its own pytest configuration (uv) and the ROS packages run
+# their pytest suites through colcon test with their own pytest.ini.
+testpaths = ["tests"]
 xfail_strict = true
 markers = [
   "integration: needs the simulator containers (sim + bridge + vehicle)",

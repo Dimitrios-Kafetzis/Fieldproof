@@ -23,7 +23,7 @@ Checks: >
   -readability-identifier-length,
   -readability-magic-numbers
 WarningsAsErrors: "*"
-HeaderFilterRegex: "^(sim|bridge)/.*"
+HeaderFilterRegex: "(^|/)(sim|bridge)/fieldproof_[a-z_]+/.*"
 FormatStyle: file
 CheckOptions:
   # Google naming, matching .clang-format and the Gazebo plugin APIs.

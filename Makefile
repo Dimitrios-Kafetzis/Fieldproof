@@ -6,7 +6,9 @@
 # CI (task P0-T05) runs the same targets from .github/workflows; see docs/setup/ci.md.
 # The documentation site (task P0-T06) builds from mkdocs.yml with the toolchain pinned in
 # tools/docs; see docs/setup/docs.md.
-# Later tasks add per-layer targets (engine, sim, bridge, cockpit) underneath `test` and `lint`.
+# The layer workspaces (task P0-T07) have one target each: `test-engine` (uv, host), `test-cockpit`
+# (pnpm, host), `test-ros` (colcon in the dev container) and `tidy` (clang-tidy in the dev
+# container); see docs/setup/workspaces.md.
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -euo pipefail -c
@@ -30,6 +32,13 @@ DOCS_BASE_PATH ?= Fieldproof
 LYCHEE_IMAGE ?= lycheeverse/lychee:0.24.2@sha256:e2d19e57cf6ab037026f20b8e449a1f30d9d7f81eef4194763aab2eab20bd28d
 # Extra lychee flags, for example LYCHEE_ARGS=--offline to check only the internal links.
 LYCHEE_ARGS ?=
+
+# --- Layer workspaces ------------------------------------------------------------------------
+# The engine is a uv project (engine/.venv from engine/uv.lock); the cockpit is a pnpm workspace
+# (cockpit/node_modules from cockpit/pnpm-lock.yaml). Both toolchains come from the host setup
+# (uv, Node 22 with pnpm). The ROS workspaces build only inside the dev container.
+PNPM ?= pnpm
+ROS_WORKSPACES ?= sim bridge robots
 
 # --- Containers -------------------------------------------------------------------------------
 # Rendering: when the host has a /dev/dri render node, compose.gpu.yaml is added so the sim and
@@ -68,8 +77,8 @@ endif
 IMAGE_TEST_FLAGS ?= --quick
 
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
-	test-images test-ci test-docs docs docs-serve docs-links branch-protection clean pins images up \
-	down shell prune
+	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros tidy docs docs-serve \
+	docs-links branch-protection clean pins images up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -118,7 +127,7 @@ secrets: ## Scan the full git history for secrets with the pinned gitleaks conta
 fmt: ## Apply the formatters (ruff, clang-format, cmake-format, prettier, whitespace fixers)
 	@for hook in $(FORMAT_HOOKS); do $(PRE_COMMIT) run "$$hook" --all-files || true; done
 
-test: test-tooling test-ci test-docs test-host test-images ## Run every test suite available at this stage of the plan
+test: test-tooling test-ci test-docs test-layout test-engine test-cockpit test-ros test-host test-images ## Run every test suite: tooling, CI, docs, layout, engine (pytest), cockpit (Vitest), ROS workspaces (ctest, pytest), host, images
 
 test-tooling: ## Quality-gate tests: hooks pass on the repo, each gate catches a bad file, commitlint rejects bad messages
 	tests/tooling/test_quality_gates.sh
@@ -134,6 +143,28 @@ test-ci: ## Workflow tests: actionlint, SHA pins, path filter, release-please an
 
 test-docs: ## Documentation tests: ADR index generator, strict site build, navigation, docs.yml rules, internal links
 	tests/docs/test_docs.sh
+
+test-layout: ## Monorepo layout tests: directories per the standards, one version everywhere, lock files current, pins in sync
+	tests/layout/test_layout.sh
+
+test-engine: ## Engine unit tests: uv sync from engine/uv.lock, then pytest in engine/
+	$(UV) sync --locked --project engine
+	$(UV) run --locked --directory engine pytest
+
+test-cockpit: ## Cockpit tests: pnpm install from the lock file, TypeScript strict type check, Vitest in every package
+	$(PNPM) -C cockpit install --frozen-lockfile
+	$(PNPM) -C cockpit typecheck
+	$(PNPM) -C cockpit test
+
+# The dev container is started (not built: `make images` or FIELDPROOF_IMAGE_TAG=main first) and
+# left running; `make down` stops it. Build output lands in <workspace>/build, install and log.
+test-ros: ## ROS workspace tests: colcon build and colcon test of sim/, bridge/ and robots/ in the dev container (ROS_WORKSPACES=...)
+	$(COMPOSE) --profile dev up -d --wait --no-build dev
+	$(COMPOSE) --profile dev exec -T dev tools/ros/colcon.sh test $(ROS_WORKSPACES)
+
+tidy: ## clang-tidy over the C++ packages in the dev container, using the compile commands of the last test-ros build
+	$(COMPOSE) --profile dev up -d --wait --no-build dev
+	$(COMPOSE) --profile dev exec -T dev tools/ros/colcon.sh tidy $(ROS_WORKSPACES)
 
 docs: ## Build the documentation site into site/ (strict: a broken link or a page outside the nav fails)
 	$(MKDOCS) build --strict
