@@ -108,5 +108,7 @@ nav:
       - Container images: setup/containers.md
       - CI/CD pipeline: setup/ci.md
       - Documentation site: setup/docs.md
+      - Repository layout and workspaces: setup/workspaces.md
   - Reference:
       - reference/index.md
+      - CLI: reference/cli.md

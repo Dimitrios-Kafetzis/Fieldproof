@@ -7,7 +7,7 @@ with the tasks that define each surface:
 
 | Page | Produced by | Contents |
 | --- | --- | --- |
-| CLI | P0-T07, P1-T05 | `fieldproof` commands, options and exit codes |
+| [CLI](cli.md) | P0-T07, P1-T05 | `fieldproof` commands, options and exit codes |
 | Scenario schema | P1-T05, P2-T05 | the YAML scenario format, versioned ([ADR-0005](../adr/0005-declarative-yaml-scenarios.md)) |
 | Events | P2-T03 | the event injection framework: types, parameters, timing |
 | Assertions and KPIs | P1-T06, P2-T05 | the assertion library and the metrics a run reports |

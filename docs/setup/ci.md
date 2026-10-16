@@ -10,7 +10,7 @@ Makefile targets.
 
 | Workflow | File | Runs on | Does |
 | --- | --- | --- | --- |
-| CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-docs`, `make test-host`, and when the change touches the images: build `base-ros2`, `sim`, `dev` from the GHCR layer cache and run `make test-images` against them |
+| CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-layout`, `make test-docs`, `make test-engine`, `make test-cockpit` (plus the Vite build), `make test-host`, and when the change touches the images or the ROS workspaces: build `base-ros2`, `sim`, `dev` from the GHCR layer cache, run `make test-images`, `make test-ros` and `make tidy` against them |
 | PR title | `.github/workflows/pr-title.yml` | pull request opened, edited, synchronised | the title must be a Conventional Commit (`make lint-title`), see [Pull request titles](#pull-request-titles) |
 | Images | `.github/workflows/images.yml` | push to `main`, called by Release, manual | build and push `sha-<short>` tags, syft SBOM and Trivy scan per image, then tag `main` (or `vX.Y.Z`) |
 | Release | `.github/workflows/release.yml` | push to `main` | release-please keeps the release pull request current; when it merges, tags `vX.Y.Z`, creates the GitHub release and calls Images |
@@ -39,9 +39,13 @@ see [Releases](#releases)) trigger no workflows and therefore show no checks.
 ### Path filter
 
 `tools/ci/changed-areas.sh` compares the pull request against its base and prints `images=true`
-when `docker/`, `tests/images/`, the `Makefile`, `version.txt`, `tools/ci/` or `ci.yml` changed.
-Pushes to `main` and manual runs build the images unconditionally. The other jobs always run; they
-finish in a few minutes thanks to the cached pre-commit environments.
+when `docker/`, `tests/images/`, the `Makefile`, `version.txt`, `tools/ci/` or `ci.yml` changed,
+or when a ROS workspace did (`sim/`, `bridge/`, `robots/`, `tools/ros/`, `.clang-tidy`), because
+the colcon tests and clang-tidy run in the dev container that this job builds
+([workspaces.md](workspaces.md#continuous-integration)). Pushes to `main` and manual runs build
+the images unconditionally. The other jobs always run; they finish in a few minutes thanks to the
+cached pre-commit environments, the uv cache (keyed on `engine/uv.lock`) and the pnpm store cache
+(keyed on `cockpit/pnpm-lock.yaml`).
 
 ### Image build and registry cache
 
@@ -96,11 +100,13 @@ move `APT_SNAPSHOT` and `ROS_SNAPSHOT` in `docker/base-ros2/Dockerfile` forward.
 ## Releases
 
 release-please reads the Conventional Commits on `main` since the last tag and maintains a
-release pull request titled `chore(release): release X.Y.Z` that updates `version.txt` and
-`CHANGELOG.md`. The project is below 1.0: the first release is `0.1.0` (`initial-version`, because
-release-please ignores the manifest for a first release and would otherwise start at 1.0.0),
-`feat` bumps the minor version, `fix` the patch, and a breaking change (`!`) bumps the minor
-version too (`bump-minor-pre-major` in `release-please-config.json`;
+release pull request titled `chore(release): release X.Y.Z` that updates `version.txt`,
+`CHANGELOG.md` and every other version file of the monorepo (the `extra-files` of
+`release-please-config.json`: the engine, the cockpit packages and the ROS packages, see
+[workspaces.md](workspaces.md#one-version-everywhere)). The project is below 1.0: the first
+release is `0.1.0` (`initial-version`, because release-please ignores the manifest for a first
+release and would otherwise start at 1.0.0), `feat` bumps the minor version, `fix` the patch, and
+a breaking change (`!`) bumps the minor version too (`bump-minor-pre-major`;
 `bump-patch-for-minor-pre-major` stays unset, because it would turn every feature into a patch
 bump below 1.0). Merging the release pull request creates the `vX.Y.Z` tag and the
 GitHub release; `release.yml` then calls `images.yml` for that tag, which builds from the cache,
@@ -138,10 +144,11 @@ commitlint keeps exempting that exact shape so `make lint-commits` stays clean o
 
 `.github/dependabot.yml` opens one grouped pull request per ecosystem every Monday, titled
 `build(deps): ...`: GitHub Actions (SHA pins and version comments), pip in `tools/docs/` (the
-documentation toolchain, `uv.lock`) and `engine/`, and npm in `cockpit/`. The last two
-directories arrive with P0-T07; until then Dependabot reports them as not found, which is
-harmless. Hook pins in `.pre-commit-config.yaml` are updated by hand with
-`pre-commit autoupdate` ([tooling.md](tooling.md#updating-the-hooks)).
+documentation toolchain, `uv.lock`) and `engine/` (`uv.lock`), and npm in `cockpit/`
+(`pnpm-lock.yaml`). A bump of an engine dependency must also update the mypy hook in
+`.pre-commit-config.yaml`, and a TypeScript bump the eslint hook; `make test-layout` says which.
+Hook pins themselves are updated by hand with `pre-commit autoupdate`
+([tooling.md](tooling.md#updating-the-hooks)).
 
 The container images are not covered by Dependabot (issue #9): every base image is referenced
 through a build argument (`FROM ubuntu:24.04@${UBUNTU_DIGEST}`, `FROM ${UV_IMAGE}`) and the apt
@@ -158,7 +165,9 @@ but never fails the check, because any timestamp is a valid snapshot and it move
 | Command | Mirrors |
 | --- | --- |
 | `make lint` | the Lint job |
-| `make test-tooling`, `make test-ci`, `make test-docs`, `make test-host` | the tooling, docs and host jobs |
+| `make test-tooling`, `make test-ci`, `make test-layout`, `make test-docs`, `make test-host` | the tooling, docs and host jobs |
+| `make test-engine`, `make test-cockpit` | the engine and cockpit jobs |
+| `make test-ros`, `make tidy` | the ROS workspace steps of the image job (needs the images) |
 | `make docs-links` | the link check of the Docs workflow |
 | `make test-images IMAGE_TEST_FLAGS="--quick --no-build"` | the image job's tests against images already built |
 | `make lint-title TITLE="..."` | the PR title check |
@@ -167,9 +176,10 @@ but never fails the check, because any timestamp is a valid snapshot and it move
 `tests/ci/test_workflows.sh` (`make test-ci`) checks the workflows themselves: actionlint and the
 schema hooks pass, every action is SHA-pinned with a version comment, permissions, concurrency
 and timeouts are declared, the required check names exist, the gate job depends on every other
-job, the path filter and cache helpers behave in a scratch repository, the release-please and
-Dependabot configurations agree with `version.txt` and commitlint, `docker buildx bake` reads
-the compose file, and (when the base image is built locally) the Trivy policy passes.
+job, the layer test jobs call their Makefile targets, the path filter and cache helpers behave in
+a scratch repository, the release-please and Dependabot configurations agree with `version.txt`
+and commitlint and watch existing directories, `docker buildx bake` reads the compose file, and
+(when the base image is built locally) the Trivy policy passes.
 
 ## Troubleshooting
 
@@ -189,8 +199,6 @@ described in [containers.md](containers.md#updating-a-pin). Do not add CVE-speci
 **The release pull request shows no checks.** See [Releases](#releases): add the
 `RELEASE_PLEASE_TOKEN` secret, then close and reopen the pull request once so it is refreshed
 with the token.
-
-**Dependabot reports `/engine` or `/cockpit` not found.** Expected until P0-T07 creates them.
 
 **`make lint-title` says the pre-commit configuration is unstaged.** pre-commit refuses to run
 while `.pre-commit-config.yaml` has unstaged changes; stage the file first.
