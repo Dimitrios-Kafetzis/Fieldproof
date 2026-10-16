@@ -123,6 +123,17 @@ ROS workspaces need the dev image, so `make test-ros` and `make tidy` run at the
 *Container images and ROS workspaces* job, which the path filter enables when `sim/`, `bridge/`,
 `robots/`, `tools/ros/` or `.clang-tidy` change (as well as for image changes).
 
+## Troubleshooting
+
+**`colcon build` fails with `PermissionError: [Errno 13] Permission denied: 'log'`.** The dev
+container runs as uid 1000 and writes `build/`, `install/` and `log/` into the bind-mounted
+workspace, so the checkout must be writable by that uid. Developer accounts prepared by
+[host.md](host.md) are uid 1000; CI runs `sudo chown -R 1000:1000 sim bridge robots` before
+`make test-ros` because the runner user is uid 1001.
+
+**`make test-ros` says the dev image is missing.** It never builds: run `make images`, or pull
+the published image with `FIELDPROOF_IMAGE_TAG=main`.
+
 ## Tests
 
 `tests/layout/test_layout.sh` (`make test-layout`) checks the layout against the standards: the

@@ -234,7 +234,10 @@ if make -s help | grep -qE '^\s+\S*tidy'; then pass "make tidy is documented in 
 for pattern in build/ install/ log/ node_modules/ .venv/ dist/; do
   if grep -qxF "$pattern" .gitignore; then pass ".gitignore covers $pattern"; else fail ".gitignore does not cover $pattern"; fi
 done
-for path in sim/build sim/install sim/log engine/.venv cockpit/node_modules cockpit/apps/cockpit/dist; do
+# A file inside each directory: a `dir/` pattern only matches a path git can tell is a directory,
+# and the build output does not exist on a fresh checkout (CI).
+for path in sim/build/CMakeCache.txt sim/install/setup.bash sim/log/latest engine/.venv/bin/python \
+  cockpit/node_modules/.modules.yaml cockpit/apps/cockpit/dist/index.html; do
   if git check-ignore -q "$path"; then pass "git ignores $path"; else fail "git does not ignore $path"; fi
 done
 if cli="$(uv run --locked --project engine fieldproof --version 2>/dev/null)" && [[ "$cli" == "fieldproof $version" ]]; then

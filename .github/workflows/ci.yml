@@ -240,6 +240,10 @@ jobs:
       - name: Show the sim container log on failure
         if: failure()
         run: docker compose -f docker/compose.yaml --profile sim logs sim || true
+      # The checkout belongs to the runner user (uid 1001); the dev container builds as uid 1000
+      # and writes build/, install/ and log/ into the bind-mounted workspaces.
+      - name: Let the container user write to the ROS workspaces
+        run: sudo chown -R 1000:1000 sim bridge robots
       - name: ROS workspace tests (colcon build and test of sim, bridge and robots in the dev container)
         run: make test-ros
       - name: clang-tidy over the C++ packages (make tidy)
