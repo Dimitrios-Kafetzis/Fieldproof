@@ -5,8 +5,10 @@
 #   make down     stop everything
 #
 # Profiles
-#   sim     headless Gazebo Harmonic server (software rendering by default; add compose.gpu.yaml
-#           for a /dev/dri render node, which the Makefile does automatically)
+#   sim     headless Gazebo Harmonic server running a Fieldproof world (FIELDPROOF_WORLD, default
+#           depot.sdf) with the worlds, models and fetched Fuel assets bind-mounted read-only
+#           (software rendering by default; add compose.gpu.yaml for a /dev/dri render node,
+#           which the Makefile does automatically)
 #   dev     development container with the repository bind-mounted at /workspace
 #   images  build-only services: the base image and the apt-lists image; never started
 #
@@ -61,8 +63,17 @@ services:
         BASE_IMAGE: fieldproof-base-ros2
     profiles: [sim]
     hostname: sim
-    command: ["gz", "sim", "-s", "-r", "--headless-rendering", "${FIELDPROOF_WORLD:-empty.sdf}"]
-    environment: *env
+    command: ["gz", "sim", "-s", "-r", "--headless-rendering", "${FIELDPROOF_WORLD:-depot.sdf}"]
+    environment:
+      <<: *env
+      # The Fieldproof worlds, the package models, the fetched Fuel models and the reference
+      # vehicle models, bind-mounted below (task P1-T02); Gazebo's own worlds stay reachable.
+      GZ_SIM_RESOURCE_PATH: /fieldproof/worlds:/fieldproof/models:/fieldproof/fuel:/fieldproof/robots
+    volumes:
+      - ../sim/fieldproof_worlds/worlds:/fieldproof/worlds:ro
+      - ../sim/fieldproof_worlds/models:/fieldproof/models:ro
+      - ../assets/fuel/models:/fieldproof/fuel:ro
+      - ../robots/fieldproof_robots/models:/fieldproof/robots:ro
     networks: [fieldproof]
     stop_grace_period: 10s
 
