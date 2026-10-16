@@ -1,0 +1,58 @@
+# The Fieldproof scenario engine and CLI (task P0-T07, ADR-0009). A uv-managed Python 3.12 package
+# with a src/ layout; `uv sync --locked --project engine` creates engine/.venv and `uv run
+# --project engine fieldproof --version` runs the CLI. Lint and type-check settings are inherited
+# from the repository root pyproject.toml. The version is maintained by release-please together
+# with version.txt (extra-files in release-please-config.json); do not edit it by hand.
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fieldproof"
+version = "0.2.0"
+description = "Fieldproof scenario engine and command line interface"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+authors = [{ name = "Dimitris Kafetzis" }]
+keywords = ["robotics", "simulation", "ros2", "gazebo", "scenario", "testing"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Software Development :: Testing",
+  "Typing :: Typed",
+]
+# Exact pins: the lock file resolves the transitive dependencies, Dependabot proposes bumps weekly.
+dependencies = [
+  "pydantic==2.14.1",
+  "rich==15.0.0",
+  "typer==0.27.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/Dimitrios-Kafetzis/Fieldproof"
+Documentation = "https://dimitrios-kafetzis.github.io/Fieldproof/"
+Repository = "https://github.com/Dimitrios-Kafetzis/Fieldproof"
+Issues = "https://github.com/Dimitrios-Kafetzis/Fieldproof/issues"
+
+[project.scripts]
+fieldproof = "fieldproof.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fieldproof"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+xfail_strict = true

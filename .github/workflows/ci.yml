@@ -1,6 +1,8 @@
 # Fieldproof CI (task P0-T05): the quality gates and tests of docs/setup/tooling.md on every pull
 # request and on main. The `CI` job at the bottom is the single required status check; it fails
 # when any job failed and passes when the image job was skipped by the path filter.
+# The layer tests (task P0-T07) run as their own jobs: the engine with uv, the cockpit with pnpm,
+# and the ROS workspaces inside the dev container that the image job builds.
 #
 # Every action is pinned to a commit SHA (the comment carries the tag Dependabot keeps in sync).
 # Workflow secrets are never needed here: the image build reads the GHCR registry cache
@@ -92,6 +94,8 @@ jobs:
         run: make test-tooling
       - name: Workflow tests (tests/ci)
         run: make test-ci
+      - name: Layout tests (tests/layout)
+        run: make test-layout
 
   docs:
     name: Docs
@@ -117,6 +121,46 @@ jobs:
       - name: Documentation tests (tests/docs, ADR index, strict site build, navigation, links)
         run: make test-docs
 
+  engine:
+    name: Engine tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+      - name: Engine unit tests (uv sync from engine/uv.lock, pytest)
+        run: make test-engine
+      - name: The CLI reports the repository version
+        run: |
+          expected="fieldproof $(cat version.txt)"
+          actual="$(uv run --locked --project engine fieldproof --version)"
+          echo "$actual"
+          [ "$actual" = "$expected" ]
+
+  cockpit:
+    name: Cockpit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # pnpm's version comes from the packageManager field of cockpit/package.json.
+      - uses: pnpm/action-setup@d9184bf108216479bc5a137cc391f4d7b14c870b # v6.1.0
+        with:
+          package_json_file: cockpit/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: cockpit/pnpm-lock.yaml
+      - name: Cockpit tests (pnpm install from the lock file, type check, Vitest)
+        run: make test-cockpit
+      - name: Production build (vite build)
+        run: pnpm -C cockpit build
+
   host-tests:
     name: Host script tests
     runs-on: ubuntu-24.04
@@ -129,7 +173,7 @@ jobs:
           FIELDPROOF_SKIP_HOST: "1"
 
   images:
-    name: Container images
+    name: Container images and ROS workspaces
     needs: changes
     if: needs.changes.outputs.images == 'true'
     runs-on: ubuntu-24.04
@@ -196,10 +240,18 @@ jobs:
       - name: Show the sim container log on failure
         if: failure()
         run: docker compose -f docker/compose.yaml --profile sim logs sim || true
+      # The checkout belongs to the runner user (uid 1001); the dev container builds as uid 1000
+      # and writes build/, install/ and log/ into the bind-mounted workspaces.
+      - name: Let the container user write to the ROS workspaces
+        run: sudo chown -R 1000:1000 sim bridge robots
+      - name: ROS workspace tests (colcon build and test of sim, bridge and robots in the dev container)
+        run: make test-ros
+      - name: clang-tidy over the C++ packages (make tidy)
+        run: make tidy
 
   ci:
     name: CI
-    needs: [changes, lint, tooling-tests, docs, host-tests, images]
+    needs: [changes, lint, tooling-tests, docs, engine, cockpit, host-tests, images]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

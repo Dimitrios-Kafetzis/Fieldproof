@@ -65,8 +65,9 @@ knows nothing about any of it. The [architecture](plan/01-architecture.md) descr
     ---
 
     Prepare a [workstation](setup/host.md), install the [quality gates](setup/tooling.md),
-    build and run the [container images](setup/containers.md), and read how
-    [CI/CD](setup/ci.md) and [this site](setup/docs.md) are produced.
+    build and run the [container images](setup/containers.md), find your way around the
+    [workspaces](setup/workspaces.md), and read how [CI/CD](setup/ci.md) and
+    [this site](setup/docs.md) are produced.
 
 - :material-book-open-variant: **Reference**
 

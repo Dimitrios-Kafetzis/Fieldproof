@@ -36,6 +36,9 @@ on every merge to `main` ([docs/setup/docs.md](docs/setup/docs.md)).
 | [docs/setup/containers.md](docs/setup/containers.md) | Container images, pins, rendering modes, `make images`/`up`/`shell`/`down` |
 | [docs/setup/ci.md](docs/setup/ci.md) | GitHub Actions workflows, required checks, published image tags, releases, Dependabot |
 | [docs/setup/docs.md](docs/setup/docs.md) | The documentation site: `make docs`, `make docs-serve`, writing pages, the generated ADR index, deployment |
+| [docs/setup/workspaces.md](docs/setup/workspaces.md) | Repository layout and workspaces: `make test-engine`, `make test-cockpit`, `make test-ros`, `make tidy`, one version everywhere |
+| [docs/reference/](docs/reference/index.md) | Reference pages, starting with the [CLI](docs/reference/cli.md) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Which directory is which layer, and where its documentation lives |
 
 ## Core principle
 

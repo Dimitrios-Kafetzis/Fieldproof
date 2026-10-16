@@ -30,7 +30,8 @@ created.
 | `make secrets` | gitleaks over the whole git history, from the pinned container image |
 | `make lint-title TITLE="..."` | commitlint on a pull request title (the squash-merge subject; see [ci.md](ci.md#pull-request-titles)) |
 | `make fmt` | Only the formatters: whitespace fixers, ruff, clang-format, cmake-format, prettier, the ADR index |
-| `make test` | Every test suite available so far: tooling, CI workflow, documentation, host and image tests |
+| `make test` | Every test suite: tooling, CI workflow, documentation, layout, engine (pytest), cockpit (Vitest), ROS workspaces (ctest and pytest in the dev container), host and image tests ([workspaces.md](workspaces.md)) |
+| `make test-engine`, `make test-cockpit`, `make test-ros`, `make tidy` | One layer at a time: see [workspaces.md](workspaces.md#one-command-per-layer) |
 | `make docs`, `make docs-serve` | Build or preview the documentation site ([docs.md](docs.md)) |
 | `make clean` | Delete the hook environments; they are rebuilt on the next run |
 | `SKIP=mypy git commit …` | Skip one hook for one commit; use sparingly and say why in the PR |
@@ -41,13 +42,13 @@ created.
 | --- | --- | --- | --- |
 | pre-commit-hooks | all | `.pre-commit-config.yaml` | trailing whitespace, final newline, LF endings, large files, merge markers, shebangs, private keys, YAML/JSON/TOML syntax |
 | ruff check, ruff format | `*.py`, `*.pyi` | `pyproject.toml` | Python 3.12, 100 columns, Google docstrings, bandit and pylint rule sets, auto-fix on commit |
-| mypy | `*.py` | `pyproject.toml` | `strict = true`; untyped ROS 2 packages are listed as ignored imports; engine dependencies are added to the hook when the packages exist (P0-T07) |
+| mypy | `*.py` | `pyproject.toml` | `strict = true`; `mypy_path` resolves the engine and bridge packages; untyped ROS 2 packages are listed as ignored imports; the engine's dependencies are listed in the hook at the versions of `engine/uv.lock` ([workspaces.md](workspaces.md#the-engine-engine)) |
 | clang-format | `*.cpp`, `*.hpp`, `*.c`, `*.h` | `.clang-format` | Google style, 100 columns, C++17, left pointer alignment, grouped includes |
-| clang-tidy | C++ in `sim/`, `bridge/` | `.clang-tidy` | configuration only; runs inside the sim container against `compile_commands.json` from the colcon build (P0-T07), warnings are errors |
+| clang-tidy | C++ in the `fieldproof_*` packages of `sim/`, `bridge/` | `.clang-tidy` | `make tidy`: runs inside the dev container against the `compile_commands.json` of the colcon build, warnings are errors; not a pre-commit hook |
 | cmake-format, cmake-lint | `CMakeLists.txt`, `*.cmake` | `.cmake-format.yaml` | 100 columns, lower-case commands |
-| eslint | `*.ts`, `*.tsx`, `*.js`, `*.mjs`, `*.cjs` | `eslint.config.cjs` | typescript-eslint strict and stylistic presets, `--max-warnings=0`; the cockpit adds React and type-aware rules in its own workspace |
+| eslint | `*.ts`, `*.tsx`, `*.js`, `*.mjs`, `*.cjs` | `eslint.config.cjs` | typescript-eslint strict and stylistic presets, `--max-warnings=0`, TypeScript at the cockpit's version; the cockpit adds React and type-aware rules in its own workspace (P3-T02) |
 | prettier | TS, JS, JSON, CSS, HTML | `.prettierrc.yaml`, `.prettierignore` | 100 columns, double quotes, trailing commas; not YAML or Markdown |
-| yamllint | `*.yaml`, `*.yml` | `.yamllint.yaml` | strict, 120 columns, two-space indent, `on`/`off` allowed for GitHub workflows |
+| yamllint | `*.yaml`, `*.yml` | `.yamllint.yaml` | strict, 120 columns, two-space indent, `on`/`off` allowed for GitHub workflows; `pnpm-lock.yaml` is generated and skipped |
 | markdownlint-cli2 | `*.md` | `.markdownlint-cli2.yaml` | 100-column prose, tables and code exempt; `CODE_OF_CONDUCT.md` is upstream text and skipped |
 | adr-index | `docs/adr/*.md` | `tools/docs/adr_index.py` | regenerates `docs/adr/README.md` from the ADRs and fails the commit once so the result gets staged; rejects an ADR whose heading, status or date line is malformed ([docs.md](docs.md#the-adr-index)) |
 | shellcheck | `*.sh`, scripts with a shell shebang | hook args | severity `style`, external sources followed |
@@ -89,7 +90,9 @@ required`, `feat(kitchen): unknown scope`, `feat(engine): Capitalised subject`.
 Every hook is pinned to a tag and every Node package to an exact version. Update them together
 in a `build(deps)` PR: run `pre-commit autoupdate`, bump the `additional_dependencies` of the
 eslint, prettier and commitlint hooks to the matching npm releases, run `make lint` and
-`make test`, and record notable rule changes in the PR body.
+`make test`, and record notable rule changes in the PR body. The mypy hook's packages follow
+`engine/uv.lock` and the eslint hook's TypeScript follows the cockpit; `make test-layout` fails
+when they drift, so bump them in the same PR as the workspace dependency.
 
 ## Tests
 
