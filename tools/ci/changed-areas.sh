@@ -9,7 +9,9 @@
 # base, so `git diff BASE HEAD` is exactly the pull request's diff.
 #
 # Areas:
-#   images   docker/, tests/images/, the Makefile, version.txt, the CI helpers and ci.yml itself
+#   images   docker/, tests/images/, the Makefile, version.txt, the CI helpers and ci.yml itself,
+#            plus the ROS workspaces (sim/, bridge/, robots/), tools/ros/ and the clang-tidy
+#            configuration, whose tests run in the dev container this job builds (P0-T07)
 set -euo pipefail
 
 base="${1:-}"
@@ -21,6 +23,11 @@ IMAGES_PATTERNS=(
   '^version\.txt$'
   '^tools/ci/'
   '^\.github/workflows/ci\.yml$'
+  '^sim/'
+  '^bridge/'
+  '^robots/'
+  '^tools/ros/'
+  '^\.clang-tidy$'
 )
 
 if [[ -z "$base" ]]; then

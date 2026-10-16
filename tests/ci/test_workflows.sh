@@ -12,8 +12,9 @@
 #    bake-cache.sh output, free-disk.sh outside GitHub Actions.
 # 4. Configuration: release-please config and manifest agree with version.txt and produce a
 #    pull request title that commitlint accepts; Dependabot covers github-actions, pip (engine and
-#    the docs toolchain) and npm with grouped weekly updates and a `build(deps)` prefix; `docker buildx bake --print`
-#    on docker/compose.yaml lists the three image targets the workflows build.
+#    the docs toolchain) and npm with grouped weekly updates and a `build(deps)` prefix, and every
+#    directory it watches exists; `docker buildx bake --print` on docker/compose.yaml lists the
+#    three image targets the workflows build.
 # 5. Trivy policy: when the base-ros2 image is present locally, the pinned Trivy container with
 #    docker/trivy-policy.rego reports no fixed CRITICAL vulnerability (skipped otherwise).
 #
@@ -138,6 +139,19 @@ then pass "ci.yml gate job needs every other job and runs if: always()"; else fa
 
 if python3 - <<'PY'
 import yaml
+jobs = yaml.safe_load(open(".github/workflows/ci.yml"))["jobs"]
+def runs(job):
+    return "\n".join(str(s.get("run", "")) for s in jobs[job]["steps"])
+assert "make test-engine" in runs("engine"), "engine job"
+assert "make test-cockpit" in runs("cockpit"), "cockpit job"
+assert "make test-layout" in runs("tooling-tests"), "layout tests"
+assert "make test-ros" in runs("images") and "make tidy" in runs("images"), "ROS tests in the image job"
+assert any("pnpm/action-setup" in str(s.get("uses", "")) for s in jobs["cockpit"]["steps"]), "pnpm setup"
+PY
+then pass "ci.yml: engine (uv), cockpit (pnpm), layout and ROS workspace (dev container) tests are wired"; else fail "ci.yml layer test jobs"; fi
+
+if python3 - <<'PY'
+import yaml
 doc = yaml.safe_load(open(".github/workflows/images.yml"))
 jobs = doc["jobs"]
 assert jobs["scan"]["needs"] == "build"
@@ -185,6 +199,15 @@ if [[ "$(cd "$scratch_repo" && "$changed" 00000000000000000000000000000000000000
   pass "changed-areas: unknown base falls back to every area"
 else
   fail "changed-areas: unknown base falls back to every area"
+fi
+ros_base="$(git -C "$scratch_repo" rev-parse HEAD)"
+mkdir -p "$scratch_repo/sim/fieldproof_worlds"
+echo c >"$scratch_repo/sim/fieldproof_worlds/CMakeLists.txt"
+git -C "$scratch_repo" add -A && git -C "$scratch_repo" commit -q -m "feat(sim): change"
+if [[ "$(cd "$scratch_repo" && "$changed" "$ros_base" 2>/dev/null)" == "images=true" ]]; then
+  pass "changed-areas: a ROS workspace change runs the image job (colcon tests need the dev image)"
+else
+  fail "changed-areas: a ROS workspace change runs the image job"
 fi
 
 expected_cache="base-ros2.cache-from=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2:buildcache
@@ -266,12 +289,14 @@ eco = sorted(u["package-ecosystem"] for u in doc["updates"])
 assert sorted(set(eco)) == ["github-actions", "npm", "pip"], eco  # no docker: issue #9, see pins.yml
 dirs = sorted(u["directory"] for u in doc["updates"] if u["package-ecosystem"] == "pip")
 assert dirs == ["/engine", "/tools/docs"], dirs
+import os
 for u in doc["updates"]:
     assert u["schedule"]["interval"] == "weekly", u
     assert u["commit-message"]["prefix"] == "build(deps)", u
     assert u["groups"], u
+    assert os.path.isdir("." + u["directory"]), u["directory"]
 PY
-then pass "Dependabot: github-actions, pip (engine, tools/docs) and npm, weekly, grouped, build(deps) prefix"; else fail "Dependabot configuration"; fi
+then pass "Dependabot: github-actions, pip (engine, tools/docs) and npm, weekly, grouped, build(deps) prefix, directories exist"; else fail "Dependabot configuration"; fi
 
 # Run from docker/ with every profile enabled, exactly as the workflows do: bake resolves the
 # build contexts relative to its working directory and profile-aware versions drop base-ros2.
