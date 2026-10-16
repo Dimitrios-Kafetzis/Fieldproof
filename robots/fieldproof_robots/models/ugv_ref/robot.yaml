@@ -1,0 +1,152 @@
+# Vehicle manifest of the Fieldproof reference UGV (task P1-T01).
+#
+# This is the contract between the model and the rest of the stack: which frames, drive
+# parameters, topics, types, rates and noise figures the simulated vehicle offers. The bridge
+# generator (P1-T03) turns it into a ros_gz configuration and the contract tests, and P1-T04
+# formalises the format as manifest schema v0 (image, entrypoint, driver-swap map, budgets).
+# Until then the layout below is a draft; tests/test_ugv_ref.py checks that every topic, rate
+# and frame declared here matches the SDF generated from urdf/ugv_ref.urdf.xacro.
+#
+# Topic names are relative to the vehicle namespace: with the default empty namespace the Gazebo
+# topic `scan` is `/scan`; spawned with namespace `ugv1` it is `/ugv1/scan`.
+apiVersion: fieldproof.dev/v0alpha1
+kind: Robot
+metadata:
+  name: ugv_ref
+  description: Differential-drive UGV with 2D lidar, IMU, RGB-D camera and GNSS
+  domain: ground
+  licence: Apache-2.0
+description:
+  xacro: urdf/ugv_ref.urdf.xacro
+  urdf: ugv_ref.urdf # generated at build time
+  sdf: model.sdf # generated at build time
+  model_uri: model://ugv_ref
+  launch: spawn_ugv_ref.launch.py
+  meshes: meshes/ # licence in meshes/LICENSE.txt
+  xacro_args: # defaults; the model name is given at spawn time (launch argument `name`)
+    namespace: ""
+    frame_prefix: ""
+    gps: true
+    lidar_rate: 10
+    imu_rate: 100
+    camera_rate: 15
+    gps_rate: 5
+    camera_width: 640
+    camera_height: 480
+frames:
+  base: base_link
+  footprint: base_footprint
+  odom: odom
+dimensions:
+  length_m: 0.70
+  width_m: 0.44
+  height_m: 0.235 # roof top above the ground, lidar excluded
+  ground_clearance_m: 0.07
+  mass_kg: 21.6
+drive:
+  type: differential
+  wheel_radius_m: 0.11
+  wheel_separation_m: 0.48
+  joints: [wheel_left_joint, wheel_right_joint]
+  limits:
+    max_linear_velocity_mps: 1.5
+    max_angular_velocity_radps: 3.0
+    max_linear_acceleration_mps2: 2.0
+    max_angular_acceleration_radps2: 4.0
+  command:
+    gz_topic: cmd_vel
+    gz_type: gz.msgs.Twist
+    ros_topic: cmd_vel
+    ros_type: geometry_msgs/msg/Twist
+  odometry:
+    gz_topic: odom
+    gz_type: gz.msgs.Odometry
+    ros_topic: odom
+    ros_type: nav_msgs/msg/Odometry
+    rate_hz: 50
+    frame_id: odom
+    child_frame_id: base_link
+  joint_states:
+    gz_topic: joint_states
+    gz_type: gz.msgs.Model
+    ros_topic: joint_states
+    ros_type: sensor_msgs/msg/JointState
+sensors:
+  - name: lidar
+    type: gpu_lidar
+    frame_id: lidar_link
+    rate_hz: 10
+    gz_topic: scan
+    noise:
+      range_stddev_m: 0.01
+    outputs:
+      - gz_topic: scan
+        gz_type: gz.msgs.LaserScan
+        ros_topic: scan
+        ros_type: sensor_msgs/msg/LaserScan
+        ros_frame_id: lidar_link
+  - name: imu
+    type: imu
+    frame_id: imu_link
+    rate_hz: 100
+    gz_topic: imu
+    noise:
+      gyro_stddev_radps: 0.009
+      gyro_bias_stddev_radps: 0.00075
+      accel_stddev_mps2: 0.021
+      accel_bias_stddev_mps2: 0.005
+    outputs:
+      - gz_topic: imu
+        gz_type: gz.msgs.IMU
+        ros_topic: imu/data
+        ros_type: sensor_msgs/msg/Imu
+        ros_frame_id: imu_link
+  - name: camera
+    type: rgbd_camera
+    frame_id: camera_link # Gazebo convention, x forward; the optical frame is camera_optical_link
+    rate_hz: 15
+    gz_topic: camera
+    resolution: [640, 480]
+    horizontal_fov_rad: 1.204
+    noise:
+      pixel_stddev: 0.007
+    outputs:
+      - gz_topic: camera/image
+        gz_type: gz.msgs.Image
+        ros_topic: camera/image
+        ros_type: sensor_msgs/msg/Image
+        ros_frame_id: camera_optical_link
+      - gz_topic: camera/camera_info
+        gz_type: gz.msgs.CameraInfo
+        ros_topic: camera/camera_info
+        ros_type: sensor_msgs/msg/CameraInfo
+        ros_frame_id: camera_optical_link
+      - gz_topic: camera/depth_image
+        gz_type: gz.msgs.Image
+        ros_topic: camera/depth/image
+        ros_type: sensor_msgs/msg/Image
+        ros_frame_id: camera_optical_link
+      - gz_topic: camera/points
+        gz_type: gz.msgs.PointCloudPacked
+        ros_topic: camera/points
+        ros_type: sensor_msgs/msg/PointCloud2
+        ros_frame_id: camera_link
+  - name: gps
+    type: navsat
+    frame_id: gps_link
+    rate_hz: 5
+    gz_topic: gps/fix
+    optional: true # xacro argument gps:=false removes it
+    noise:
+      horizontal_stddev_m: 1.0
+      vertical_stddev_m: 2.0
+      velocity_stddev_mps: 0.1
+    outputs:
+      - gz_topic: gps/fix
+        gz_type: gz.msgs.NavSat
+        ros_topic: gps/fix
+        ros_type: sensor_msgs/msg/NavSatFix
+        ros_frame_id: gps_link
+        # Gazebo Harmonic's NavSat system publishes the fix without a frame_id in the header
+        # (gz-sim issue 2236); the bridge adapter of P1-T03 sets ros_frame_id.
+        gz_header_frame_id: false

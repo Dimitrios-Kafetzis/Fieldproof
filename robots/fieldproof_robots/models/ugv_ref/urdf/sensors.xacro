@@ -1,0 +1,163 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo sensor macros for the reference vehicles (task P1-T01). Each macro emits a <gazebo
+  reference="link"> block with one Gazebo Harmonic sensor, its topic, its update rate, its noise
+  model and the frame_id its messages carry (gz_frame_id, so the frame survives the lumping of
+  fixed joints by the URDF parser). The noise figures approximate mid-range commercial units:
+  a 2D lidar in the SICK TiM / RPLIDAR class, a MEMS IMU in the BMI088 / ICM-42688 class, an
+  RGB-D camera in the RealSense D435 class and a single-band GNSS receiver without corrections.
+  P6-T03 replaces them with figures calibrated from field logs.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- 360 degree 2D lidar: 720 beams, 0.1 to 25 m, 1 cm gaussian range noise. -->
+  <xacro:macro name="lidar_2d" params="link topic rate samples:=720 min_range:=0.10 max_range:=25.0 noise_stddev:=0.01">
+    <gazebo reference="${link}">
+      <sensor name="lidar" type="gpu_lidar">
+        <topic>${topic}</topic>
+        <gz_frame_id>${link}</gz_frame_id>
+        <update_rate>${rate}</update_rate>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>${samples}</samples>
+              <resolution>1</resolution>
+              <min_angle>${-pi}</min_angle>
+              <max_angle>${pi}</max_angle>
+            </horizontal>
+          </scan>
+          <range>
+            <min>${min_range}</min>
+            <max>${max_range}</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>${noise_stddev}</stddev>
+          </noise>
+        </lidar>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- 6-axis MEMS IMU: white noise plus a slowly varying bias on every axis. -->
+  <xacro:macro name="imu" params="link topic rate gyro_stddev:=0.009 gyro_bias:=0.00075 accel_stddev:=0.021 accel_bias:=0.005">
+    <xacro:macro name="imu_axis_noise" params="stddev bias">
+      <noise type="gaussian">
+        <mean>0.0</mean>
+        <stddev>${stddev}</stddev>
+        <bias_mean>0.0</bias_mean>
+        <bias_stddev>${bias}</bias_stddev>
+        <dynamic_bias_stddev>${bias / 10}</dynamic_bias_stddev>
+        <dynamic_bias_correlation_time>400.0</dynamic_bias_correlation_time>
+      </noise>
+    </xacro:macro>
+    <gazebo reference="${link}">
+      <sensor name="imu" type="imu">
+        <topic>${topic}</topic>
+        <gz_frame_id>${link}</gz_frame_id>
+        <update_rate>${rate}</update_rate>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+        <imu>
+          <angular_velocity>
+            <x><xacro:imu_axis_noise stddev="${gyro_stddev}" bias="${gyro_bias}"/></x>
+            <y><xacro:imu_axis_noise stddev="${gyro_stddev}" bias="${gyro_bias}"/></y>
+            <z><xacro:imu_axis_noise stddev="${gyro_stddev}" bias="${gyro_bias}"/></z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x><xacro:imu_axis_noise stddev="${accel_stddev}" bias="${accel_bias}"/></x>
+            <y><xacro:imu_axis_noise stddev="${accel_stddev}" bias="${accel_bias}"/></y>
+            <z><xacro:imu_axis_noise stddev="${accel_stddev}" bias="${accel_bias}"/></z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <!--
+    RGB-D camera. Gazebo publishes <topic>/image, <topic>/depth_image, <topic>/points and
+    <topic>/camera_info, all in the Gazebo camera convention (x forward); the frame_id is the
+    physical camera link. The bridge (P1-T03) relabels image and camera_info with the optical
+    frame, which the URDF provides as <link>'s child camera_optical_link.
+  -->
+  <xacro:macro name="rgbd_camera" params="link topic rate width height hfov:=1.204 near:=0.1 far:=10.0 noise_stddev:=0.007">
+    <gazebo reference="${link}">
+      <sensor name="camera" type="rgbd_camera">
+        <topic>${topic}</topic>
+        <gz_frame_id>${link}</gz_frame_id>
+        <update_rate>${rate}</update_rate>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+        <camera>
+          <horizontal_fov>${hfov}</horizontal_fov>
+          <image>
+            <width>${width}</width>
+            <height>${height}</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>${near}</near>
+            <far>${far}</far>
+          </clip>
+          <depth_camera>
+            <clip>
+              <near>${near * 2}</near>
+              <far>${far * 0.8}</far>
+            </clip>
+          </depth_camera>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>${noise_stddev}</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- Single-band GNSS: about one metre horizontal and two metres vertical position noise. -->
+  <xacro:macro name="gnss" params="link topic rate horizontal_stddev:=1.0 vertical_stddev:=2.0 velocity_stddev:=0.1">
+    <gazebo reference="${link}">
+      <sensor name="gps" type="navsat">
+        <topic>${topic}</topic>
+        <gz_frame_id>${link}</gz_frame_id>
+        <update_rate>${rate}</update_rate>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+        <navsat>
+          <position_sensing>
+            <horizontal>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>${horizontal_stddev}</stddev>
+              </noise>
+            </horizontal>
+            <vertical>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>${vertical_stddev}</stddev>
+              </noise>
+            </vertical>
+          </position_sensing>
+          <velocity_sensing>
+            <horizontal>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>${velocity_stddev}</stddev>
+              </noise>
+            </horizontal>
+            <vertical>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>${velocity_stddev * 2}</stddev>
+              </noise>
+            </vertical>
+          </velocity_sensing>
+        </navsat>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+</robot>
