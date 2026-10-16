@@ -42,7 +42,9 @@ next call; `make down` stops it. `ROS_WORKSPACES="sim"` limits a run to one work
 
 A uv project with a `src/` layout: `engine/pyproject.toml` declares the package `fieldproof`, its
 exact dependencies (Pydantic, Typer, Rich) and the `fieldproof` console script;
-`engine/uv.lock` pins the resolution. `uv sync --locked --project engine` creates `engine/.venv`,
+`engine/uv.lock` pins the resolution. The version is dynamic: hatchling reads it from the
+repository's `version.txt`, and uv's `cache-keys` rebuild the editable install when that file
+changes. `uv sync --locked --project engine` creates `engine/.venv`,
 and `uv run --project engine fieldproof --version` runs the CLI (`python -m fieldproof` works
 too). Tests live in `engine/tests/` and run with the `pytest` of the dev dependency group.
 
@@ -97,10 +99,13 @@ container puts the plugin library on `GZ_SIM_SYSTEM_PLUGIN_PATH` and the worlds 
 ## One version everywhere
 
 `version.txt` is the repository version, maintained by release-please
-([ci.md](ci.md#releases)). The `extra-files` list in `release-please-config.json` makes the
-release pull request update the same number in `engine/pyproject.toml`, both cockpit
-`package.json` files, the four `package.xml` files, `bridge/fieldproof_bridge/setup.py` and the
-bridge module (the last two through `x-release-please-version` markers). `fieldproof --version`,
+([ci.md](ci.md#releases)). The engine reads it directly (dynamic version), so `engine/uv.lock`,
+which records no version for a dynamic project, stays valid across releases. The `extra-files`
+list in `release-please-config.json` makes the release pull request update the same number in
+both cockpit `package.json` files, the four `package.xml` files,
+`bridge/fieldproof_bridge/setup.py` and the bridge module (the last two through
+`x-release-please-version` markers); `pnpm-lock.yaml` records no version for workspace packages
+either. `fieldproof --version`,
 the cockpit banner and the Gazebo plugin library all report that number, and
 `tests/layout/test_layout.sh` fails when any file disagrees with `version.txt`.
 
