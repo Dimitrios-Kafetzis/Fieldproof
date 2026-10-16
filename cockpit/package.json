@@ -1,0 +1,16 @@
+{
+  "name": "fieldproof-cockpit-workspace",
+  "version": "0.2.0",
+  "private": true,
+  "description": "pnpm workspace for the Fieldproof cockpit: the web GUI (apps/cockpit) and its shared packages",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "pnpm --recursive run build",
+    "test": "pnpm --recursive run test",
+    "typecheck": "pnpm --recursive run typecheck"
+  }
+}

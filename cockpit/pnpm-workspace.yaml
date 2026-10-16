@@ -1,0 +1,10 @@
+# pnpm workspace for the Fieldproof cockpit (task P0-T07, ADR-0003): the Vite application in
+# apps/cockpit and the shared packages under packages/. `pnpm install --frozen-lockfile` from this
+# directory; `make test-cockpit` from the repository root.
+packages:
+  - apps/*
+  - packages/*
+# Supply-chain policy: a release must be at least seven days old before it is installed, so a
+# compromised package pulled by its registry never lands here (pnpm refuses newer versions).
+minimumReleaseAge: 10080
+minimumReleaseAgeStrict: true
