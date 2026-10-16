@@ -1,8 +1,11 @@
 <?xml version="1.0"?>
 <!--
-  Fieldproof empty world (task P0-T07): a ground plane and a sun, fixed 1 ms physics step, the
-  system plugins a headless `gz sim -s` server needs. Reference worlds (depot, marine) arrive with
-  P1-T02 and P5-T03. Checked by `gz sdf -check` in the fieldproof_worlds tests.
+  Fieldproof empty world (tasks P0-T07, P1-T01): a ground plane and a sun, fixed 1 ms physics
+  step, the system plugins a headless `gz sim -s` server needs, and the sensor systems the
+  reference vehicles rely on: Sensors (rendering sensors: cameras, GPU lidar; the server needs
+  its headless-rendering flag or a display), Imu and NavSat (with the spherical coordinates the
+  GNSS fix is computed from). Reference worlds (depot, marine) arrive with P1-T02 and P5-T03. Checked by
+  `gz sdf -check` in the fieldproof_worlds tests; fieldproof_robots spawns its UGV into it.
 -->
 <sdf version="1.11">
   <world name="fieldproof_empty">
@@ -14,8 +17,22 @@
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
     <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
 
     <gravity>0 0 -9.81</gravity>
+    <!-- Geodetic origin of the world frame (an arbitrary point on the Athens coast), ENU. -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>37.9360</latitude_deg>
+      <longitude_deg>23.6990</longitude_deg>
+      <elevation>5.0</elevation>
+      <heading_deg>0.0</heading_deg>
+    </spherical_coordinates>
     <scene>
       <ambient>0.4 0.4 0.4 1</ambient>
       <background>0.7 0.8 0.9 1</background>

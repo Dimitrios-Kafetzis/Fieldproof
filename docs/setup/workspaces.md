@@ -81,20 +81,29 @@ Each directory is a colcon workspace whose packages sit at its top level, built 
 | `sim/fieldproof_worlds` | `ament_cmake` | `gz sdf --check` on every world in `worlds/`, `ament_xmllint` on `package.xml` |
 | `sim/fieldproof_gz_plugins` | `ament_cmake`, C++17 | GoogleTest (`ament_add_gtest`), `ament_xmllint`; `fieldproof::HelloSystem` is the first system plugin |
 | `bridge/fieldproof_bridge` | `ament_python` | pytest in `test/` |
-| `robots/fieldproof_robots` | `ament_cmake` | pytest through `ament_cmake_pytest` on the installed layout, `ament_xmllint` |
+| `robots/fieldproof_robots` | `ament_cmake` | `check_urdf` and `gz sdf --check` on the generated descriptions, pytest through `ament_cmake_pytest` on the installed layout and the manifest, a `launch_testing` spawn-and-drive test, `ament_xmllint` ([robots.md](../reference/robots.md)) |
 
 `tools/ros/colcon.sh build|test|tidy [workspace ...]` builds with
 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` into `<workspace>/build`, `install` and `log` (ignored by
 git), runs `colcon test` with `--return-code-on-test-failure` and prints
 `colcon test-result --verbose`. `tidy` runs `run-clang-tidy` with the repository `.clang-tidy`
 (warnings are errors) over each package's own translation units, with headers filtered to the
-`fieldproof_*` packages so Gazebo's headers are not diagnosed. The Python packages keep a
-`pytest.ini` of their own because the distribution pytest in the container (7.4) does not accept
-the root `pyproject.toml` settings written for the engine's pytest 9.
+`fieldproof_*` packages so Gazebo's headers are not diagnosed. The workspaces default to
+`sim bridge robots`, and that order is also the overlay chain: before a workspace is built or
+tested, the install space of every workspace earlier in the list is sourced, so `robots` sees
+`fieldproof_worlds` (its launch test spawns the UGV into the empty world). The Python packages
+keep a `pytest.ini` of their own because the distribution pytest in the container (7.4) does not
+accept the root `pyproject.toml` settings written for the engine's pytest 9; for an `ament_cmake`
+package it sits at the workspace root (`robots/pytest.ini`), above `build/`, because
+`ament_add_pytest_test` probes pytest from the build directory at configure time and silently
+registers no test when that probe rejects the root settings.
 
-The plugin and world packages install environment hooks: sourcing `sim/install/setup.bash` in the
-container puts the plugin library on `GZ_SIM_SYSTEM_PLUGIN_PATH` and the worlds on
-`GZ_SIM_RESOURCE_PATH`, so `gz sim -s fieldproof_empty.sdf` finds them.
+The plugin, world and robot packages install environment hooks: sourcing `sim/install/setup.bash`
+in the container puts the plugin library on `GZ_SIM_SYSTEM_PLUGIN_PATH` and the worlds on
+`GZ_SIM_RESOURCE_PATH`, so `gz sim -s fieldproof_empty.sdf` finds them; `robots/install` adds
+the vehicle models, so `model://ugv_ref` resolves. The vehicle descriptions are xacro, rendered
+to URDF and SDF at build time by `scripts/generate_model.py` (`xacro`, then `gz sdf -p`), which
+needs the `xacro` package of the sim image.
 
 ## One version everywhere
 

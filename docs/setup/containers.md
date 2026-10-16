@@ -23,7 +23,7 @@ what CI does after building them with `docker buildx bake`).
 | Image | Dockerfile | Contents | Size |
 | --- | --- | --- | --- |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2` | `docker/base-ros2/Dockerfile` | Ubuntu 24.04, ROS 2 Jazzy `ros-base`, `tini`, non-root user `fieldproof` (uid 1000) | 0.9 GB |
-| `ghcr.io/dimitrios-kafetzis/fieldproof-sim` | `docker/sim/Dockerfile` | base + `ros-jazzy-ros-gz` (Gazebo Harmonic via the Jazzy vendor packages), Mesa EGL stack, headless defaults | 3.1 GB |
+| `ghcr.io/dimitrios-kafetzis/fieldproof-sim` | `docker/sim/Dockerfile` | base + `ros-jazzy-ros-gz` (Gazebo Harmonic via the Jazzy vendor packages), `xacro` for the vehicle descriptions, Mesa EGL stack, headless defaults | 3.2 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-dev` | `docker/dev/Dockerfile` | sim + build-essential, cmake, ninja, clang/clang-format/clang-tidy/clangd, gdb, colcon with mixins, rosdep, vcstool, uv, passwordless sudo | 4.1 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-apt-lists` | `docker/base-ros2/Dockerfile`, stage `apt-lists` | only `/var/lib/apt/lists` of the base image, tagged `<APT_SNAPSHOT>-<ROS_SNAPSHOT>`; seeds later builds (see [Package lists](#package-lists-from-ghcr)) | 46 MB |
 

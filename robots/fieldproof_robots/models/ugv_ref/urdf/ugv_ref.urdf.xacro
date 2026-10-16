@@ -1,0 +1,229 @@
+<?xml version="1.0"?>
+<!--
+  Fieldproof reference UGV (task P1-T01): a differential-drive ground vehicle with the sensor
+  suite of a typical indoor/outdoor platform. The URDF is the single description: robot_state_publisher
+  reads it for TF, and `gz sdf -p` turns it into the SDF that Gazebo spawns (scripts/generate_model.py
+  does both at build time). Gazebo-only content (sensors, friction, system plugins) sits in
+  <gazebo> blocks, which the URDF parser folds into the SDF.
+
+  Frames (REP 103/105): base_link at the drive axle, x forward, y left, z up; base_footprint on the
+  ground below it. Sensors keep their own links so the TF tree matches a real vehicle, and every
+  Gazebo message carries that link as frame_id (gz_frame_id) even though the fixed joints are lumped
+  into base_link in the SDF.
+
+  Arguments (xacro namespace:=... or the launch file; the model name is given at spawn time):
+    namespace     prefix of every Gazebo topic (/<namespace>/cmd_vel, ...)   "" (topics at the root)
+    frame_prefix  prefix of every link and joint name                       ""
+    gps           include the GNSS receiver                                 true
+    lidar_rate, imu_rate, camera_rate, gps_rate   sensor update rates [Hz]; the defaults are the
+                  rates declared in robot.yaml, which the tests check against the generated SDF
+    camera_width, camera_height   RGB-D resolution                           640 x 480
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="ugv_ref">
+  <xacro:arg name="namespace" default=""/>
+  <xacro:arg name="frame_prefix" default=""/>
+  <xacro:arg name="gps" default="true"/>
+  <xacro:arg name="lidar_rate" default="10"/>
+  <xacro:arg name="imu_rate" default="100"/>
+  <xacro:arg name="camera_rate" default="15"/>
+  <xacro:arg name="gps_rate" default="5"/>
+  <xacro:arg name="camera_width" default="640"/>
+  <xacro:arg name="camera_height" default="480"/>
+
+  <xacro:property name="namespace" value="$(arg namespace)"/>
+  <xacro:property name="ns" value="${'/' + namespace.strip('/') if namespace.strip('/') else ''}"/>
+  <xacro:property name="prefix" value="$(arg frame_prefix)"/>
+
+  <!-- Chassis: an aluminium box with a sloped nose, 18 kg, 7 cm ground clearance. -->
+  <xacro:property name="chassis_length" value="0.70"/>
+  <xacro:property name="chassis_width" value="0.44"/>
+  <xacro:property name="chassis_height" value="0.20"/>
+  <xacro:property name="chassis_mass" value="18.0"/>
+  <!-- Height of the chassis centre above base_link (the drive axle). -->
+  <xacro:property name="chassis_z" value="0.06"/>
+  <xacro:property name="chassis_top" value="${chassis_z + chassis_height / 2}"/>
+
+  <!-- Drive wheels on the lateral axis through base_link; casters front and rear. -->
+  <xacro:property name="wheel_radius" value="0.11"/>
+  <xacro:property name="wheel_width" value="0.06"/>
+  <xacro:property name="wheel_mass" value="1.5"/>
+  <xacro:property name="wheel_separation" value="0.48"/>
+  <xacro:property name="caster_radius" value="0.05"/>
+  <xacro:property name="caster_mass" value="0.3"/>
+  <xacro:property name="caster_x" value="0.28"/>
+
+  <!-- Velocity and acceleration limits enforced by the drive controller. -->
+  <xacro:property name="max_linear_velocity" value="1.5"/>
+  <xacro:property name="max_angular_velocity" value="3.0"/>
+  <xacro:property name="max_linear_acceleration" value="2.0"/>
+  <xacro:property name="max_angular_acceleration" value="4.0"/>
+
+  <xacro:include filename="inertials.xacro"/>
+  <xacro:include filename="sensors.xacro"/>
+
+  <material name="fieldproof_orange">
+    <color rgba="0.93 0.45 0.10 1.0"/>
+  </material>
+  <material name="dark_grey">
+    <color rgba="0.20 0.20 0.20 1.0"/>
+  </material>
+  <material name="light_grey">
+    <color rgba="0.70 0.70 0.70 1.0"/>
+  </material>
+
+  <!-- ================================================================== base -->
+  <link name="${prefix}base_link">
+    <visual>
+      <origin xyz="0 0 ${chassis_z}" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="model://ugv_ref/meshes/chassis.obj" scale="1 1 1"/>
+      </geometry>
+      <material name="fieldproof_orange"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${chassis_z}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+    </collision>
+    <xacro:box_inertial mass="${chassis_mass}" x="${chassis_length}" y="${chassis_width}" z="${chassis_height}">
+      <origin xyz="0 0 ${chassis_z}" rpy="0 0 0"/>
+    </xacro:box_inertial>
+  </link>
+
+  <link name="${prefix}base_footprint"/>
+  <joint name="${prefix}base_footprint_joint" type="fixed">
+    <parent link="${prefix}base_link"/>
+    <child link="${prefix}base_footprint"/>
+    <origin xyz="0 0 ${-wheel_radius}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================================================================== wheels -->
+  <xacro:macro name="drive_wheel" params="side reflect">
+    <link name="${prefix}wheel_${side}_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi / 2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+        <material name="dark_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi / 2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+      <xacro:cylinder_inertial mass="${wheel_mass}" radius="${wheel_radius}" length="${wheel_width}">
+        <origin xyz="0 0 0" rpy="${pi / 2} 0 0"/>
+      </xacro:cylinder_inertial>
+    </link>
+    <joint name="${prefix}wheel_${side}_joint" type="continuous">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}wheel_${side}_link"/>
+      <origin xyz="0 ${reflect * wheel_separation / 2} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="0.05" friction="0.0"/>
+    </joint>
+    <gazebo reference="${prefix}wheel_${side}_link">
+      <mu1>1.0</mu1>
+      <mu2>1.0</mu2>
+    </gazebo>
+  </xacro:macro>
+  <xacro:drive_wheel side="left" reflect="1"/>
+  <xacro:drive_wheel side="right" reflect="-1"/>
+
+  <!-- Casters: frictionless spheres fixed to the chassis, lumped into base_link by the parser. -->
+  <xacro:macro name="caster" params="position reflect">
+    <link name="${prefix}caster_${position}_link">
+      <visual>
+        <geometry>
+          <sphere radius="${caster_radius}"/>
+        </geometry>
+        <material name="dark_grey"/>
+      </visual>
+      <collision>
+        <geometry>
+          <sphere radius="${caster_radius}"/>
+        </geometry>
+      </collision>
+      <xacro:sphere_inertial mass="${caster_mass}" radius="${caster_radius}">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </xacro:sphere_inertial>
+    </link>
+    <joint name="${prefix}caster_${position}_joint" type="fixed">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}caster_${position}_link"/>
+      <origin xyz="${reflect * caster_x} 0 ${-(wheel_radius - caster_radius)}" rpy="0 0 0"/>
+    </joint>
+    <gazebo reference="${prefix}caster_${position}_link">
+      <mu1>0.0</mu1>
+      <mu2>0.0</mu2>
+    </gazebo>
+  </xacro:macro>
+  <xacro:caster position="front" reflect="1"/>
+  <xacro:caster position="rear" reflect="-1"/>
+
+  <!-- ================================================================== sensors -->
+  <!-- 2D lidar on a mast at the front of the roof, above everything else on the vehicle. -->
+  <xacro:sensor_link name="lidar" parent="${prefix}base_link" xyz="0.20 0 ${chassis_top + 0.025}" rpy="0 0 0" mass="0.2">
+    <cylinder radius="0.04" length="0.05"/>
+  </xacro:sensor_link>
+  <xacro:lidar_2d link="${prefix}lidar_link" topic="${ns}/scan" rate="$(arg lidar_rate)"/>
+
+  <!-- IMU at the centre of the chassis. -->
+  <xacro:sensor_link name="imu" parent="${prefix}base_link" xyz="0 0 0.10" rpy="0 0 0" mass="0.02">
+    <box size="0.02 0.02 0.01"/>
+  </xacro:sensor_link>
+  <xacro:imu link="${prefix}imu_link" topic="${ns}/imu" rate="$(arg imu_rate)"/>
+
+  <!-- RGB-D camera on the nose, looking forward; camera_optical_link is the ROS optical frame. -->
+  <xacro:sensor_link name="camera" parent="${prefix}base_link" xyz="0.30 0 0.145" rpy="0 0 0" mass="0.1">
+    <box size="0.025 0.09 0.025"/>
+  </xacro:sensor_link>
+  <link name="${prefix}camera_optical_link"/>
+  <joint name="${prefix}camera_optical_joint" type="fixed">
+    <parent link="${prefix}camera_link"/>
+    <child link="${prefix}camera_optical_link"/>
+    <origin xyz="0 0 0" rpy="${-pi / 2} 0 ${-pi / 2}"/>
+  </joint>
+  <xacro:rgbd_camera link="${prefix}camera_link" topic="${ns}/camera" rate="$(arg camera_rate)"
+                     width="$(arg camera_width)" height="$(arg camera_height)"/>
+
+  <!-- GNSS receiver on the rear of the roof (optional). -->
+  <xacro:if value="$(arg gps)">
+    <xacro:sensor_link name="gps" parent="${prefix}base_link" xyz="-0.25 0 ${chassis_top + 0.01}" rpy="0 0 0" mass="0.05">
+      <cylinder radius="0.03" length="0.02"/>
+    </xacro:sensor_link>
+    <xacro:gnss link="${prefix}gps_link" topic="${ns}/gps/fix" rate="$(arg gps_rate)"/>
+  </xacro:if>
+
+  <!-- ================================================================== Gazebo systems -->
+  <gazebo>
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>${prefix}wheel_left_joint</left_joint>
+      <right_joint>${prefix}wheel_right_joint</right_joint>
+      <wheel_separation>${wheel_separation}</wheel_separation>
+      <wheel_radius>${wheel_radius}</wheel_radius>
+      <topic>${ns}/cmd_vel</topic>
+      <odom_topic>${ns}/odom</odom_topic>
+      <tf_topic>${ns}/tf</tf_topic>
+      <frame_id>${prefix}odom</frame_id>
+      <child_frame_id>${prefix}base_link</child_frame_id>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <max_linear_velocity>${max_linear_velocity}</max_linear_velocity>
+      <min_linear_velocity>${-max_linear_velocity}</min_linear_velocity>
+      <max_angular_velocity>${max_angular_velocity}</max_angular_velocity>
+      <min_angular_velocity>${-max_angular_velocity}</min_angular_velocity>
+      <max_linear_acceleration>${max_linear_acceleration}</max_linear_acceleration>
+      <min_linear_acceleration>${-max_linear_acceleration}</min_linear_acceleration>
+      <max_angular_acceleration>${max_angular_acceleration}</max_angular_acceleration>
+      <min_angular_acceleration>${-max_angular_acceleration}</min_angular_acceleration>
+    </plugin>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>${ns}/joint_states</topic>
+      <joint_name>${prefix}wheel_left_joint</joint_name>
+      <joint_name>${prefix}wheel_right_joint</joint_name>
+    </plugin>
+  </gazebo>
+</robot>

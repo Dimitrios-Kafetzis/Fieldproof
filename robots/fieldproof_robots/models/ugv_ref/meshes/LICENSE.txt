@@ -1,0 +1,8 @@
+Meshes of the Fieldproof reference UGV (robots/fieldproof_robots/models/ugv_ref/meshes)
+
+chassis.obj, chassis.mtl
+  Author:   Dimitris Kafetzis, for Fieldproof (task P1-T01)
+  Source:   original work, written for this repository (no external model was copied)
+  Date:     2026-10-16
+  Licence:  Apache-2.0 (SPDX: Apache-2.0), https://www.apache.org/licenses/LICENSE-2.0
+            Same terms as the repository; see LICENSE at the root.

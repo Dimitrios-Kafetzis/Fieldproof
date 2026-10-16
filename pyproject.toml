@@ -68,10 +68,15 @@ plugins = []
 exclude = ["^build/", "^install/", "^log/", "^node_modules/", "^assets/"]
 # Where the first-party packages live, so tests and tools importing them type-check.
 mypy_path = ["engine/src", "bridge/fieldproof_bridge"]
-# ROS 2 Python packages (rclpy, launch, ament) ship without type information.
+# Only directories with an __init__.py are packages: the ament packages on mypy_path also hold
+# launch/, config/ and test/ directories, which must not shadow the ROS 2 `launch` module.
+namespace_packages = false
+# ROS 2 Python packages (rclpy, launch, ament, xacro), the Gazebo bindings (gz.*) and the
+# distribution PyYAML the ROS packages use ship without type information.
 [[tool.mypy.overrides]]
-module = ["rclpy.*", "launch.*", "launch_ros.*", "launch_testing.*", "ament_index_python.*",
-          "std_msgs.*", "geometry_msgs.*", "sensor_msgs.*", "nav_msgs.*", "tf2_ros.*", "mcap.*",
+module = ["rclpy.*", "launch.*", "launch_ros.*", "launch_testing.*", "launch_testing_ros.*",
+          "ament_index_python.*", "std_msgs.*", "geometry_msgs.*", "sensor_msgs.*", "nav_msgs.*",
+          "tf2_msgs.*", "tf2_ros.*", "mcap.*", "xacro", "gz.*", "yaml",
           "setuptools", "setuptools.*"]  # setuptools: the setup.py of ament_python packages
 ignore_missing_imports = true
 

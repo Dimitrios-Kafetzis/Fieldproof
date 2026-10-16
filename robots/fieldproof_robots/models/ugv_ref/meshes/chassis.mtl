@@ -1,0 +1,8 @@
+# Material of chassis.obj (task P1-T01), the same orange as the URDF material.
+newmtl fieldproof_orange
+Ka 0.93 0.45 0.10
+Kd 0.93 0.45 0.10
+Ks 0.10 0.10 0.10
+Ns 10
+d 1.0
+illum 2

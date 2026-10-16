@@ -112,3 +112,4 @@ nav:
   - Reference:
       - reference/index.md
       - CLI: reference/cli.md
+      - Reference vehicles: reference/robots.md

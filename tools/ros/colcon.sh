@@ -11,7 +11,10 @@
 #   tidy    run-clang-tidy over the C++ packages with the compile commands of the last build,
 #           using the repository's .clang-tidy (warnings are errors)
 #
-# Workspaces default to sim bridge robots. Set COLCON_JOBS to cap the parallelism.
+# Workspaces default to sim bridge robots, and that order is also the overlay chain: before a
+# workspace is built or tested, the install space of every workspace earlier in the list is
+# sourced (robots builds on sim: its launch test loads a fieldproof_worlds world).
+# Set COLCON_JOBS to cap the parallelism.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -49,17 +52,34 @@ jobs_flag=()
 [[ -n "${COLCON_JOBS:-}" ]] && jobs_flag=(--parallel-workers "$COLCON_JOBS")
 handlers=(--event-handlers console_cohesion+ desktop_notification- status-)
 
+# Source the install spaces of the workspaces that precede "$1" in the default order, so that
+# their packages are visible as an underlay (ament index, environment hooks) to the one being
+# built or tested. Runs in the subshell of the caller; the setup scripts are not written for `set -u`.
+source_underlays() {
+  local ws="$1" other
+  for other in "${DEFAULT_WORKSPACES[@]}"; do
+    [[ "$other" == "$ws" ]] && break
+    if [[ -f "$REPO/$other/install/setup.bash" ]]; then
+      set +u
+      # shellcheck disable=SC1090,SC1091
+      source "$REPO/$other/install/setup.bash"
+      set -u
+    fi
+  done
+}
+
 build_ws() {
   local ws="$1"
   echo "==> colcon build ($ws)"
-  (cd "$REPO/$ws" && colcon build "${jobs_flag[@]}" "${handlers[@]}" \
+  (cd "$REPO/$ws" && source_underlays "$ws" && colcon build "${jobs_flag[@]}" "${handlers[@]}" \
     --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo)
 }
 
 test_ws() {
   local ws="$1"
   echo "==> colcon test ($ws)"
-  (cd "$REPO/$ws" && colcon test "${jobs_flag[@]}" "${handlers[@]}" --return-code-on-test-failure)
+  (cd "$REPO/$ws" && source_underlays "$ws" \
+    && colcon test "${jobs_flag[@]}" "${handlers[@]}" --return-code-on-test-failure)
   (cd "$REPO/$ws" && colcon test-result --verbose)
 }
 
