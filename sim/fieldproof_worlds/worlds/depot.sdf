@@ -1,0 +1,416 @@
+<?xml version="1.0"?>
+<!--
+  Fieldproof reference world "depot" (task P1-T02): a navigation course for the reference
+  vehicles. Indoors, a 32 m x 20 m depot building without a roof (the sun lights every room, see
+  docs/reference/worlds.md): a warehouse hall with three rows of pallet racking and 2.8 m aisles,
+  a 2.5 m corridor, and an office, a workshop and a loading bay behind it, connected by 1.2 m to
+  4 m door openings. Outdoors, a fenced 32 m x 22 m yard with a 10 % ramp up to a 0.8 m plateau
+  and a 16 % ramp down, kerbs on both edges, a chicane of jersey barriers in front of the gate,
+  and cones, drums, pallets and boxes as obstacles. Named frames give the spawn points and goals
+  that scenarios refer to. The map in docs/reference/worlds/depot-map.svg is generated from this
+  file by scripts/world_map.py.
+
+  Coordinates: x east, y north, metres. The building spans x -16..16, y 0..20; the yard y -22..0.
+  Walls are 0.2 m thick and 3 m high; the fence is 1.8 m high. Fuel models are included as
+  model://<dir> from assets/fuel.lock (make assets), the pallet and traffic cone come from this
+  package's models/ directory, and everything else is primitives. No model has a mesh collision:
+  in gz-physics a mesh against the ground plane costs a large share of every step, and the
+  world must run at real time with the UGV and its sensors (see docs/reference/worlds.md).
+
+  Physics: fixed 1 ms step, real-time factor 1.0 (the runner raises or lowers it per the
+  scenario's time mode, ADR-0006). Systems: as fieldproof_empty.sdf (Physics, UserCommands,
+  SceneBroadcaster, Contact, Sensors with ogre2, Imu, NavSat) so the UGV's sensors work here.
+-->
+<sdf version="1.11">
+  <world name="depot">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+
+    <gravity>0 0 -9.81</gravity>
+    <!-- Same geodetic origin as fieldproof_empty.sdf (a point on the Athens coast), ENU. -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>37.9360</latitude_deg>
+      <longitude_deg>23.6990</longitude_deg>
+      <elevation>5.0</elevation>
+      <heading_deg>0.0</heading_deg>
+    </spherical_coordinates>
+    <scene>
+      <ambient>0.4 0.4 0.4 1</ambient>
+      <background>0.7 0.8 0.9 1</background>
+      <shadows>true</shadows>
+      <grid>false</grid>
+      <origin_visual>false</origin_visual>
+    </scene>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Spawn points and goals (x y z roll pitch yaw). base_link of the UGV sits 0.12 m above
+         the surface, so a spawn adds that to z (0.92 on the plateau). -->
+    <frame name="spawn_dock"><pose>10 3 0 0 0 -1.5708</pose></frame>
+    <frame name="spawn_hall"><pose>6 15 0 0 0 3.1416</pose></frame>
+    <frame name="goal_office"><pose>-11 2.5 0 0 0 3.1416</pose></frame>
+    <frame name="goal_workshop"><pose>0 3 0 0 0 0</pose></frame>
+    <frame name="goal_aisle"><pose>-9 11.4 0 0 0 3.1416</pose></frame>
+    <frame name="goal_plateau"><pose>-4 -13 0.8 0 0 3.1416</pose></frame>
+    <frame name="goal_gate"><pose>15 -5 0 0 0 0</pose></frame>
+
+    <!-- ============================================================ ground and floors -->
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>120 120</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="grass">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>120 120</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.45 0.55 0.35 1</ambient>
+            <diffuse>0.45 0.55 0.35 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <!-- Visual-only patches: the building floor and the yard asphalt (5 mm above the plane). -->
+        <visual name="floor">
+          <pose>0 10 0.005 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>32 20 0.01</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.75 0.75 0.72 1</ambient>
+            <diffuse>0.75 0.75 0.72 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+        <visual name="asphalt">
+          <pose>0 -11 0.005 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>32 22 0.01</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.32 1</ambient>
+            <diffuse>0.3 0.3 0.32 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ============================================================ building -->
+    <!-- One static model, one link per wall segment or fixture. Walls: 0.2 m thick, 3 m high.
+         Openings: pedestrian door x -14.2..-13 and roller door x 8..12 in the south wall;
+         corridor doors at y 6: office x -11.6..-10.4, workshop x -0.75..0.75, loading bay
+         x 10..12.5; hall openings at y 8.5: x -2..2 and x 9..12; workshop/bay door at x 6,
+         y 2..3.5. -->
+    <model name="depot_building">
+      <static>true</static>
+      <link name="south_wall_west">
+        <pose>-15.15 0 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>1.9 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>1.9 0.2 3</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual>
+      </link>
+      <link name="south_wall_middle">
+        <pose>-2.5 0 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>21 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>21 0.2 3</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual>
+      </link>
+      <link name="south_wall_east">
+        <pose>14.05 0 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>4.1 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>4.1 0.2 3</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual>
+      </link>
+      <link name="roller_door_lintel">
+        <pose>10 0 2.75 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>4 0.2 0.5</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>4 0.2 0.5</size></box></geometry><material><ambient>0.5 0.5 0.55 1</ambient><diffuse>0.5 0.5 0.55 1</diffuse></material></visual>
+      </link>
+      <link name="north_wall">
+        <pose>0 20 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>32.2 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>32.2 0.2 3</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual>
+      </link>
+      <link name="west_wall">
+        <pose>-16 10 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.2 20 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.2 20 3</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual>
+      </link>
+      <link name="east_wall">
+        <pose>16 10 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.2 20 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.2 20 3</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual>
+      </link>
+      <!-- corridor, south side (y 6) -->
+      <link name="corridor_south_a">
+        <pose>-13.8 6 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>4.4 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>4.4 0.2 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <link name="corridor_south_b">
+        <pose>-5.575 6 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>9.65 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>9.65 0.2 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <link name="corridor_south_c">
+        <pose>5.375 6 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>9.25 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>9.25 0.2 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <link name="corridor_south_d">
+        <pose>14.25 6 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>3.5 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.5 0.2 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <!-- corridor, north side (y 8.5) -->
+      <link name="corridor_north_a">
+        <pose>-9 8.5 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>14 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>14 0.2 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <link name="corridor_north_b">
+        <pose>5.5 8.5 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>7 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>7 0.2 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <link name="corridor_north_c">
+        <pose>14 8.5 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>4 0.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>4 0.2 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <!-- room dividers -->
+      <link name="divider_office_workshop">
+        <pose>-6 3 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.2 6.2 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.2 6.2 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <link name="divider_workshop_bay_south">
+        <pose>6 0.95 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.2 2.1 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.2 2.1 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <link name="divider_workshop_bay_north">
+        <pose>6 4.8 1.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.2 2.6 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.2 2.6 3</size></box></geometry><material><ambient>0.85 0.85 0.8 1</ambient><diffuse>0.85 0.85 0.8 1</diffuse></material></visual>
+      </link>
+      <!-- fixtures: office desks and cabinet, workshop bench, loading-bay counter -->
+      <link name="office_desk_a">
+        <pose>-13 4.6 0.375 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>1.6 0.8 0.75</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>1.6 0.8 0.75</size></box></geometry><material><ambient>0.55 0.4 0.25 1</ambient><diffuse>0.55 0.4 0.25 1</diffuse></material></visual>
+      </link>
+      <link name="office_desk_b">
+        <pose>-9 4.6 0.375 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>1.6 0.8 0.75</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>1.6 0.8 0.75</size></box></geometry><material><ambient>0.55 0.4 0.25 1</ambient><diffuse>0.55 0.4 0.25 1</diffuse></material></visual>
+      </link>
+      <link name="office_cabinet">
+        <pose>-6.35 1.5 0.9 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.45 0.9 1.8</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.45 0.9 1.8</size></box></geometry><material><ambient>0.5 0.5 0.52 1</ambient><diffuse>0.5 0.5 0.52 1</diffuse></material></visual>
+      </link>
+      <link name="workshop_bench">
+        <pose>-5.5 3.5 0.45 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.8 2.5 0.9</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.8 2.5 0.9</size></box></geometry><material><ambient>0.45 0.45 0.45 1</ambient><diffuse>0.45 0.45 0.45 1</diffuse></material></visual>
+      </link>
+      <link name="bay_counter">
+        <pose>14.5 4.5 0.5 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>2 0.6 1</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2 0.6 1</size></box></geometry><material><ambient>0.45 0.45 0.45 1</ambient><diffuse>0.45 0.45 0.45 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- ============================================================ yard fence -->
+    <!-- 1.8 m mesh fence panels (0.05 m thick) around the yard, gate opening on the east side
+         y -7..-3 with 2 m posts. The building's west and east walls close the yard at y 0. -->
+    <model name="yard_fence">
+      <static>true</static>
+      <link name="west">
+        <pose>-16 -11 0.9 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.05 22.1 1.8</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.05 22.1 1.8</size></box></geometry><material><ambient>0.35 0.37 0.4 1</ambient><diffuse>0.35 0.37 0.4 1</diffuse></material></visual>
+      </link>
+      <link name="south">
+        <pose>0 -22 0.9 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>32.1 0.05 1.8</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>32.1 0.05 1.8</size></box></geometry><material><ambient>0.35 0.37 0.4 1</ambient><diffuse>0.35 0.37 0.4 1</diffuse></material></visual>
+      </link>
+      <link name="east_south">
+        <pose>16 -14.5 0.9 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.05 15.05 1.8</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.05 15.05 1.8</size></box></geometry><material><ambient>0.35 0.37 0.4 1</ambient><diffuse>0.35 0.37 0.4 1</diffuse></material></visual>
+      </link>
+      <link name="east_north">
+        <pose>16 -1.5 0.9 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.05 3 1.8</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.05 3 1.8</size></box></geometry><material><ambient>0.35 0.37 0.4 1</ambient><diffuse>0.35 0.37 0.4 1</diffuse></material></visual>
+      </link>
+      <link name="gate_post_south">
+        <pose>16 -7 1 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.15 0.15 2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.15 0.15 2</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+      </link>
+      <link name="gate_post_north">
+        <pose>16 -3 1 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>0.15 0.15 2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.15 0.15 2</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- ============================================================ yard slope -->
+    <!-- Concrete ramp along x between y -16 and -10: 8 m run at 10 % (x -14..-6, pitch
+         -atan 0.1), a 4 m plateau 0.8 m high (x -6..-2), a 5 m run down at 16 % (x -2..3,
+         pitch atan 0.16). The ramp boxes are 0.6 m thick with their top faces flush with the
+         ground at the low ends and with the plateau at the high ends; 0.15 m x 0.35 m kerbs
+         follow both edges. -->
+    <model name="yard_slope">
+      <static>true</static>
+      <link name="ramp_up">
+        <pose>-9.9701 -13 0.1015 0 -0.0996687 0</pose>
+        <collision name="collision"><geometry><box><size>8.0399 6 0.6</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>8.0399 6 0.6</size></box></geometry><material><ambient>0.6 0.6 0.58 1</ambient><diffuse>0.6 0.6 0.58 1</diffuse></material></visual>
+      </link>
+      <link name="plateau">
+        <pose>-4 -13 0.3 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>4 6 1</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>4 6 1</size></box></geometry><material><ambient>0.6 0.6 0.58 1</ambient><diffuse>0.6 0.6 0.58 1</diffuse></material></visual>
+      </link>
+      <link name="ramp_down">
+        <pose>0.4526 -13 0.1038 0 0.158655 0</pose>
+        <collision name="collision"><geometry><box><size>5.0632 6 0.6</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>5.0632 6 0.6</size></box></geometry><material><ambient>0.6 0.6 0.58 1</ambient><diffuse>0.6 0.6 0.58 1</diffuse></material></visual>
+      </link>
+      <link name="kerb_up_north">
+        <pose>-10.0174 -10.075 0.5741 0 -0.0996687 0</pose>
+        <collision name="collision"><geometry><box><size>8.0399 0.15 0.35</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>8.0399 0.15 0.35</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+      </link>
+      <link name="kerb_up_south">
+        <pose>-10.0174 -15.925 0.5741 0 -0.0996687 0</pose>
+        <collision name="collision"><geometry><box><size>8.0399 0.15 0.35</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>8.0399 0.15 0.35</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+      </link>
+      <link name="kerb_plateau_north">
+        <pose>-4 -10.075 0.975 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>4 0.15 0.35</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>4 0.15 0.35</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+      </link>
+      <link name="kerb_plateau_south">
+        <pose>-4 -15.925 0.975 0 0 0</pose>
+        <collision name="collision"><geometry><box><size>4 0.15 0.35</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>4 0.15 0.35</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+      </link>
+      <link name="kerb_down_north">
+        <pose>0.5277 -10.075 0.5728 0 0.158655 0</pose>
+        <collision name="collision"><geometry><box><size>5.0632 0.15 0.35</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>5.0632 0.15 0.35</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+      </link>
+      <link name="kerb_down_south">
+        <pose>0.5277 -15.925 0.5728 0 0.158655 0</pose>
+        <collision name="collision"><geometry><box><size>5.0632 0.15 0.35</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>5.0632 0.15 0.35</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- ============================================================ racking (hall) -->
+    <!-- Three rows of four Pallet_Rack_Section (2.51 m x 1.36 m x 3.05 m, box collisions) at
+         y 9.3, 13.5 and 17.7, x -14..-3.9; the aisles between them are 2.8 m clear. -->
+    <include><name>rack_1_1</name><uri>model://pallet_rack_section</uri><pose>-12.7427 9.3 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_1_2</name><uri>model://pallet_rack_section</uri><pose>-10.2281 9.3 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_1_3</name><uri>model://pallet_rack_section</uri><pose>-7.7135 9.3 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_1_4</name><uri>model://pallet_rack_section</uri><pose>-5.1989 9.3 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_2_1</name><uri>model://pallet_rack_section</uri><pose>-12.7427 13.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_2_2</name><uri>model://pallet_rack_section</uri><pose>-10.2281 13.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_2_3</name><uri>model://pallet_rack_section</uri><pose>-7.7135 13.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_2_4</name><uri>model://pallet_rack_section</uri><pose>-5.1989 13.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_3_1</name><uri>model://pallet_rack_section</uri><pose>-12.7427 17.7 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_3_2</name><uri>model://pallet_rack_section</uri><pose>-10.2281 17.7 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_3_3</name><uri>model://pallet_rack_section</uri><pose>-7.7135 17.7 0 0 0 0</pose><static>true</static></include>
+    <include><name>rack_3_4</name><uri>model://pallet_rack_section</uri><pose>-5.1989 17.7 0 0 0 0</pose><static>true</static></include>
+
+    <!-- ============================================================ pallets and boxes -->
+    <!-- Pallets (fieldproof_worlds/models/pallet, 1.2 m x 0.8 m x 0.144 m, static) at ground
+         level in rack bays, on the hall floor, in the loading bay and in the yard; cardboard
+         boxes (Fuel, 0.5 x 0.4 x 0.3 m) are dynamic and settle on the pallets and the floor, so
+         a robot can push them. -->
+    <include><name>pallet_rack_a</name><uri>model://pallet</uri><pose>-12.7427 13.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>pallet_rack_b</name><uri>model://pallet</uri><pose>-7.7135 13.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>pallet_rack_c</name><uri>model://pallet</uri><pose>-10.2281 17.7 0 0 0 0</pose><static>true</static></include>
+    <include><name>pallet_hall_a</name><uri>model://pallet</uri><pose>4 11.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>pallet_hall_b</name><uri>model://pallet</uri><pose>4 13 0 0 0 0</pose><static>true</static></include>
+    <include><name>pallet_bay</name><uri>model://pallet</uri><pose>7.5 4 0 0 0 0</pose><static>true</static></include>
+    <include><name>pallet_yard</name><uri>model://pallet</uri><pose>13.5 -1.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>box_rack_a1</name><uri>model://cardboard_box</uri><pose>-13.0427 13.5 0.31 0 0 0</pose></include>
+    <include><name>box_rack_a2</name><uri>model://cardboard_box</uri><pose>-12.4427 13.5 0.31 0 0 0</pose></include>
+    <include><name>box_rack_b1</name><uri>model://cardboard_box</uri><pose>-7.7135 13.5 0.31 0 0 0</pose></include>
+    <include><name>box_rack_c1</name><uri>model://cardboard_box</uri><pose>-10.5281 17.7 0.31 0 0 0</pose></include>
+    <include><name>box_rack_c2</name><uri>model://cardboard_box</uri><pose>-9.9281 17.7 0.31 0 0 0</pose></include>
+    <include><name>box_hall_a1</name><uri>model://cardboard_box</uri><pose>3.7 11.5 0.31 0 0 0</pose></include>
+    <include><name>box_hall_a2</name><uri>model://cardboard_box</uri><pose>4.3 11.5 0.31 0 0 0</pose></include>
+    <include><name>box_hall_b1</name><uri>model://cardboard_box</uri><pose>4 13 0.31 0 0 0</pose></include>
+    <include><name>box_hall_floor_1</name><uri>model://cardboard_box</uri><pose>8 16 0.16 0 0 0.3</pose></include>
+    <include><name>box_hall_floor_2</name><uri>model://cardboard_box</uri><pose>8.7 16.1 0.16 0 0 -0.2</pose></include>
+    <include><name>box_hall_floor_3</name><uri>model://cardboard_box</uri><pose>8.3 16.6 0.16 0 0 0.1</pose></include>
+    <include><name>box_bay_1</name><uri>model://cardboard_box</uri><pose>7.2 4 0.31 0 0 0</pose></include>
+    <include><name>box_bay_2</name><uri>model://cardboard_box</uri><pose>7.8 4 0.31 0 0 0</pose></include>
+    <include><name>box_workshop_1</name><uri>model://cardboard_box</uri><pose>-3 1.5 0.16 0 0 0</pose></include>
+    <include><name>box_workshop_2</name><uri>model://cardboard_box</uri><pose>-2.4 1.5 0.16 0 0 0.4</pose></include>
+    <include><name>box_yard_1</name><uri>model://cardboard_box</uri><pose>13.5 -1.5 0.31 0 0 0</pose></include>
+
+    <!-- ============================================================ drums, cones, barriers -->
+    <!-- 55-gallon drums and jersey barriers from Fuel (cylinder and box collisions), traffic
+         cones from fieldproof_worlds/models/traffic_cone. All static. -->
+    <include><name>drum_workshop_1</name><uri>model://55gal_drum</uri><pose>3 1.2 0 0 0 0</pose><static>true</static></include>
+    <include><name>drum_workshop_2</name><uri>model://55gal_drum</uri><pose>3.65 1.2 0 0 0 0</pose><static>true</static></include>
+    <include><name>drum_workshop_3</name><uri>model://55gal_drum</uri><pose>3.3 1.78 0 0 0 0</pose><static>true</static></include>
+    <include><name>drum_yard_1</name><uri>model://55gal_drum</uri><pose>-3 -1.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>drum_yard_2</name><uri>model://55gal_drum</uri><pose>-2.3 -1.5 0 0 0 0</pose><static>true</static></include>
+    <include><name>cone_hall_1</name><uri>model://traffic_cone</uri><pose>12 12 0 0 0 0</pose></include>
+    <include><name>cone_hall_2</name><uri>model://traffic_cone</uri><pose>12.6 12.6 0 0 0 0</pose></include>
+    <include><name>cone_hall_3</name><uri>model://traffic_cone</uri><pose>12 13.2 0 0 0 0</pose></include>
+    <include><name>cone_yard_1</name><uri>model://traffic_cone</uri><pose>6 -11 0 0 0 0</pose></include>
+    <include><name>cone_yard_2</name><uri>model://traffic_cone</uri><pose>7 -12 0 0 0 0</pose></include>
+    <include><name>cone_yard_3</name><uri>model://traffic_cone</uri><pose>8 -13 0 0 0 0</pose></include>
+    <include><name>cone_gate</name><uri>model://traffic_cone</uri><pose>14.5 -8 0 0 0 0</pose></include>
+    <include><name>barrier_yard_1</name><uri>model://jersey_barrier</uri><pose>9 -3.5 0 0 0 0</pose></include>
+    <include><name>barrier_yard_2</name><uri>model://jersey_barrier</uri><pose>12.5 -7.5 0 0 0 0</pose></include>
+  </world>
+</sdf>

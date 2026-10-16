@@ -12,7 +12,7 @@ make shell       # then: cd /workspace/sim && colcon build && colcon test
 
 | Package | Type | Contents |
 | --- | --- | --- |
-| `fieldproof_worlds` | `ament_cmake` | SDF worlds under `worlds/`, each checked with `gz sdf --check` at test time |
+| `fieldproof_worlds` | `ament_cmake` | SDF worlds under `worlds/` (`fieldproof_empty`, `depot`), primitive models under `models/`, the pinned Fuel models fetched and installed at build time; `gz sdf --check` and pytest at test time ([README](fieldproof_worlds/README.md)) |
 | `fieldproof_gz_plugins` | `ament_cmake`, C++17 | Gazebo system plugins; P0-T07 ships `fieldproof::HelloSystem` and a GoogleTest suite |
 
 `build/`, `install/` and `log/` are ignored by git. See

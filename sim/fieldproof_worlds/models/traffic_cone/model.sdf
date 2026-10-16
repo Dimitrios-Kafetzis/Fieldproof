@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<!--
+  Fieldproof traffic cone (task P1-T02): primitives only, for the same reason as the pallet (a
+  mesh collision costs a large share of the physics step). The collision is a cylinder of the
+  cone's mean radius; lidar returns from it are what a cone of this size gives within a beam
+  width. Origin at the bottom centre.
+-->
+<sdf version="1.11">
+  <model name="traffic_cone">
+    <static>true</static>
+    <link name="link">
+      <inertial>
+        <mass>2</mass>
+        <inertia><ixx>0.09</ixx><iyy>0.09</iyy><izz>0.02</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        <pose>0 0 0.25 0 0 0</pose>
+      </inertial>
+      <collision name="collision">
+        <pose>0 0 0.35 0 0 0</pose>
+        <geometry><cylinder><radius>0.12</radius><length>0.7</length></cylinder></geometry>
+      </collision>
+      <visual name="base">
+        <pose>0 0 0.02 0 0 0</pose>
+        <geometry><box><size>0.36 0.36 0.04</size></box></geometry>
+        <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+      </visual>
+      <visual name="cone">
+        <pose>0 0 0.37 0 0 0</pose>
+        <geometry><cone><radius>0.16</radius><length>0.66</length></cone></geometry>
+        <material><ambient>0.95 0.4 0.05 1</ambient><diffuse>0.95 0.4 0.05 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>
