@@ -8,7 +8,6 @@ and Phase 2 tasks.
 from typing import Annotated
 
 import typer
-from rich.console import Console
 
 from fieldproof import __version__
 
@@ -21,13 +20,12 @@ app = typer.Typer(
     no_args_is_help=False,
     rich_markup_mode="rich",
 )
-console = Console()
 
 
 def _print_version(value: bool) -> None:
-    """Print the package version and exit when ``--version`` is given."""
+    """Print ``<name> <version>`` as plain text (no styling, scripts parse it) and exit."""
     if value:
-        console.print(f"{APP_NAME} {__version__}", highlight=False)
+        typer.echo(f"{APP_NAME} {__version__}")
         raise typer.Exit
 
 
@@ -47,7 +45,7 @@ def root(
 ) -> None:
     """Fieldproof: run real robot stacks in simulation and prove them before the field."""
     if ctx.invoked_subcommand is None:
-        console.print(ctx.get_help())
+        typer.echo(ctx.get_help())
 
 
 def main() -> None:
