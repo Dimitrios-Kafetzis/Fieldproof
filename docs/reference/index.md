@@ -9,6 +9,7 @@ with the tasks that define each surface:
 | --- | --- | --- |
 | [CLI](cli.md) | P0-T07, P1-T05 | `fieldproof` commands, options and exit codes |
 | [Reference vehicles](robots.md) | P1-T01, P4-T03, P5-T02 | the reference UGV, UAVs and USV: frames, topics, rates, noise, launch arguments, manifest |
+| [Worlds](worlds.md) | P1-T02, P5-T03 | the worlds, their physics settings, spawn frames and models; the Fuel lock and asset convention |
 | Scenario schema | P1-T05, P2-T05 | the YAML scenario format, versioned ([ADR-0005](../adr/0005-declarative-yaml-scenarios.md)) |
 | Events | P2-T03 | the event injection framework: types, parameters, timing |
 | Assertions and KPIs | P1-T06, P2-T05 | the assertion library and the metrics a run reports |

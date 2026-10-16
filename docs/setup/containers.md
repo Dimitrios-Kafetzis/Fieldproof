@@ -129,11 +129,30 @@ initialised to `~/.gz/rendering/ogre2.log` (`GL_RENDERER` line).
 
 | Profile | Service | Purpose |
 | --- | --- | --- |
-| `sim` | `sim` | `gz sim -s -r --headless-rendering ${FIELDPROOF_WORLD:-empty.sdf}` |
+| `sim` | `sim` | `gz sim -s -r --headless-rendering ${FIELDPROOF_WORLD:-depot.sdf}` with the Fieldproof worlds, models and assets bind-mounted (below) |
 | `dev` | `dev` | development container, repository bind-mounted at `/workspace`, `sleep infinity` |
 | `images` | `base-ros2`, `apt-lists` | build-only services (the base image the other two build on, and its package lists); never started |
 
-`make up` enables `sim` and `dev`. The services share the `fieldproof` bridge network; Gazebo
+`make up` enables `sim` and `dev`, after `make assets` has fetched the Gazebo Fuel models pinned
+in `assets/fuel.lock`. The `sim` service runs a Fieldproof world: `FIELDPROOF_WORLD` names the
+file (default `depot.sdf`, the reference world of task P1-T02; `fieldproof_empty.sdf` is the
+other one), resolved through `GZ_SIM_RESOURCE_PATH`, which the service sets to four read-only
+bind mounts so the image itself carries no repository content and a world or model edit needs
+no rebuild ([worlds.md](../reference/worlds.md)):
+
+| Mount | Source | Contents |
+| --- | --- | --- |
+| `/fieldproof/worlds` | `sim/fieldproof_worlds/worlds` | the world files |
+| `/fieldproof/models` | `sim/fieldproof_worlds/models` | the package's primitive models (`model://pallet`, `model://traffic_cone`) |
+| `/fieldproof/fuel` | `assets/fuel/models` | the fetched Fuel models (`model://pallet_rack_section`, ...) |
+| `/fieldproof/robots` | `robots/fieldproof_robots/models` | the reference vehicle models, so a spawned UGV's meshes resolve (`model://ugv_ref/meshes/...`) |
+
+Gazebo's own worlds stay reachable through the ROS environment, so `FIELDPROOF_WORLD=empty.sdf
+make up` still works. The vehicle itself is spawned from the dev container
+(`ros2 launch fieldproof_robots spawn_ugv_ref.launch.py world:=depot ...`, see
+[robots.md](../reference/robots.md#spawning)).
+
+The services share the `fieldproof` bridge network; Gazebo
 transport and DDS discovery use multicast on it, and `GZ_PARTITION=fieldproof` is set in every
 container so Gazebo topics are visible across containers regardless of hostname. `ROS_DOMAIN_ID`
 defaults to 0 and can be overridden from the environment.
