@@ -232,12 +232,12 @@ jobs:
             fi
             echo "END_OF_SET"
           } >> "$GITHUB_ENV"
-      - name: Build base-ros2, sim and dev with the registry cache
+      - name: Build base-ros2, sim, dev and bridge with the registry cache
         uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
         env:
           # Bake reads docker/compose.yaml; profile-aware buildx versions drop base-ros2 (profile
-          # `images`) unless every profile is enabled.
-          COMPOSE_PROFILES: images,sim,dev
+          # `images`) and bridge (profile `bridge`) unless every profile is enabled.
+          COMPOSE_PROFILES: images,sim,dev,bridge
         with:
           # Bake resolves the build contexts of compose.yaml relative to its working directory.
           source: ./docker
@@ -261,6 +261,12 @@ jobs:
           cache-dependency-glob: engine/uv.lock
       - name: Vehicle tests (tests/vehicles, manifests, generated Dockerfile, example image build and smoke)
         run: make test-vehicles
+      # The vertical slice (task P1-T04): the simulator with the depot, the bridge container and
+      # the vehicle image just built; Nav2 reaches active, a NavigateToPose goal is reached.
+      # Software rendering keeps the simulator below real time, so the test's limits are in
+      # simulation time where it matters and generous in wall-clock time.
+      - name: Integration test (tests/integration, sim + bridge + vehicle in the depot, Nav2 active, NavigateToPose)
+        run: make test-integration
       # The checkout belongs to the runner user (uid 1001); the dev container builds as uid 1000
       # and writes build/, install/ and log/ into the bind-mounted workspaces and the fetched
       # models into assets/fuel.

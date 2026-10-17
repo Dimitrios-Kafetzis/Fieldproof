@@ -10,6 +10,10 @@
 #           (software rendering by default; add compose.gpu.yaml for a /dev/dri render node,
 #           which the Makefile does automatically)
 #   dev     development container with the repository bind-mounted at /workspace
+#   bridge  the bridge of one vehicle (task P1-T04): the bridge launch of fieldproof_bridge on the
+#           manifest FIELDPROOF_VEHICLE_MANIFEST (default: the example vehicle ugv_nav2), with the
+#           repository bind-mounted read-only so the manifest's description resolves; started on
+#           demand (the integration test, `docker compose --profile bridge up -d bridge`)
 #   images  build-only services: the base image and the apt-lists image; never started
 #
 # Image names follow docs/plan/04-engineering-standards.md: <prefix><name>:<tag>. The build
@@ -76,6 +80,28 @@ services:
       - ../robots/fieldproof_robots/models:/fieldproof/robots:ro
     networks: [fieldproof]
     stop_grace_period: 10s
+
+  bridge:
+    image: ${FIELDPROOF_IMAGE_PREFIX:-ghcr.io/dimitrios-kafetzis/fieldproof-}bridge:${FIELDPROOF_IMAGE_TAG:-local}
+    build:
+      context: ./bridge
+      additional_contexts:
+        fieldproof-sim: service:sim
+        # The two packages the image builds, straight from the repository.
+        fieldproof-bridge-src: ../bridge/fieldproof_bridge
+        fieldproof-robots-src: ../robots/fieldproof_robots
+      args:
+        <<: *build-args
+        BASE_IMAGE: fieldproof-sim
+    profiles: [bridge]
+    hostname: bridge
+    environment:
+      <<: *env
+      FIELDPROOF_MANIFEST: ${FIELDPROOF_VEHICLE_MANIFEST:-/workspace/examples/vehicles/ugv_nav2/robot.yaml}
+    volumes:
+      - ..:/workspace:ro
+    networks: [fieldproof]
+    stop_grace_period: 5s
 
   dev:
     image: ${FIELDPROOF_IMAGE_PREFIX:-ghcr.io/dimitrios-kafetzis/fieldproof-}dev:${FIELDPROOF_IMAGE_TAG:-local}

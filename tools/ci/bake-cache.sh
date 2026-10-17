@@ -13,7 +13,7 @@
 # main (`buildcache`) and by earlier pull requests (`buildcache-pr`); images.yml writes `buildcache`.
 set -euo pipefail
 
-TARGETS=(base-ros2 sim dev)
+TARGETS=(base-ros2 sim dev bridge)
 prefix="${FIELDPROOF_IMAGE_PREFIX:-ghcr.io/dimitrios-kafetzis/fieldproof-}"
 reads=()
 write=""

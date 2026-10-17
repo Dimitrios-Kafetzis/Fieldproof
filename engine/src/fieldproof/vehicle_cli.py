@@ -3,7 +3,9 @@
 ``fieldproof manifest validate robot.yaml...`` validates manifests (``extends`` resolved) and
 ``fieldproof manifest schema`` prints the JSON Schema. ``fieldproof vehicle dockerfile`` writes the
 build context of a vehicle, ``fieldproof vehicle build`` writes it and runs ``docker buildx build``,
-``fieldproof vehicle run`` starts the image with the manifest's budget and environment.
+``fieldproof vehicle run`` starts the image with the manifest's budget and environment,
+``fieldproof vehicle wait`` runs the readiness probe inside the running container until the
+manifest's ``runtime.ready`` conditions hold.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from fieldproof.vehicle import (
     load_vehicle,
     run_command,
     runtime_of,
+    wait_command,
     write_context,
 )
 from fieldproof_bridge.manifest import ManifestError
@@ -225,6 +228,45 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             env=extra_env,
             extra_args=tuple(docker_args or ()),
             command=tuple(ctx.args),
+        )
+    except (ManifestError, VehicleError) as error:
+        raise fail(error) from error
+    console.print(shlex.join(command), highlight=False, soft_wrap=True)
+    if dry_run:
+        return
+    completed = subprocess.run(command, check=False)  # noqa: S603  (the command was just printed)
+    if completed.returncode != 0:
+        raise typer.Exit(code=completed.returncode)
+
+
+@vehicle_app.command("wait")
+def wait(  # noqa: PLR0917  (Typer reads the options from the signature)
+    manifest: ManifestArg,
+    name: Annotated[
+        str | None, typer.Option("--name", help="Container name (default: the vehicle name).")
+    ] = None,
+    timeout: Annotated[
+        float | None,
+        typer.Option(
+            "--timeout", help="Seconds to wait (default: the manifest's ready.timeout_s)."
+        ),
+    ] = None,
+    interval: Annotated[
+        float | None, typer.Option("--interval", help="Seconds between evaluations (default 1).")
+    ] = None,
+    quiet: Annotated[bool, typer.Option("--quiet", help="No progress lines.")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Print the command only.")] = False,
+) -> None:
+    """Wait until the running container of MANIFEST satisfies its runtime.ready conditions.
+
+    Runs the image's readiness probe (fieldproof-vehicle-ready) through `docker exec`; exit code
+    0 once every condition holds, 1 when the timeout passes first (the pending conditions are
+    listed), the probe's or docker's code otherwise.
+    """
+    try:
+        vehicle = load_vehicle(manifest)
+        command = wait_command(
+            vehicle, name=name, timeout_s=timeout, interval_s=interval, quiet=quiet
         )
     except (ManifestError, VehicleError) as error:
         raise fail(error) from error

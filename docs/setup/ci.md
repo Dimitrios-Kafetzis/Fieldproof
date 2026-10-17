@@ -40,16 +40,17 @@ see [Releases](#releases)) trigger no workflows and therefore show no checks.
 
 `tools/ci/changed-areas.sh` compares the pull request against its base and prints `images=true`
 when `docker/`, `tests/images/`, the `Makefile`, `version.txt`, `tools/ci/` or `ci.yml` changed,
-or when a ROS workspace did (`sim/`, `bridge/`, `robots/`, `tools/ros/`, `.clang-tidy`), because
+when a ROS workspace did (`sim/`, `bridge/`, `robots/`, `tools/ros/`, `.clang-tidy`), because
 the colcon tests and clang-tidy run in the dev container that this job builds
-([workspaces.md](workspaces.md#continuous-integration)). Pushes to `main` and manual runs build
-the images unconditionally. The other jobs always run; they finish in a few minutes thanks to the
-cached pre-commit environments, the uv cache (keyed on `engine/uv.lock`) and the pnpm store cache
-(keyed on `cockpit/pnpm-lock.yaml`).
+([workspaces.md](workspaces.md#continuous-integration)), or when the assets, the worlds, the
+example vehicles, the engine's vehicle modules, `tests/vehicles/` or `tests/integration/` did.
+Pushes to `main` and manual runs build the images unconditionally. The other jobs always run;
+they finish in a few minutes thanks to the cached pre-commit environments, the uv cache (keyed on
+`engine/uv.lock`) and the pnpm store cache (keyed on `cockpit/pnpm-lock.yaml`).
 
 ### Image build and registry cache
 
-The image job builds the three targets of `docker/compose.yaml` with `docker buildx bake`
+The image job builds the four targets of `docker/compose.yaml` with `docker buildx bake`
 (pinned to v0.38.0, run from `docker/` because bake resolves build contexts relative to its
 working directory, with every compose profile enabled so the build-only `base-ros2` service is
 not filtered out), which reads the compose file directly (the `service:` build contexts become
@@ -171,6 +172,7 @@ but never fails the check, because any timestamp is a valid snapshot and it move
 | `make docs-links` | the link check of the Docs workflow |
 | `make test-images IMAGE_TEST_FLAGS="--quick --no-build"` | the image job's tests against images already built |
 | `make test-vehicles` | the image job's vehicle step: manifests, the generated Dockerfile, the example vehicle image built on the local `base-ros2` and started on a Docker network ([manifest.md](../reference/manifest.md)) |
+| `make test-integration` | the image job's last step: the simulator, the bridge container and the vehicle in the depot, `fieldproof vehicle wait` until Nav2 is active, a `NavigateToPose` goal reached ([manifest.md](../reference/manifest.md#the-integration-test)) |
 | `make lint-title TITLE="..."` | the PR title check |
 | `make branch-protection` / `tools/ci/branch-protection.sh --check` | the required checks wiring |
 

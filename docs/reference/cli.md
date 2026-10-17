@@ -20,6 +20,7 @@ inside an environment where the package is installed.
 | `fieldproof vehicle dockerfile <robot.yaml>` | P1-T04 | write the build context of a vehicle image: Dockerfile, entry point, resolved manifest, `vehicle.repos` ([manifest.md](manifest.md#vehicle-images)); option `--out` |
 | `fieldproof vehicle build <robot.yaml>` | P1-T04 | write the context and run `docker buildx build`; options `--context`, `--tag`, `--base-image`, `--no-cache`, `--progress`, `--docker-arg`, `--dry-run` |
 | `fieldproof vehicle run <robot.yaml> [-- CMD...]` | P1-T04 | `docker run` the vehicle image with the manifest's budget and environment on the `fieldproof` network; options `--name`, `--network`, `--domain-id`, `--detach`, `--keep`, `--image`, `--env`, `--docker-arg`, `--dry-run` |
+| `fieldproof vehicle wait <robot.yaml>` | P1-T04 | wait until the running vehicle container satisfies the manifest's `runtime.ready` conditions, through the image's readiness probe ([manifest.md](manifest.md#the-readiness-probe)); exit code 1 with the pending conditions on timeout; options `--name`, `--timeout`, `--interval`, `--quiet`, `--dry-run` |
 | `fieldproof cockpit` | P3-T01 | serve the cockpit against the local engine |
 
 Exit codes: `0` on success, `1` on a failed scenario or assertion, `2` on a usage error (Typer's

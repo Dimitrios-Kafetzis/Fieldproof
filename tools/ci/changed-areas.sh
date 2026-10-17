@@ -13,8 +13,8 @@
 #            plus the ROS workspaces (sim/, bridge/, robots/), tools/ros/ and the clang-tidy
 #            configuration, whose tests run in the dev container this job builds (P0-T07), the
 #            assets, their fetch script and the world tests (P1-T02), and the example vehicles,
-#            the engine's vehicle image generator and the vehicle tests, whose image builds on
-#            the base image this job builds (P1-T04)
+#            the engine's vehicle image generator, the readiness probe, the vehicle tests and the
+#            integration test, whose image builds on the base image this job builds (P1-T04)
 set -euo pipefail
 
 base="${1:-}"
@@ -35,9 +35,10 @@ IMAGES_PATTERNS=(
   '^tools/assets/'
   '^tests/worlds/'
   '^examples/vehicles/'
-  '^engine/src/fieldproof/(manifest|vehicle|vehicle_cli)\.py$'
+  '^engine/src/fieldproof/(manifest|vehicle|vehicle_cli|vehicle_ready)\.py$'
   '^engine/schemas/'
   '^tests/vehicles/'
+  '^tests/integration/'
 )
 
 if [[ -z "$base" ]]; then
