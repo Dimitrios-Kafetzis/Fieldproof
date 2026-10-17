@@ -3,7 +3,7 @@
 <package format="3">
   <name>fieldproof_worlds</name>
   <version>0.3.0</version>
-  <description>Gazebo Harmonic worlds for Fieldproof scenarios</description>
+  <description>Gazebo Harmonic worlds for Fieldproof scenarios and the Fuel models they include</description>
   <maintainer email="dimitrioskafetzis@gmail.com">Dimitris Kafetzis</maintainer>
   <license>Apache-2.0</license>
   <url type="website">https://dimitrios-kafetzis.github.io/Fieldproof/</url>
@@ -12,9 +12,14 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>python3-yaml</depend>
+
   <exec_depend>gz_sim_vendor</exec_depend>
 
+  <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_cmake_xmllint</test_depend>
+  <test_depend>ament_index_python</test_depend>
+  <test_depend>python3-pytest</test_depend>
   <test_depend>gz_tools_vendor</test_depend>
 
   <export>

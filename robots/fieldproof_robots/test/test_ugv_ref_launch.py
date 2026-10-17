@@ -5,8 +5,9 @@ spawn_ugv_ref.launch.py and subscribes to the Gazebo topics from the test proces
 gz-transport Python bindings:
 
 1. every sensor and the odometry publish on the topic declared in robot.yaml, at the declared
-   rate (measured in simulation time, so a slow software renderer cannot fail it) and with the
-   declared frame id;
+   rate (measured in simulation time, so a slow software renderer cannot fail it; the first
+   message of a sensor is published when it is created, off its update grid, and is discarded,
+   see issue #24) and with the declared frame id;
 2. a velocity command on /cmd_vel drives the robot; after one metre of odometry the odometry
    delta matches the ground-truth pose delta of the model (the P1-T01 verification);
 3. robot_state_publisher publishes the static transforms of the sensor frames.
@@ -165,8 +166,9 @@ class Collector:
             return self.stamps[-1] if self.stamps else 0.0
 
     def rate_hz(self) -> float:
+        """Rate from the stamps after the first one, which lies off the sensor's update grid."""
         with self.lock:
-            stamps = list(self.stamps)
+            stamps = list(self.stamps)[1:]
         return (len(stamps) - 1) / (stamps[-1] - stamps[0])
 
 
@@ -225,9 +227,9 @@ class TestUgvRef(unittest.TestCase):
         for topic, (rate_hz, frame_ids) in expected.items():
             collector = self.collectors[topic]
             wait_until(
-                lambda: collector.count() >= RATE_SAMPLES,  # noqa: B023  (used within the step)
+                lambda: collector.count() > RATE_SAMPLES,  # noqa: B023  (used within the step)
                 RATE_TIMEOUT_S,
-                f"{RATE_SAMPLES} messages on {topic}",
+                f"{RATE_SAMPLES + 1} messages on {topic}",
             )
             measured = collector.rate_hz()
             if abs(measured - rate_hz) > rate_hz * RATE_TOLERANCE:

@@ -1,0 +1,51 @@
+# Gazebo Fuel models used by the Fieldproof worlds (task P1-T02), pinned by version and archive
+# digest. Fuel models are not vendored: `make assets` (tools/assets/fetch_fuel.py) downloads each
+# archive from `server`, refuses it unless its SHA-256 equals `sha256`, and extracts it to
+# assets/fuel/models/<dir>, which the worlds package installs on GZ_SIM_RESOURCE_PATH so a world
+# includes the model as `model://<dir>`. Pin a new model with
+# `tools/assets/fetch_fuel.py add OWNER/NAME --used-by <world>`; licences are SPDX identifiers and
+# must be permissive (CC0, CC-BY, Apache, MIT): no NC or ND terms, so the worlds can ship anywhere.
+apiVersion: fieldproof.dev/v0alpha1
+kind: FuelLock
+server: https://fuel.gazebosim.org
+models:
+  - name: 55gal_Drum
+    owner: OpenRobotics
+    version: 1
+    dir: 55gal_drum
+    licence: CC-BY-4.0
+    licence_url: http://creativecommons.org/licenses/by/4.0/
+    size_bytes: 1743937
+    sha256: c0367e5e8f73744a65057371de1ab94fbfe0e3eef38639820798fdf364204ad1
+    used_by:
+      - depot
+  - name: Cardboard box
+    owner: OpenRobotics
+    version: 3
+    dir: cardboard_box
+    licence: CC0-1.0
+    licence_url: https://creativecommons.org/publicdomain/zero/1.0/
+    size_bytes: 1022747
+    sha256: 4376dcd35930893311fad736283a8c0e932c308a0babe5d2e37b2eb5a2f16ed9
+    used_by:
+      - depot
+  - name: Jersey Barrier
+    owner: OpenRobotics
+    version: 6
+    dir: jersey_barrier
+    licence: CC0-1.0
+    licence_url: https://creativecommons.org/publicdomain/zero/1.0/
+    size_bytes: 166551
+    sha256: 8b813dbb19a9c5c24f426d03e389f83d9c37fa5eaf0380e3539929275b8fb0ea
+    used_by:
+      - depot
+  - name: Pallet_Rack_Section
+    owner: OpenRobotics
+    version: 1
+    dir: pallet_rack_section
+    licence: CC-BY-4.0
+    licence_url: http://creativecommons.org/licenses/by/4.0/
+    size_bytes: 197142
+    sha256: f6bc2af41b6dba1e1b62ae37087c4344be8e82a14032c898d74a514bccc5d712
+    used_by:
+      - depot

@@ -96,6 +96,8 @@ jobs:
         run: make test-ci
       - name: Layout tests (tests/layout)
         run: make test-layout
+      - name: Asset tests (tests/assets)
+        run: make test-assets
 
   docs:
     name: Docs
@@ -192,6 +194,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Free disk space for the image build
         run: tools/ci/free-disk.sh
+      # The Fuel archives pinned in assets/fuel.lock; `make up` and the sim build fetch them
+      # (tools/assets/fetch_fuel.py) and verify them against the lock, cache or not.
+      - name: Cache the Fuel archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: assets/fuel/archives
+          key: fuel-${{ hashFiles('assets/fuel.lock') }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           version: v0.38.0
@@ -241,13 +250,22 @@ jobs:
         if: failure()
         run: docker compose -f docker/compose.yaml --profile sim logs sim || true
       # The checkout belongs to the runner user (uid 1001); the dev container builds as uid 1000
-      # and writes build/, install/ and log/ into the bind-mounted workspaces.
-      - name: Let the container user write to the ROS workspaces
-        run: sudo chown -R 1000:1000 sim bridge robots
+      # and writes build/, install/ and log/ into the bind-mounted workspaces and the fetched
+      # models into assets/fuel.
+      - name: Let the container user write to the ROS workspaces and the asset cache
+        run: sudo chown -R 1000:1000 sim bridge robots assets
       - name: ROS workspace tests (colcon build and test of sim, bridge and robots in the dev container)
         run: make test-ros
       - name: clang-tidy over the C++ packages (make tidy)
         run: make tidy
+      # Software rendering on the runner cannot reach real time, so the world test checks that
+      # the depot loads with every model and the UGV's sensors run, and prints the real-time
+      # factor; the limits of the definition of done hold on the maintainer's machine.
+      - name: World tests (tests/worlds, relaxed limits for software rendering)
+        run: make test-worlds
+        env:
+          FIELDPROOF_WORLD_LOAD_LIMIT_S: "600"
+          FIELDPROOF_WORLD_RTF_MIN: "0"
 
   ci:
     name: CI

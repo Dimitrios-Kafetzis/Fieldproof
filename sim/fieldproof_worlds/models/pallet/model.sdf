@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!--
+  Fieldproof pallet (task P1-T02): a euro pallet from primitives. Mesh collisions against the
+  ground plane cost a large share of the physics step in gz-physics (the Fuel "Euro pallet" and
+  "Construction Cone" models halved the real-time factor of the depot world), so the collision is
+  a single box and only the visuals carry the detail. Origin at the bottom centre.
+-->
+<sdf version="1.11">
+  <model name="pallet">
+    <static>true</static>
+    <link name="link">
+      <inertial>
+        <mass>20</mass>
+        <inertia><ixx>1.1</ixx><iyy>2.4</iyy><izz>3.5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        <pose>0 0 0.072 0 0 0</pose>
+      </inertial>
+      <collision name="collision">
+        <pose>0 0 0.072 0 0 0</pose>
+        <geometry><box><size>1.2 0.8 0.144</size></box></geometry>
+      </collision>
+      <visual name="deck">
+        <pose>0 0 0.133 0 0 0</pose>
+        <geometry><box><size>1.2 0.8 0.022</size></box></geometry>
+        <material><ambient>0.72 0.58 0.36 1</ambient><diffuse>0.72 0.58 0.36 1</diffuse></material>
+      </visual>
+      <visual name="bearer_left">
+        <pose>-0.5 0 0.061 0 0 0</pose>
+        <geometry><box><size>0.145 0.8 0.122</size></box></geometry>
+        <material><ambient>0.66 0.52 0.32 1</ambient><diffuse>0.66 0.52 0.32 1</diffuse></material>
+      </visual>
+      <visual name="bearer_middle">
+        <pose>0 0 0.061 0 0 0</pose>
+        <geometry><box><size>0.145 0.8 0.122</size></box></geometry>
+        <material><ambient>0.66 0.52 0.32 1</ambient><diffuse>0.66 0.52 0.32 1</diffuse></material>
+      </visual>
+      <visual name="bearer_right">
+        <pose>0.5 0 0.061 0 0 0</pose>
+        <geometry><box><size>0.145 0.8 0.122</size></box></geometry>
+        <material><ambient>0.66 0.52 0.32 1</ambient><diffuse>0.66 0.52 0.32 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

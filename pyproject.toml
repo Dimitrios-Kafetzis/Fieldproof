@@ -81,10 +81,11 @@ module = ["rclpy.*", "launch.*", "launch_ros.*", "launch_testing.*", "launch_tes
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-minversion = "8.0"
+# The cross-layer tests under tests/ run inside the dev container with the distribution pytest
+# (7.4), which also sees this file from the ROS workspaces; engine/ has its own configuration
+# for the pytest 9 that uv installs.
+minversion = "7.4"
 addopts = "-ra --strict-markers --strict-config"
-# Cross-layer tests only: engine/ has its own pytest configuration (uv) and the ROS packages run
-# their pytest suites through colcon test with their own pytest.ini.
 testpaths = ["tests"]
 xfail_strict = true
 markers = [

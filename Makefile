@@ -9,6 +9,9 @@
 # The layer workspaces (task P0-T07) have one target each: `test-engine` (uv, host), `test-cockpit`
 # (pnpm, host), `test-ros` (colcon in the dev container) and `tidy` (clang-tidy in the dev
 # container); see docs/setup/workspaces.md.
+# Assets (task P1-T02): `assets` fetches the Gazebo Fuel models pinned in assets/fuel.lock,
+# `test-assets` checks the convention, `test-worlds` runs the world tests in the dev container;
+# see docs/reference/worlds.md.
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -euo pipefail -c
@@ -39,6 +42,10 @@ LYCHEE_ARGS ?=
 # (uv, Node 22 with pnpm). The ROS workspaces build only inside the dev container.
 PNPM ?= pnpm
 ROS_WORKSPACES ?= sim bridge robots
+# tools/assets/fetch_fuel.py needs python3 with PyYAML, as the layout tests do.
+PYTHON ?= python3
+# Limits of the world tests (tests/worlds); CI relaxes them for software rendering.
+WORLD_TEST_ENV := $(foreach v,FIELDPROOF_WORLD_LOAD_LIMIT_S FIELDPROOF_WORLD_RTF_MIN,$(if $($(v)),-e $(v)=$($(v))))
 
 # --- Containers -------------------------------------------------------------------------------
 # Rendering: when the host has a /dev/dri render node, compose.gpu.yaml is added so the sim and
@@ -77,8 +84,8 @@ endif
 IMAGE_TEST_FLAGS ?= --quick
 
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
-	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros tidy docs docs-serve \
-	docs-links branch-protection clean pins images up down shell prune
+	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
+	tidy docs docs-serve docs-links branch-protection clean pins assets images up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -127,7 +134,7 @@ secrets: ## Scan the full git history for secrets with the pinned gitleaks conta
 fmt: ## Apply the formatters (ruff, clang-format, cmake-format, prettier, whitespace fixers)
 	@for hook in $(FORMAT_HOOKS); do $(PRE_COMMIT) run "$$hook" --all-files || true; done
 
-test: test-tooling test-ci test-docs test-layout test-engine test-cockpit test-ros test-host test-images ## Run every test suite: tooling, CI, docs, layout, engine (pytest), cockpit (Vitest), ROS workspaces (ctest, pytest), host, images
+test: test-tooling test-ci test-docs test-layout test-assets test-engine test-cockpit test-ros test-worlds test-host test-images ## Run every test suite: tooling, CI, docs, layout, assets, engine (pytest), cockpit (Vitest), ROS workspaces (ctest, pytest), worlds, host, images
 
 test-tooling: ## Quality-gate tests: hooks pass on the repo, each gate catches a bad file, commitlint rejects bad messages
 	tests/tooling/test_quality_gates.sh
@@ -166,6 +173,17 @@ tidy: ## clang-tidy over the C++ packages in the dev container, using the compil
 	$(COMPOSE) --profile dev up -d --wait --no-build dev
 	$(COMPOSE) --profile dev exec -T dev tools/ros/colcon.sh tidy $(ROS_WORKSPACES)
 
+test-assets: ## Asset tests: the vendoring convention, fuel.lock and the fetch script against a local Fuel stand-in
+	tests/assets/test_assets.sh
+
+# Builds sim and robots first (seconds when up to date), then runs the pytest suites under
+# tests/worlds with both install spaces sourced. FIELDPROOF_WORLD_LOAD_LIMIT_S and
+# FIELDPROOF_WORLD_RTF_MIN override the definition-of-done limits (10 s, 1.0).
+test-worlds: ## World tests in the dev container: the depot loads in time and runs at real time with the UGV
+	$(COMPOSE) --profile dev up -d --wait --no-build dev
+	$(COMPOSE) --profile dev exec -T dev tools/ros/colcon.sh build sim robots
+	$(COMPOSE) --profile dev exec -T $(WORLD_TEST_ENV) dev tools/ros/colcon.sh run python3 -m pytest -s tests/worlds
+
 docs: ## Build the documentation site into site/ (strict: a broken link or a page outside the nav fails)
 	$(MKDOCS) build --strict
 
@@ -187,10 +205,13 @@ clean: ## Remove pre-commit's installed hook environments (they are rebuilt on t
 pins: ## Compare the image pins (ubuntu digest, ROS snapshot, uv) with their upstreams
 	docker/pins-check.sh
 
+assets: ## Fetch the Gazebo Fuel models pinned in assets/fuel.lock into assets/fuel (idempotent, offline once cached)
+	$(PYTHON) tools/assets/fetch_fuel.py --quiet
+
 images: ## Build the base-ros2, sim, dev and apt-lists images (NO_CACHE=1 for a cold build, FIELDPROOF_APT_LISTS=off to skip the published lists)
 	FIELDPROOF_APT_LISTS_CONTEXT="$(APT_LISTS_CONTEXT)" $(COMPOSE) --profile images $(PROFILES) build $(NO_CACHE_FLAGS) $(BUILD_FLAGS)
 
-up: ## Start the headless Gazebo server and the dev container (RENDER=gpu|software, auto-detected)
+up: assets ## Start the headless Gazebo server with the depot world (FIELDPROOF_WORLD) and the dev container (RENDER=gpu|software, auto-detected)
 	$(COMPOSE) $(PROFILES) up -d --wait
 
 down: ## Stop the container stack

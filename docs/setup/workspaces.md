@@ -30,6 +30,8 @@ fieldproof/
 | `make test-cockpit` | pnpm, Node 22 | `pnpm install --frozen-lockfile`, `tsc --noEmit`, Vitest | host |
 | `make test-ros` | colcon, ROS 2 Jazzy, Gazebo Harmonic | `colcon build` and `colcon test` in `sim/`, `bridge/`, `robots/` | dev container |
 | `make tidy` | clang-tidy 18 | `run-clang-tidy` over the C++ packages with the compile commands of the last build | dev container |
+| `make test-worlds` | pytest 7.4, Gazebo Harmonic | `tests/worlds`: the depot world with the UGV ([worlds.md](../reference/worlds.md#tests)) | dev container |
+| `make test-assets` | python3 | `tests/assets`: the asset convention, `assets/fuel.lock` and the fetch script | host |
 | `make test` | all of the above plus tooling, CI, docs, layout, host and image tests | | |
 
 The host runs only what [host.md](host.md) installs (Docker, Node with pnpm, uv, pre-commit).
@@ -78,7 +80,7 @@ Each directory is a colcon workspace whose packages sit at its top level, built 
 
 | Package | Type | Tests |
 | --- | --- | --- |
-| `sim/fieldproof_worlds` | `ament_cmake` | `gz sdf --check` on every world in `worlds/`, `ament_xmllint` on `package.xml` |
+| `sim/fieldproof_worlds` | `ament_cmake` | `gz sdf --check` on every world in `worlds/` and every model in `models/`, pytest on the worlds against `assets/fuel.lock`, the installed models and the generated map, `ament_xmllint` on `package.xml` ([worlds.md](../reference/worlds.md)) |
 | `sim/fieldproof_gz_plugins` | `ament_cmake`, C++17 | GoogleTest (`ament_add_gtest`), `ament_xmllint`; `fieldproof::HelloSystem` is the first system plugin |
 | `bridge/fieldproof_bridge` | `ament_python` | pytest in `test/` |
 | `robots/fieldproof_robots` | `ament_cmake` | `check_urdf` and `gz sdf --check` on the generated descriptions, pytest through `ament_cmake_pytest` on the installed layout and the manifest, a `launch_testing` spawn-and-drive test, `ament_xmllint` ([robots.md](../reference/robots.md)) |
@@ -99,11 +101,19 @@ package it sits at the workspace root (`robots/pytest.ini`), above `build/`, bec
 registers no test when that probe rejects the root settings.
 
 The plugin, world and robot packages install environment hooks: sourcing `sim/install/setup.bash`
-in the container puts the plugin library on `GZ_SIM_SYSTEM_PLUGIN_PATH` and the worlds on
-`GZ_SIM_RESOURCE_PATH`, so `gz sim -s fieldproof_empty.sdf` finds them; `robots/install` adds
+in the container puts the plugin library on `GZ_SIM_SYSTEM_PLUGIN_PATH` and the worlds and
+models on `GZ_SIM_RESOURCE_PATH`, so `gz sim -s depot.sdf` finds them; `robots/install` adds
 the vehicle models, so `model://ugv_ref` resolves. The vehicle descriptions are xacro, rendered
 to URDF and SDF at build time by `scripts/generate_model.py` (`xacro`, then `gz sdf -p`), which
-needs the `xacro` package of the sim image.
+needs the `xacro` package of the sim image. The worlds package fetches the Gazebo Fuel models
+pinned in `assets/fuel.lock` at build time (`tools/assets/fetch_fuel.py`; network on the first
+build, the cached archives afterwards) and installs them with its own `models/` under
+`share/fieldproof_worlds/models` ([worlds.md](../reference/worlds.md#the-asset-pipeline)).
+
+`tools/ros/colcon.sh run <command>` runs a command with every built workspace's install space
+sourced; the cross-layer tests under `tests/` use it: `make test-worlds` builds `sim` and
+`robots`, then runs `python3 -m pytest tests/worlds` in the dev container (the distribution
+pytest 7.4, which the root `pyproject.toml` accepts).
 
 ## One version everywhere
 
@@ -133,9 +143,12 @@ the cockpit banner and the Gazebo plugin library all report that number, and
 `ci.yml` ([ci.md](ci.md)) runs `make test-engine` (job *Engine tests*, uv cache keyed on
 `engine/uv.lock`), `make test-cockpit` plus `pnpm build` (job *Cockpit tests*, pnpm store cache
 keyed on `pnpm-lock.yaml`) and `make test-layout` (in the tooling job) on every pull request. The
-ROS workspaces need the dev image, so `make test-ros` and `make tidy` run at the end of the
-*Container images and ROS workspaces* job, which the path filter enables when `sim/`, `bridge/`,
-`robots/`, `tools/ros/` or `.clang-tidy` change (as well as for image changes).
+ROS workspaces need the dev image, so `make test-ros`, `make tidy` and `make test-worlds` (with
+relaxed limits for software rendering) run at the end of the *Container images and ROS
+workspaces* job, which the path filter enables when `sim/`, `bridge/`, `robots/`, `tools/ros/`,
+`.clang-tidy`, `assets/`, `tools/assets/` or `tests/worlds/` change (as well as for image
+changes); the job caches the Fuel archives keyed on `assets/fuel.lock`. `make test-assets` runs
+in the tooling job.
 
 ## Troubleshooting
 

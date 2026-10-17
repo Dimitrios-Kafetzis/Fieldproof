@@ -11,7 +11,8 @@
 # Areas:
 #   images   docker/, tests/images/, the Makefile, version.txt, the CI helpers and ci.yml itself,
 #            plus the ROS workspaces (sim/, bridge/, robots/), tools/ros/ and the clang-tidy
-#            configuration, whose tests run in the dev container this job builds (P0-T07)
+#            configuration, whose tests run in the dev container this job builds (P0-T07), and
+#            the assets, their fetch script and the world tests (P1-T02)
 set -euo pipefail
 
 base="${1:-}"
@@ -28,6 +29,9 @@ IMAGES_PATTERNS=(
   '^robots/'
   '^tools/ros/'
   '^\.clang-tidy$'
+  '^assets/'
+  '^tools/assets/'
+  '^tests/worlds/'
 )
 
 if [[ -z "$base" ]]; then

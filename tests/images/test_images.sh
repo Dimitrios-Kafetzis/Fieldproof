@@ -7,8 +7,9 @@
 # 2. Build: `make images` cold (NO_CACHE=1) must finish in under 15 minutes. With --quick the
 #    build reuses the cache and the time limit is not asserted; with --no-build the images already
 #    present are used (CI builds them with `docker buildx bake` and the registry cache first).
-# 3. Stack: `make up` starts `gz sim -s -r empty.sdf`; `ros2 topic list` and `gz topic -l` work
-#    from the dev container; `make down` stops it.
+# 3. Stack: `make up` fetches the pinned Fuel models and starts `gz sim -s -r depot.sdf` with the
+#    worlds, models and assets bind-mounted (task P1-T02); the server resolves every model;
+#    `ros2 topic list` and `gz topic -l` work from the dev container; `make down` stops it.
 # 4. Rendering: a camera sensor renders a frame headless through /dev/dri (skipped when the host
 #    has no render node) and with software rendering (LIBGL_ALWAYS_SOFTWARE=1).
 # 5. Package lists (issue #4): the apt-lists image holds the InRelease files of both pinned
@@ -174,10 +175,16 @@ compose_dev() { docker compose -f docker/compose.yaml --profile dev exec -T dev 
 
 sim_id="$(docker compose -f docker/compose.yaml --profile sim ps -q sim 2>/dev/null || true)"
 sim_cmd="$(docker inspect --format '{{join .Config.Cmd " "}}' "${sim_id:-none}" 2>/dev/null || true)"
-if [[ "$sim_cmd" == "gz sim -s -r"*"empty.sdf" ]]; then
+if [[ "$sim_cmd" == "gz sim -s -r"*"depot.sdf" ]]; then
   pass "sim container runs: $sim_cmd"
 else
   fail "sim container command is '${sim_cmd:-not running}'"
+fi
+if docker inspect --format '{{range .Mounts}}{{.Destination}} {{end}}' "${sim_id:-none}" 2>/dev/null | grep -q '/fieldproof/worlds' \
+  && docker inspect --format '{{range .Mounts}}{{.Destination}} {{end}}' "${sim_id:-none}" 2>/dev/null | grep -q '/fieldproof/fuel'; then
+  pass "sim container has the worlds and the Fuel models bind-mounted"
+else
+  fail "sim container lacks the /fieldproof mounts"
 fi
 
 if topics="$(compose_dev 'ros2 topic list' 2>&1)" && grep -q '^/rosout$' <<<"$topics"; then
@@ -187,15 +194,21 @@ else
 fi
 
 gz_topics=""
-for _ in $(seq 1 20); do
+for _ in $(seq 1 120); do
   gz_topics="$(compose_dev 'gz topic -l' 2>/dev/null || true)"
-  grep -q '^/world/empty/clock$' <<<"$gz_topics" && break
+  grep -q '^/world/depot/clock$' <<<"$gz_topics" && break
   sleep 1
 done
-if grep -q '^/world/empty/clock$' <<<"$gz_topics"; then
+if grep -q '^/world/depot/clock$' <<<"$gz_topics"; then
   pass "gz topic -l from dev sees the sim ($(grep -c . <<<"$gz_topics") topics)"
 else
-  fail "gz topic -l from dev does not list /world/empty/clock: ${gz_topics:-no output}"
+  fail "gz topic -l from dev does not list /world/depot/clock: ${gz_topics:-no output}"
+fi
+sim_log="$(docker compose -f docker/compose.yaml --profile sim logs --no-color sim 2>/dev/null || true)"
+if ! grep -qE 'Unable to find|Failed to load mesh|Unable to load|Missing material' <<<"$sim_log"; then
+  pass "sim server resolved every model of the depot world"
+else
+  fail "sim server could not resolve a resource: $(grep -E 'Unable to find|Failed to load mesh|Unable to load|Missing material' <<<"$sim_log" | head -n 3 | tr '\n' ' ')"
 fi
 
 if make down >/dev/null 2>&1 && [[ -z "$(docker compose -f docker/compose.yaml --profile '*' ps -q)" ]]; then

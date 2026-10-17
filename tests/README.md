@@ -12,7 +12,11 @@ holds what spans layers or the repository itself.
 | `layout/` | monorepo layout: directories per the standards, one version everywhere, lock files and pins in sync | `make test-layout` |
 | `host/` | host preparation scripts | `make test-host` |
 | `images/` | container images, compose stack, rendering | `make test-images` |
+| `assets/` | asset convention, `assets/fuel.lock`, the Fuel fetch script against a local stand-in | `make test-assets` |
+| `worlds/` | the depot world with the UGV: load time, sensors, real-time factor (pytest, dev container) | `make test-worlds` |
 
-Integration tests (sim + bridge + one vehicle) and scenario regression tests arrive with Phase 1
-and Phase 2 under `tests/integration/` and `tests/scenarios/`
+The pytest suites here run inside the dev container with the ROS install spaces sourced
+(`tools/ros/colcon.sh run python3 -m pytest tests/<suite>`) and use the root `pyproject.toml`
+configuration. Integration tests (sim + bridge + one vehicle) and scenario regression tests
+arrive with Phase 1 and Phase 2 under `tests/integration/` and `tests/scenarios/`
 ([04-engineering-standards.md](../docs/plan/04-engineering-standards.md#testing-pyramid)).
