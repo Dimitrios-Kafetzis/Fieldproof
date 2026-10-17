@@ -136,6 +136,9 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
+      # Simulated time can lag the wall clock on a loaded host (software rendering in CI):
+      # wait longer for a transform than the 0.3 s default before giving up on it.
+      transform_tolerance: 0.5
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: odom
@@ -169,6 +172,9 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
+      # Simulated time can lag the wall clock on a loaded host (software rendering in CI):
+      # wait longer for a transform than the 0.3 s default before giving up on it.
+      transform_tolerance: 0.5
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
