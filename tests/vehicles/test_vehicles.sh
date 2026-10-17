@@ -11,14 +11,15 @@
 # 3. Image: `fieldproof vehicle build` builds the example image on the local base image (minutes:
 #    Nav2 and SLAM Toolbox from the apt snapshots), or with --no-build the image already present
 #    is used; --static skips this section. The image runs as the non-root user, carries the
-#    manifest, the install space and the labels, has no compiler, finds the bringup package and
-#    its parameter files, and shows the field launch arguments.
+#    manifest, the install space, the readiness probe (its HEALTHCHECK) and the labels, has no
+#    compiler, finds the bringup package and its parameter files, and shows the field launch
+#    arguments; the probe alone reports every condition pending.
 # 4. Graph: the image started with `fieldproof vehicle run` on the `fieldproof` network joins the
 #    ROS graph: from a second container of the same image on the same network, its nodes are
 #    listed, SLAM Toolbox is `active` and Nav2's servers answer their lifecycle services (they
-#    stay `inactive` until the bridge publishes TF, which the integration test of the second
-#    session adds); no node dies; the container carries the manifest's budget. --static and
-#    --no-graph skip it.
+#    stay `inactive` until the bridge publishes TF, which tests/integration adds); `fieldproof
+#    vehicle wait` and the health check report Nav2 pending; no node dies; the container carries
+#    the manifest's budget. --static and --no-graph skip it.
 #
 # Usage: tests/vehicles/test_vehicles.sh [--no-build] [--no-graph] [--static] [--help]
 set -euo pipefail
@@ -219,6 +220,19 @@ PY
     else
       fail "default command: $cmd"
     fi
+    health="$(docker image inspect "$IMAGE" --format '{{json .Config.Healthcheck.Test}}')"
+    if run test -x /usr/local/bin/fieldproof-vehicle-ready \
+      && [[ "$health" == '["CMD","/usr/local/bin/fieldproof-vehicle-entrypoint","/usr/local/bin/fieldproof-vehicle-ready","--timeout","10"]' ]]; then
+      pass "carries the readiness probe, which the HEALTHCHECK runs through the entry point"
+    else
+      fail "readiness probe or HEALTHCHECK missing: $health"
+    fi
+    probe="$(run fieldproof-vehicle-ready --timeout 3 2>&1)" && probe_status=0 || probe_status=$?
+    if [[ "$probe_status" -eq 1 && "$probe" == *"not ready after"*"9 of 9 pending"*"/bt_navigator lifecycle unavailable"*"/navigate_to_pose action no server"* ]]; then
+      pass "the probe alone reports the 9 conditions pending and exits 1"
+    else
+      fail "the probe alone exited $probe_status: $probe"
+    fi
   fi
 fi
 
@@ -280,6 +294,20 @@ else
     pass "Nav2's bt_navigator and planner_server answer their lifecycle services (configured, waiting for the bridge's TF to activate)"
   else
     fail "Nav2's lifecycle services do not answer: $result"
+  fi
+  # The probe's last line is its verdict (the earlier lines show discovery in progress).
+  wait_out="$("${FIELDPROOF[@]}" vehicle wait "$MANIFEST" --name "$CONTAINER" --timeout 5 2>&1)" && wait_status=0 || wait_status=$?
+  verdict="$(tail -n 1 <<<"$wait_out")"
+  if [[ "$wait_status" -eq 1 && "$verdict" == "not ready after"*"/bt_navigator lifecycle inactive"* && "$verdict" != *"/slam_toolbox lifecycle"* ]]; then
+    pass "fieldproof vehicle wait exits 1 without the bridge: Nav2 pending, SLAM Toolbox ready"
+  else
+    fail "fieldproof vehicle wait exited $wait_status: $wait_out"
+  fi
+  health_status="$(docker inspect "$CONTAINER" --format '{{.State.Health.Status}}')"
+  if [[ "$health_status" == starting || "$health_status" == unhealthy ]]; then
+    pass "Docker health is '$health_status' without the bridge"
+  else
+    fail "Docker health is '$health_status' without the bridge"
   fi
   if docker logs "$CONTAINER" 2>&1 | grep -q "Timed out waiting for transform from base_link to odom"; then
     pass "the controller server waits for the odom -> base_link transform (no bridge in this test)"

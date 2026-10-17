@@ -9,16 +9,19 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from fieldproof import __version__
+from fieldproof import __version__, vehicle_ready
 from fieldproof.cli import app
 from fieldproof.manifest import RobotManifest, load_manifest, validate_data
 from fieldproof.vehicle import (
+    ENTRYPOINT_IN_IMAGE,
+    READY_IN_IMAGE,
     SOURCE_CONTEXT,
     VehicleError,
     build_command,
     render_dockerfile,
     render_repos,
     run_command,
+    wait_command,
     write_context,
 )
 
@@ -105,6 +108,14 @@ def test_dockerfile_of_the_example(nav2: RobotManifest) -> None:
     cmd = 'CMD ["ros2", "launch", "ugv_nav2_bringup", "bringup.launch.py", '
     assert cmd + '"use_sim_time:=true", "drivers:=false"]' in lines
     assert "USER ${FIELDPROOF_USER}" in lines
+    assert f"COPY --chmod=755 ready.py {READY_IN_IMAGE}" in lines
+    healthcheck = lines.index(
+        "HEALTHCHECK --interval=15s --timeout=30s --start-period=60s --retries=3 \\"
+    )
+    assert lines[healthcheck + 1] == (
+        f'    CMD ["{ENTRYPOINT_IN_IMAGE}", "{READY_IN_IMAGE}", "--timeout", "10"]'
+    )
+    assert healthcheck < lines.index("USER ${FIELDPROOF_USER}"), "the check runs as the user"
     assert lines[-1].strip().startswith("io.fieldproof.rosdistro-commit=")
     assert 'io.fieldproof.vehicle="ugv_nav2"' in text
     assert 'io.fieldproof.tier="T1"' in text
@@ -112,6 +123,12 @@ def test_dockerfile_of_the_example(nav2: RobotManifest) -> None:
     runtime = text[text.index("AS runtime") :]
     assert "fieldproof-apt-install; fi\n" in runtime
     assert "build-essential" not in runtime
+
+
+def test_dockerfile_without_ready_has_no_healthcheck(repo_vehicle: RobotManifest) -> None:
+    text = render_dockerfile(repo_vehicle)
+    assert "HEALTHCHECK" not in text
+    assert f"COPY --chmod=755 ready.py {READY_IN_IMAGE}" in text, "the probe is always there"
 
 
 def test_dockerfile_with_repos_apt_and_colcon_args(repo_vehicle: RobotManifest) -> None:
@@ -157,7 +174,13 @@ def test_dockerfile_refusals() -> None:
 def test_write_context(nav2: RobotManifest, tmp_path: Path) -> None:
     context = write_context(nav2, tmp_path / "ctx")
     assert context.dockerfile == tmp_path / "ctx" / "Dockerfile"
-    assert sorted(p.name for p in context.files) == ["Dockerfile", "entrypoint.sh", "robot.yaml"]
+    assert sorted(p.name for p in context.files) == [
+        "Dockerfile",
+        "entrypoint.sh",
+        "ready.py",
+        "robot.yaml",
+    ]
+    assert (tmp_path / "ctx" / "ready.py").read_text() == Path(vehicle_ready.__file__).read_text()
     entrypoint = (tmp_path / "ctx" / "entrypoint.sh").read_text()
     assert entrypoint.startswith("#!/usr/bin/env bash\n")
     assert 'source "/opt/vehicle/setup.bash"' in entrypoint
@@ -178,6 +201,7 @@ def test_write_context_with_repos(repo_vehicle: RobotManifest, tmp_path: Path) -
     assert sorted(p.name for p in context.files) == [
         "Dockerfile",
         "entrypoint.sh",
+        "ready.py",
         "robot.yaml",
         "vehicle.repos",
     ]
@@ -287,7 +311,7 @@ def test_cli_dockerfile(tmp_path: Path) -> None:
     listed = {
         Path(line.strip()).name for line in ANSI.sub("", result.output).splitlines() if line.strip()
     }
-    assert listed == {"Dockerfile", "entrypoint.sh", "robot.yaml"}
+    assert listed == {"Dockerfile", "entrypoint.sh", "ready.py", "robot.yaml"}
     assert (out / "Dockerfile").read_text() == render_dockerfile(load_manifest(NAV2_MANIFEST))
 
 
@@ -350,3 +374,35 @@ def test_cli_run_dry_run() -> None:
     assert "--env ROS_DOMAIN_ID=5" in output
     assert "--env A=1" in output
     assert output.endswith("fieldproof-vehicle-ugv-nav2:local bash")
+
+
+def test_wait_command(nav2: RobotManifest, repo_vehicle: RobotManifest) -> None:
+    probe = [ENTRYPOINT_IN_IMAGE, READY_IN_IMAGE]
+    assert wait_command(nav2) == ["docker", "exec", "ugv_nav2", *probe]
+    assert wait_command(repo_vehicle, name="bot-1", timeout_s=30, interval_s=0.5, quiet=True) == [
+        "docker",
+        "exec",
+        "bot-1",
+        *probe,
+        "--timeout",
+        "30",
+        "--interval",
+        "0.5",
+        "--quiet",
+    ]
+    plain_manifest = load_manifest(UGV_MANIFEST)
+    with pytest.raises(VehicleError, match="no runtime section"):
+        wait_command(plain_manifest)
+
+
+def test_cli_wait_dry_run() -> None:
+    result = runner.invoke(
+        app, ["vehicle", "wait", str(NAV2_MANIFEST), "--dry-run", "--name", "c1", "--timeout", "9"]
+    )
+    assert result.exit_code == 0, result.output
+    assert plain(result.output) == (
+        f"docker exec c1 {ENTRYPOINT_IN_IMAGE} {READY_IN_IMAGE} --timeout 9"
+    )
+    result = runner.invoke(app, ["vehicle", "wait", str(UGV_MANIFEST), "--dry-run"])
+    assert result.exit_code == 2
+    assert "no runtime section" in plain(result.output)

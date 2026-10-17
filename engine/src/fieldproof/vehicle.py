@@ -5,7 +5,8 @@ Fieldproof base image, the ``vehicle.repos`` file ``vcs import`` clones at the p
 entry point that sources ROS 2 and the vehicle's install space, and the resolved manifest the image
 carries at ``/opt/fieldproof/robot.yaml``. :func:`build_command` and :func:`run_command` compose the
 ``docker buildx build`` and ``docker run`` command lines the CLI runs (``fieldproof vehicle build``
-and ``fieldproof vehicle run``); the scenario orchestrator of P1-T05 drives the same image through
+and ``fieldproof vehicle run``), :func:`wait_command` the ``docker exec`` of the readiness probe
+(``fieldproof vehicle wait``); the scenario orchestrator of P1-T05 drives the same image through
 the Docker API.
 
 The image is built in two stages so the runtime carries no compiler:
@@ -18,8 +19,9 @@ The image is built in two stages so the runtime carries no compiler:
     build --merge-install`` installs into ``/opt/vehicle``.
 ``runtime``
     the base image, the run-time dependencies rosdep listed for the packages built, the install
-    space, the entry point, the manifest, the labels; runs as the base image's non-root user
-    with the manifest's entrypoint as the default command.
+    space, the entry point, the manifest, the readiness probe (:mod:`fieldproof.vehicle_ready`,
+    the image's ``HEALTHCHECK`` when the manifest has ``runtime.ready``), the labels; runs as the
+    base image's non-root user with the manifest's entrypoint as the default command.
 """
 
 from __future__ import annotations
@@ -29,11 +31,12 @@ import shlex
 import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from importlib import resources
 from pathlib import Path
 
 import yaml
 
-from fieldproof import __version__
+from fieldproof import __version__, vehicle_ready
 from fieldproof.manifest import Build, RobotManifest, Runtime, load_manifest
 from fieldproof_bridge.manifest import ManifestError, read_manifest_data
 
@@ -45,6 +48,14 @@ WORKSPACE = "/opt/vehicle_ws"
 MANIFEST_IN_IMAGE = "/opt/fieldproof/robot.yaml"
 EXEC_DEPS = ".fieldproof-exec-deps.txt"
 ENTRYPOINT_IN_IMAGE = "/usr/local/bin/fieldproof-vehicle-entrypoint"
+READY_IN_IMAGE = "/usr/local/bin/fieldproof-vehicle-ready"
+READY_SOURCE = "ready.py"
+# The HEALTHCHECK: the probe with a short wait, so each check reports promptly; Docker reports
+# `starting` during the start period, `unhealthy` after `retries` failures and `healthy` as soon
+# as one check passes. The manifest's ready.timeout_s is the budget of `vehicle wait`, not of a
+# single check.
+HEALTHCHECK = "--interval=15s --timeout=30s --start-period=60s --retries=3"
+HEALTHCHECK_PROBE_TIMEOUT_S = 10
 BUILD_TOOLS = (
     "build-essential",
     "cmake",
@@ -221,7 +232,18 @@ def render_dockerfile(manifest: RobotManifest, manifest_label: str | None = None
         "# The directory first: --chmod would give an implicitly created parent the file mode.",
         f"RUN install -d -m 755 {Path(MANIFEST_IN_IMAGE).parent}",
         f"COPY --chmod=644 robot.yaml {MANIFEST_IN_IMAGE}",
+        "# The readiness probe (fieldproof.vehicle_ready, copied unchanged): `fieldproof vehicle",
+        "# wait` runs it through docker exec against the manifest's runtime.ready conditions.",
+        f"COPY --chmod=755 {READY_SOURCE} {READY_IN_IMAGE}",
     ]
+    if runtime.ready is not None:
+        lines += [
+            "# The same probe as the image's health check, so `docker inspect` and compose's",
+            "# `--wait` see the stack's readiness; the ROS environment comes from the entry point.",
+            f"HEALTHCHECK {HEALTHCHECK} \\",
+            f'    CMD ["{ENTRYPOINT_IN_IMAGE}", "{READY_IN_IMAGE}", '
+            f'"--timeout", "{HEALTHCHECK_PROBE_TIMEOUT_S}"]',
+        ]
     env = {
         "FIELDPROOF_VEHICLE": manifest.name,
         "FIELDPROOF_MANIFEST": MANIFEST_IN_IMAGE,
@@ -286,6 +308,15 @@ def resolved_manifest_text(manifest: RobotManifest) -> str:
     return header + str(yaml.safe_dump(data, sort_keys=False, width=100))
 
 
+def ready_probe_source() -> str:
+    """The readiness probe script the image carries (the engine module, unchanged)."""
+    return (
+        resources.files(vehicle_ready.__package__ or "fieldproof")
+        .joinpath(Path(vehicle_ready.__file__).name)
+        .read_text()
+    )
+
+
 def check_sources(manifest: RobotManifest) -> None:
     """Every local source directory and parameter file of the manifest exists."""
     runtime = runtime_of(manifest)
@@ -324,6 +355,7 @@ def write_context(manifest: RobotManifest, out_dir: Path | str) -> Context:
         "Dockerfile": dockerfile,
         "entrypoint.sh": ENTRYPOINT % {"install": INSTALL_BASE},
         "robot.yaml": resolved_manifest_text(manifest),
+        READY_SOURCE: ready_probe_source(),
     }
     repos = render_repos(manifest)
     if repos is not None:
@@ -437,6 +469,30 @@ def run_command(
         if rt.resources.pids is not None:
             argv += ["--pids-limit", str(rt.resources.pids)]
     argv += [*extra_args, image or rt.image, *command]
+    return argv
+
+
+def wait_command(
+    manifest: RobotManifest,
+    *,
+    name: str | None = None,
+    timeout_s: float | None = None,
+    interval_s: float | None = None,
+    quiet: bool = False,
+) -> list[str]:
+    """The ``docker exec`` of the readiness probe in the vehicle's running container.
+
+    Without ``timeout_s`` the probe applies the manifest's ``ready.timeout_s`` (it reads the
+    manifest the image carries); a manifest without ``ready`` is ready at once.
+    """
+    runtime_of(manifest)
+    argv = ["docker", "exec", name or manifest.name, ENTRYPOINT_IN_IMAGE, READY_IN_IMAGE]
+    if timeout_s is not None:
+        argv += ["--timeout", f"{timeout_s:g}"]
+    if interval_s is not None:
+        argv += ["--interval", f"{interval_s:g}"]
+    if quiet:
+        argv.append("--quiet")
     return argv
 
 
