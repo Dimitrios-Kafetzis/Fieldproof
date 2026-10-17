@@ -14,7 +14,8 @@
 # see docs/reference/worlds.md.
 # Vehicles (task P1-T04): `manifest-schema` exports the manifest JSON Schema from the engine,
 # `vehicle-image` builds the example vehicle image from its manifest, `test-vehicles` runs the
-# vehicle tests (manifests, generated Dockerfile, image build and smoke); see
+# vehicle tests (manifests, generated Dockerfile, image build and smoke), `test-integration`
+# runs the vertical slice (sim, bridge and the vehicle in the depot, a navigation goal); see
 # docs/reference/manifest.md.
 
 SHELL := /usr/bin/env bash
@@ -83,7 +84,10 @@ ifeq ($(RENDER),gpu)
 COMPOSE_FILES += -f docker/compose.gpu.yaml
 endif
 COMPOSE     := docker compose $(COMPOSE_FILES)
+# `make up` starts sim and dev; the bridge (started on demand) is included where every service
+# counts: image builds, `make down` and `make prune`.
 PROFILES    := --profile sim --profile dev
+ALL_PROFILES := --profile images $(PROFILES) --profile bridge
 BUILD_FLAGS ?=
 # NO_CACHE=1 ignores the layer cache and starts from empty apt cache mounts (a fresh BuildKit cache
 # mount namespace), which is what a cold build on a new machine or in CI sees.
@@ -96,7 +100,7 @@ IMAGE_TEST_FLAGS ?= --quick
 
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
 	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
-	test-vehicles tidy docs docs-serve docs-links branch-protection clean pins assets images \
+	test-vehicles test-integration tidy docs docs-serve docs-links branch-protection clean pins assets images \
 	manifest-schema vehicle-image up down shell prune
 
 help: ## Show this help
@@ -146,7 +150,7 @@ secrets: ## Scan the full git history for secrets with the pinned gitleaks conta
 fmt: ## Apply the formatters (ruff, clang-format, cmake-format, prettier, whitespace fixers)
 	@for hook in $(FORMAT_HOOKS); do $(PRE_COMMIT) run "$$hook" --all-files || true; done
 
-test: test-tooling test-ci test-docs test-layout test-assets test-engine test-cockpit test-ros test-worlds test-host test-images test-vehicles ## Run every test suite: tooling, CI, docs, layout, assets, engine (pytest), cockpit (Vitest), ROS workspaces (ctest, pytest), worlds, host, images, vehicles
+test: test-tooling test-ci test-docs test-layout test-assets test-engine test-cockpit test-ros test-worlds test-host test-images test-vehicles test-integration ## Run every test suite: tooling, CI, docs, layout, assets, engine (pytest), cockpit (Vitest), ROS workspaces (ctest, pytest), worlds, host, images, vehicles, integration
 
 test-tooling: ## Quality-gate tests: hooks pass on the repo, each gate catches a bad file, commitlint rejects bad messages
 	tests/tooling/test_quality_gates.sh
@@ -201,6 +205,13 @@ test-worlds: ## World tests in the dev container: the depot loads in time and ru
 test-vehicles: ## Vehicle tests: every robot.yaml validates, the generated Dockerfile lints, the example image builds and runs
 	tests/vehicles/test_vehicles.sh $(VEHICLE_TEST_FLAGS)
 
+# Needs the stack images (make images) and the example vehicle image (make vehicle-image); runs
+# on the host from the engine's environment and drives Docker. FIELDPROOF_IT_KEEP=1 leaves the
+# containers running after a failure.
+test-integration: ## Integration test (tests/integration): sim, bridge and the example vehicle in the depot; Nav2 active, a NavigateToPose goal reached
+	$(UV) sync --locked --project engine
+	$(UV) run --locked --project engine pytest -s -v tests/integration
+
 manifest-schema: ## Export the vehicle manifest JSON Schema (engine/schemas/robot.schema.json) from the engine's models
 	$(UV) sync --locked --project engine
 	$(FIELDPROOF) manifest schema > engine/schemas/robot.schema.json
@@ -233,19 +244,19 @@ pins: ## Compare the image pins (ubuntu digest, ROS snapshot, uv) with their ups
 assets: ## Fetch the Gazebo Fuel models pinned in assets/fuel.lock into assets/fuel (idempotent, offline once cached)
 	$(PYTHON) tools/assets/fetch_fuel.py --quiet
 
-images: ## Build the base-ros2, sim, dev and apt-lists images (NO_CACHE=1 for a cold build, FIELDPROOF_APT_LISTS=off to skip the published lists)
-	FIELDPROOF_APT_LISTS_CONTEXT="$(APT_LISTS_CONTEXT)" $(COMPOSE) --profile images $(PROFILES) build $(NO_CACHE_FLAGS) $(BUILD_FLAGS)
+images: ## Build the base-ros2, sim, dev, bridge and apt-lists images (NO_CACHE=1 for a cold build, FIELDPROOF_APT_LISTS=off to skip the published lists)
+	FIELDPROOF_APT_LISTS_CONTEXT="$(APT_LISTS_CONTEXT)" $(COMPOSE) $(ALL_PROFILES) build $(NO_CACHE_FLAGS) $(BUILD_FLAGS)
 
 up: assets ## Start the headless Gazebo server with the depot world (FIELDPROOF_WORLD) and the dev container (RENDER=gpu|software, auto-detected)
 	$(COMPOSE) $(PROFILES) up -d --wait
 
-down: ## Stop the container stack
-	$(COMPOSE) $(PROFILES) down --remove-orphans
+down: ## Stop the container stack (the bridge included)
+	$(COMPOSE) $(PROFILES) --profile bridge down --remove-orphans
 
 shell: ## Open a shell in the dev container
 	$(COMPOSE) exec dev bash
 
 prune: down ## Remove the stack, the project's images and dangling Fieldproof build layers
-	$(COMPOSE) --profile images $(PROFILES) down --remove-orphans --volumes --rmi all
+	$(COMPOSE) $(ALL_PROFILES) down --remove-orphans --volumes --rmi all
 	docker image prune -f --filter label=org.opencontainers.image.vendor=Fieldproof
 	@echo "Build cache is shared across projects; reclaim it with: docker builder prune"

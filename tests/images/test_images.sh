@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for the container images (task P0-T03): docker/base-ros2, docker/sim, docker/dev,
-# docker/compose.yaml and the Makefile targets.
+# docker/bridge (task P1-T04), docker/compose.yaml and the Makefile targets.
 #
 # 1. Static checks: shellcheck and hadolint (pinned containers when no local binary), compose
 #    config validation, the vendored ROS snapshot keyring fingerprint.
@@ -27,8 +27,9 @@ COLD_BUILD_LIMIT_S=900
 RENDER_TIMEOUT_S=180
 
 SCRIPTS=(docker/base-ros2/entrypoint.sh docker/base-ros2/apt-install.sh docker/sim/render-info.sh
+  docker/bridge/entrypoint.sh docker/bridge/fieldproof-bridge.sh
   docker/apt-lists-context.sh docker/pins-check.sh tests/images/test_images.sh)
-DOCKERFILES=(docker/base-ros2/Dockerfile docker/sim/Dockerfile docker/dev/Dockerfile)
+DOCKERFILES=(docker/base-ros2/Dockerfile docker/sim/Dockerfile docker/dev/Dockerfile docker/bridge/Dockerfile)
 
 QUICK=0
 NO_BUILD=0
@@ -151,7 +152,7 @@ else
   fi
 fi
 
-for name in base-ros2 sim dev; do
+for name in base-ros2 sim dev bridge; do
   image="${SIM_IMAGE/sim:/${name}:}"
   rev="$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true)"
   if [[ "$rev" == "$(git rev-parse HEAD)" ]]; then
@@ -165,6 +166,29 @@ if [[ "$(docker run --rm "$SIM_IMAGE" id -u)" == "1000" ]]; then
   pass "sim image runs as uid 1000 (non-root)"
 else
   fail "sim image does not run as uid 1000"
+fi
+
+# The bridge image (task P1-T04): the simulation image plus the bridge and robots packages built
+# into /opt/fieldproof_bridge, sourced by its entry point; no build tools; the default command
+# refuses to start without a manifest.
+BRIDGE_IMAGE="${SIM_IMAGE/sim:/bridge:}"
+if [[ "$(docker run --rm "$BRIDGE_IMAGE" bash -c 'ros2 pkg prefix fieldproof_bridge; ros2 pkg prefix fieldproof_robots; id -un' 2>/dev/null | tr '\n' ' ')" == "/opt/fieldproof_bridge /opt/fieldproof_bridge fieldproof " ]]; then
+  pass "bridge image: fieldproof_bridge and fieldproof_robots in /opt/fieldproof_bridge, user fieldproof"
+else
+  fail "bridge image: packages or user"
+fi
+if ! docker run --rm "$BRIDGE_IMAGE" bash -c 'command -v colcon || command -v make' >/dev/null 2>&1 \
+  && docker run --rm "$BRIDGE_IMAGE" test -f /opt/fieldproof_bridge/share/fieldproof_robots/models/ugv_ref/model.sdf \
+  && docker run --rm "$BRIDGE_IMAGE" ros2 launch fieldproof_bridge bridge.launch.py --show-args >/dev/null 2>&1; then
+  pass "bridge image: no build tools, the UGV model rendered, the bridge launch file resolves"
+else
+  fail "bridge image: build tools present, model missing or launch file broken"
+fi
+bridge_out="$(docker run --rm "$BRIDGE_IMAGE" 2>&1)" && bridge_status=0 || bridge_status=$?
+if [[ "$bridge_status" -eq 2 && "$bridge_out" == *"FIELDPROOF_MANIFEST"* ]]; then
+  pass "bridge image: the default command exits 2 without FIELDPROOF_MANIFEST"
+else
+  fail "bridge image: default command exited $bridge_status: $bridge_out"
 fi
 
 # ---------------------------------------------------------------------------------------------

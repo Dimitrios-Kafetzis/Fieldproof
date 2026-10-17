@@ -156,7 +156,7 @@ doc = yaml.safe_load(open(".github/workflows/images.yml"))
 jobs = doc["jobs"]
 assert jobs["scan"]["needs"] == "build"
 assert sorted(jobs["tag"]["needs"]) == ["build", "scan"]
-assert jobs["scan"]["strategy"]["matrix"]["image"] == ["base-ros2", "sim", "dev"]
+assert jobs["scan"]["strategy"]["matrix"]["image"] == ["base-ros2", "sim", "dev", "bridge"]
 assert "workflow_call" in (doc[True] if True in doc else doc["on"])
 PY
 then pass "images.yml: sha tag pushed first, floating tag only after the scan"; else fail "images.yml job order"; fi
@@ -215,9 +215,11 @@ base-ros2.cache-to=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-base-
 sim.cache-from=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-sim:buildcache
 sim.cache-to=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-sim:pr,mode=max
 dev.cache-from=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-dev:buildcache
-dev.cache-to=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-dev:pr,mode=max"
+dev.cache-to=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-dev:pr,mode=max
+bridge.cache-from=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-bridge:buildcache
+bridge.cache-to=type=registry,ref=ghcr.io/dimitrios-kafetzis/fieldproof-bridge:pr,mode=max"
 if [[ "$(tools/ci/bake-cache.sh --read buildcache --write pr)" == "$expected_cache" ]]; then
-  pass "bake-cache: cache-from and cache-to lines for the three targets"
+  pass "bake-cache: cache-from and cache-to lines for the four targets"
 else
   fail "bake-cache: unexpected output"
   tools/ci/bake-cache.sh --read buildcache --write pr | sed 's/^/        /'
@@ -300,14 +302,14 @@ then pass "Dependabot: github-actions, pip (engine, tools/docs) and npm, weekly,
 
 # Run from docker/ with every profile enabled, exactly as the workflows do: bake resolves the
 # build contexts relative to its working directory and profile-aware versions drop base-ros2.
-if targets="$(cd docker && COMPOSE_PROFILES=images,sim,dev docker buildx bake -f compose.yaml --print 2>/dev/null \
+if targets="$(cd docker && COMPOSE_PROFILES=images,sim,dev,bridge docker buildx bake -f compose.yaml --print 2>/dev/null \
   | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["target"])))')" \
-  && [[ "$targets" == "apt-lists base-ros2 dev sim" ]]; then
+  && [[ "$targets" == "apt-lists base-ros2 bridge dev sim" ]]; then
   pass "docker buildx bake reads docker/compose.yaml: targets $targets"
 else
   fail "docker buildx bake targets: '${targets:-none}'"
 fi
-if contexts="$(cd docker && COMPOSE_PROFILES=images,sim,dev docker buildx bake -f compose.yaml --print 2>/dev/null \
+if contexts="$(cd docker && COMPOSE_PROFILES=images,sim,dev,bridge docker buildx bake -f compose.yaml --print 2>/dev/null \
   | python3 -c 'import json,sys; print(" ".join(sorted(t["context"] for t in json.load(sys.stdin)["target"].values())))')" \
   && (cd docker && for c in $contexts; do [[ -f "$c/Dockerfile" ]] || exit 1; done); then
   pass "bake build contexts exist under docker/: $contexts"

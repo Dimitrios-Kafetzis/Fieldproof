@@ -1,4 +1,4 @@
-# Fieldproof image publishing (task P0-T05). Builds base-ros2, sim and dev from the registry
+# Fieldproof image publishing (task P0-T05). Builds base-ros2, sim, dev and bridge from the registry
 # cache, pushes them to GHCR as `sha-<short>`, scans every image (syft SBOM, Trivy) and only then
 # adds the floating tags: `main` for a push to main, `vX.Y.Z` when release.yml calls this workflow
 # for a tag. The `sha-<short>` tag is therefore the only one that can point at an unscanned image.
@@ -34,7 +34,7 @@ concurrency:
 
 env:
   IMAGE_PREFIX: ghcr.io/dimitrios-kafetzis/fieldproof-
-  IMAGES: base-ros2 sim dev
+  IMAGES: base-ros2 sim dev bridge
   TRIVY_VERSION: v0.76.0
 
 jobs:
@@ -81,8 +81,8 @@ jobs:
         uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
         env:
           # Bake reads docker/compose.yaml; profile-aware buildx versions drop base-ros2 (profile
-          # `images`) unless every profile is enabled.
-          COMPOSE_PROFILES: images,sim,dev
+          # `images`) and bridge (profile `bridge`) unless every profile is enabled.
+          COMPOSE_PROFILES: images,sim,dev,bridge
         with:
           # Bake resolves the build contexts of compose.yaml relative to its working directory.
           source: ./docker
@@ -102,7 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [base-ros2, sim, dev]
+        image: [base-ros2, sim, dev, bridge]
     env:
       IMAGE_REF: ghcr.io/dimitrios-kafetzis/fieldproof-${{ matrix.image }}:${{ needs.build.outputs.sha-tag }}
     steps:
