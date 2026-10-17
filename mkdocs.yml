@@ -113,4 +113,5 @@ nav:
       - reference/index.md
       - CLI: reference/cli.md
       - Reference vehicles: reference/robots.md
+      - Bridge contract: reference/bridge.md
       - Worlds: reference/worlds.md

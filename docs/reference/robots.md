@@ -3,7 +3,7 @@
 The reference vehicles are the models Fieldproof ships for scenarios that need no real vehicle
 description: a UGV (task P1-T01, this page), two UAVs (P4-T03) and a USV (P5-T02). They live in
 the `fieldproof_robots` package of the `robots/` workspace
-([workspaces.md](../setup/workspaces.md#the-ros-workspaces-sim-bridge-robots)), one directory
+([workspaces.md](../setup/workspaces.md#the-ros-workspaces-sim-robots-bridge)), one directory
 per vehicle under `models/`, and are described once, as xacro URDF: `robot_state_publisher`
 reads the URDF for TF, and the SDF that Gazebo spawns is generated from it at build time
 ([01-architecture.md](../plan/01-architecture.md#l1-physics-and-sensor-engine)). A real robot's URDF
@@ -65,27 +65,30 @@ gz topic -e -t /odom                                             # watches the o
 | `x`, `y`, `z`, `yaw` | `0`, `0`, `0.12`, `0` | spawn pose of `base_link` (the axle sits at 0.11 m) |
 | `gps` | `true` | fit the GNSS receiver |
 | `use_sim_time` | `true` | clock of `robot_state_publisher` |
+| `robot_state_publisher` | `true` | run `robot_state_publisher`; `false` when the bridge launch assembles TF ([bridge.md](bridge.md)) |
 
-The launch file renders the xacro with these arguments, publishes the result as
-`robot_description` through `robot_state_publisher` (TF of the fixed frames; the wheel joints
-follow the Gazebo joint states once the bridge of P1-T03 runs) and spawns it with
-`ros_gz_sim create -topic robot_description`, whose exit code tells whether the server accepted
-the model. Gazebo converts the URDF with the same parser that generates `model.sdf` at build
-time, so both paths produce the same model. The xacro arguments `lidar_rate`, `imu_rate`,
+The launch file renders the xacro with these arguments and spawns the result with
+`ros_gz_sim create -string`, whose exit code tells whether the server accepted the model; by
+default it also publishes the description as `robot_description` through `robot_state_publisher`
+(TF of the fixed frames; the wheel joints follow the bridged joint states). Gazebo converts the
+URDF with the same parser that generates `model.sdf` at build time, so both paths produce the same
+model. The xacro arguments `lidar_rate`, `imu_rate`,
 `camera_rate`, `gps_rate`, `camera_width` and `camera_height` are available to `xacro` directly;
 their defaults are the rates declared in the manifest.
 
 ### Interfaces
 
 Topic names are relative to the vehicle namespace (`scan` is `/scan` with the default empty
-namespace, `/ugv1/scan` with `namespace:=ugv1`). The ROS side is the contract the bridge of
-P1-T03 implements; the Gazebo side is what the model publishes today.
+namespace, `/ugv1/scan` with `namespace:=ugv1`). The ROS side is the contract the bridge
+implements ([bridge.md](bridge.md#the-contract-of-the-reference-ugv)); the Gazebo side is what
+the model publishes.
 
 | Sensor | Gazebo topic and type | Rate | `frame_id` | ROS topic and type |
 | --- | --- | --- | --- | --- |
 | drive command | `cmd_vel` `gz.msgs.Twist` (input) | | | `cmd_vel` `geometry_msgs/msg/Twist` |
 | odometry (DiffDrive) | `odom` `gz.msgs.Odometry` | 50 Hz | `odom` → `base_link` | `odom` `nav_msgs/msg/Odometry` |
-| joint states | `joint_states` `gz.msgs.Model` | physics rate | | `joint_states` `sensor_msgs/msg/JointState` |
+| transform (DiffDrive) | `tf` `gz.msgs.Pose_V` | 50 Hz | `odom` → `base_link` | `/tf` `tf2_msgs/msg/TFMessage` (global) |
+| joint states | `joint_states` `gz.msgs.Model` | physics rate (1 kHz) | | `joint_states` `sensor_msgs/msg/JointState` at 50 Hz (throttled by the bridge) |
 | `lidar` (`gpu_lidar`) | `scan` `gz.msgs.LaserScan` | 10 Hz | `lidar_link` | `scan` `sensor_msgs/msg/LaserScan` |
 | `imu` (`imu`) | `imu` `gz.msgs.IMU` | 100 Hz | `imu_link` | `imu/data` `sensor_msgs/msg/Imu` |
 | `camera` (`rgbd_camera`) | `camera/image`, `camera/depth_image` `gz.msgs.Image`; `camera/camera_info` `gz.msgs.CameraInfo`; `camera/points` `gz.msgs.PointCloudPacked` | 15 Hz | `camera_link` | `camera/image`, `camera/depth/image`, `camera/camera_info` in `camera_optical_link`; `camera/points` `sensor_msgs/msg/PointCloud2` in `camera_link` |
@@ -95,7 +98,9 @@ Gazebo's camera convention is x forward, so image and depth data are labelled wi
 `camera_link`; the URDF adds the ROS optical frame `camera_optical_link` (z forward, x right,
 y down) as its child, and the bridge relabels image and camera info with it. The point cloud is
 expressed in `camera_link` and keeps that frame. Gazebo Harmonic's NavSat system publishes the
-fix without a `frame_id`; the bridge adapter sets `gps_link`.
+fix without a `frame_id`; the bridge's adapter sets `gps_link`. Every ROS output may carry a `qos`
+block (the images use the sensor-data profile, best effort with a queue of 5; the point cloud is
+reliable), and `gz_rate` marks an interface Gazebo publishes faster than the declared `rate_hz`.
 
 ### Sensor models
 
@@ -111,10 +116,10 @@ from field logs. Every parameter is a xacro macro argument in `sensors.xacro`.
 
 ### Manifest (`robot.yaml`)
 
-The manifest is the contract between the model and the rest of the stack and the input of the
-bridge generator (P1-T03). P1-T04 formalises the format as manifest schema v0 (image,
-entrypoint, driver-swap map, readiness, budgets); the draft shipped with P1-T01 is
-`apiVersion: fieldproof.dev/v0alpha1`, `kind: Robot`, with these sections:
+The manifest is the contract between the model and the rest of the stack and the input of the bridge
+generator (`fieldproof bridge gen`, [bridge.md](bridge.md)). P1-T04 formalises the format as
+manifest schema v0 (image, entrypoint, driver-swap map, readiness, budgets); the draft shipped with
+P1-T01 is `apiVersion: fieldproof.dev/v0alpha1`, `kind: Robot`, with these sections:
 
 | Section | Contents |
 | --- | --- |
@@ -122,8 +127,8 @@ entrypoint, driver-swap map, readiness, budgets); the draft shipped with P1-T01 
 | `description` | the xacro, generated URDF and SDF, `model_uri`, launch file, meshes, and the xacro argument defaults |
 | `frames` | `base`, `footprint`, `odom` |
 | `dimensions` | length, width, height, ground clearance, mass |
-| `drive` | `type`, wheel radius and separation, `joints`, `limits`, and the `command`, `odometry`, `joint_states` interfaces (Gazebo and ROS topic and type, rate, frames) |
-| `sensors[]` | `name`, `type`, `frame_id`, `rate_hz`, `gz_topic`, `noise`, `optional`, `outputs[]` (Gazebo topic and type, ROS topic, type and frame; `gz_header_frame_id: false` where Gazebo leaves the header frame empty) |
+| `drive` | `type`, wheel radius and separation, `joints`, `limits`, and the `command`, `odometry`, `joint_states`, `tf` interfaces (Gazebo and ROS topic and type, rate, frames, `qos`; `gz_rate: physics` on the joint states) |
+| `sensors[]` | `name`, `type`, `frame_id`, `rate_hz`, `gz_topic`, `noise`, `optional`, `outputs[]` (Gazebo topic and type, ROS topic, type and frame, `qos`; `gz_header_frame_id: false` where Gazebo leaves the header frame empty) |
 
 `test/test_ugv_ref.py` checks the manifest against the generated SDF and URDF: every sensor,
 topic, rate, frame, limit and xacro default declared here is what the model carries.
