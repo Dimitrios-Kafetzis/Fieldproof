@@ -249,7 +249,9 @@ environment, driving Docker (the P1-T04 verification; also the image job's last 
 
 The three containers share `ROS_DOMAIN_ID` (default 0, as with `make up`); the test stops what it
 started and prints their logs on a failure (`FIELDPROOF_IT_KEEP=1` leaves them running for a
-look). It needs `make images` and `make vehicle-image` first.
+look). It needs `make images` and `make vehicle-image` first. `fieldproof run` performs the same
+steps from a scenario file ([scenarios.md](scenarios.md)), and `tests/integration/test_run.py`
+checks that it does.
 
 ## Known limits
 

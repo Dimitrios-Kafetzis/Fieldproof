@@ -161,6 +161,10 @@ docker compose -f docker/compose.yaml --profile bridge up -d bridge
 ```
 
 `make images` builds the bridge image with the others, `make down` stops it with the stack.
+`fieldproof run` (task P1-T05) starts the same three kinds of container itself through the
+Docker API, with the same mounts, environment and network, from a scenario file
+([scenarios.md](../reference/scenarios.md#running-a-scenario)); the compose stack remains the
+way to run the simulator alone or to work from the dev container.
 
 The services share the `fieldproof` bridge network; Gazebo
 transport and DDS discovery use multicast on it, and `GZ_PARTITION=fieldproof` is set in every

@@ -136,7 +136,7 @@ The same image spawns the vehicle model before the bridge starts (`docker compos
 bridge ros2 launch fieldproof_robots spawn_ugv_ref.launch.py ... robot_state_publisher:=false`),
 which is what the integration test does
 ([manifest.md](manifest.md#the-integration-test)); the scenario runner of P1-T05 drives both
-through the Docker API.
+through the Docker API ([scenarios.md](scenarios.md#running-a-scenario)).
 
 ## The contract of the reference UGV
 
