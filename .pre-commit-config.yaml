@@ -63,11 +63,13 @@ repos:
         # (tests/layout/test_layout.sh checks they agree).
         args: []
         additional_dependencies:
+          - docker==7.2.0
           - pydantic==2.14.1
           - pytest==9.1.1
           - pyyaml==6.0.3
           - rich==15.0.0
           - typer==0.27.3
+          - types-docker==7.2.0.20261006
 
   # ---------------------------------------------------------------- C++ and CMake
   - repo: https://github.com/pre-commit/mirrors-clang-format
@@ -160,6 +162,12 @@ repos:
         name: check vehicle manifests (robot.yaml) against engine/schemas/robot.schema.json
         files: (^|/)robot\.yaml$
         args: [--schemafile, engine/schemas/robot.schema.json]
+      # Scenarios against schema v0 (task P1-T05), exported by `make scenario-schema` and kept
+      # current by engine/tests/test_scenario.py.
+      - id: check-jsonschema
+        name: check scenarios (examples/scenarios) against engine/schemas/scenario.schema.json
+        files: ^examples/scenarios/.*\.ya?ml$
+        args: [--schemafile, engine/schemas/scenario.schema.json]
 
   # Workflow semantics (expressions, job references, runner labels, shellcheck on run steps).
   - repo: https://github.com/rhysd/actionlint

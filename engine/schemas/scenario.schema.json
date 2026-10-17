@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/scenario.schema.json",
+  "$defs": {
+    "Assertion": {
+      "additionalProperties": true,
+      "description": "An assertion of task P1-T06, declared by name and type; its parameters follow its type.",
+      "properties": {
+        "name": {
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "enum": ["reach_pose", "within_time", "topic_rate", "no_collision", "topic_value"],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["name", "type"],
+      "title": "Assertion",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "description": "What the scenario is.",
+      "properties": {
+        "name": {
+          "description": "Scenario name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "description": "One line about the scenario.",
+          "title": "Description",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Free labels (`smoke`, `nav`).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": ["name"],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "NavigateToPose": {
+      "additionalProperties": false,
+      "description": "Send a Nav2 `NavigateToPose` goal to a vehicle and wait for its result.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "When, after the vehicles are ready (`30s`, `1m`).",
+          "title": "At"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: the action).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle the goal goes to.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "action": {
+          "const": "navigate_to_pose",
+          "title": "Action",
+          "type": "string"
+        },
+        "goal": {
+          "$ref": "#/$defs/Placement",
+          "description": "The goal, in the world (frame or coordinates)."
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 300.0,
+          "description": "Give up on the result after this long.",
+          "title": "Timeout S"
+        }
+      },
+      "required": ["vehicle", "action", "goal"],
+      "title": "NavigateToPose",
+      "type": "object"
+    },
+    "Outputs": {
+      "additionalProperties": false,
+      "description": "What the run writes.",
+      "properties": {
+        "directory": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run directory root (default: the workspace's `runs`).",
+          "title": "Directory"
+        },
+        "record": {
+          "default": false,
+          "description": "Record the topics to MCAP (task P1-T06).",
+          "title": "Record",
+          "type": "boolean"
+        },
+        "topics": {
+          "description": "Topics to record (all if empty).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Topics",
+          "type": "array"
+        },
+        "logs": {
+          "default": true,
+          "description": "Keep the containers' logs in the run directory.",
+          "title": "Logs",
+          "type": "boolean"
+        }
+      },
+      "title": "Outputs",
+      "type": "object"
+    },
+    "Placement": {
+      "additionalProperties": false,
+      "description": "A pose in the world: a named frame of the world file, or coordinates.\n\n`frame` and `x`/`y` are exclusive. `z` is optional with coordinates (the model's default\nspawn height, or the ground for a goal); `yaw` is in radians.",
+      "properties": {
+        "frame": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A `<frame name>` of the world file.",
+          "title": "Frame"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y"
+        },
+        "z": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Z"
+        },
+        "yaw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Yaw"
+        }
+      },
+      "title": "Placement",
+      "type": "object"
+    },
+    "Time": {
+      "additionalProperties": false,
+      "description": "The clock of the run (ADR-0006).",
+      "properties": {
+        "mode": {
+          "default": "sim",
+          "description": "`sim`: simulated time on /clock at the target real-time factor; `realtime`: real-time-locked mode (task P2-T04).",
+          "enum": ["sim", "realtime"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "rtf": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target real-time factor (absent: the world's own setting).",
+          "title": "Rtf"
+        },
+        "tolerance": {
+          "default": 0.1,
+          "description": "Allowed deviation of the real-time factor from the target.",
+          "exclusiveMinimum": 0,
+          "title": "Tolerance",
+          "type": "number"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 600.0,
+          "description": "Wall-clock budget of the run once every vehicle is ready.",
+          "title": "Timeout S"
+        }
+      },
+      "title": "Time",
+      "type": "object"
+    },
+    "Vehicle": {
+      "additionalProperties": false,
+      "description": "One vehicle of the scenario.",
+      "properties": {
+        "name": {
+          "description": "Vehicle name: the model name in Gazebo and the container.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "manifest": {
+          "description": "Vehicle manifest (robot.yaml), relative to the scenario.",
+          "title": "Manifest",
+          "type": "string"
+        },
+        "namespace": {
+          "default": "",
+          "description": "ROS and Gazebo namespace of the vehicle (empty: the root).",
+          "pattern": "^([a-z][a-z0-9_]*)?$",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "spawn": {
+          "$ref": "#/$defs/Placement"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Image to run instead of the manifest's.",
+          "title": "Image"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra environment of the vehicle container.",
+          "title": "Env",
+          "type": "object"
+        }
+      },
+      "required": ["name", "manifest", "spawn"],
+      "title": "Vehicle",
+      "type": "object"
+    },
+    "World": {
+      "additionalProperties": false,
+      "description": "The world the simulator loads.",
+      "properties": {
+        "file": {
+          "description": "World file in the workspace's worlds directory (`depot.sdf`); its named frames are the poses vehicles spawn at and goals refer to.",
+          "title": "File",
+          "type": "string"
+        }
+      },
+      "required": ["file"],
+      "title": "World",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A scenario file, `apiVersion: fieldproof.dev/v0alpha1`, `kind: Scenario`.",
+  "properties": {
+    "apiVersion": {
+      "const": "fieldproof.dev/v0alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Scenario",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "world": {
+      "$ref": "#/$defs/World"
+    },
+    "vehicles": {
+      "items": {
+        "$ref": "#/$defs/Vehicle"
+      },
+      "minItems": 1,
+      "title": "Vehicles",
+      "type": "array"
+    },
+    "time": {
+      "$ref": "#/$defs/Time",
+      "default": {
+        "mode": "sim",
+        "rtf": null,
+        "tolerance": 0.1,
+        "timeout_s": 600.0
+      }
+    },
+    "timeline": {
+      "items": {
+        "$ref": "#/$defs/NavigateToPose"
+      },
+      "title": "Timeline",
+      "type": "array"
+    },
+    "assertions": {
+      "items": {
+        "$ref": "#/$defs/Assertion"
+      },
+      "title": "Assertions",
+      "type": "array"
+    },
+    "outputs": {
+      "$ref": "#/$defs/Outputs",
+      "default": {
+        "directory": null,
+        "record": false,
+        "topics": [],
+        "logs": true
+      }
+    }
+  },
+  "required": ["apiVersion", "kind", "metadata", "world", "vehicles"],
+  "title": "Fieldproof scenario v0",
+  "type": "object"
+}

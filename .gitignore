@@ -30,3 +30,7 @@ site/
 
 # Fetched Gazebo Fuel models and their archives (assets/fuel.lock pins them; make assets)
 assets/fuel/
+
+# Coverage data of the engine tests (make test-engine)
+.coverage
+.coverage.*

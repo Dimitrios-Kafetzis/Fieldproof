@@ -1,0 +1,362 @@
+"""The scenario schema v0 (task P1-T05, ADR-0005).
+
+A scenario is a YAML document, ``apiVersion: fieldproof.dev/v0alpha1``, ``kind: Scenario``, that
+says what a run is made of: the **world** the simulator loads, the **vehicles** (a manifest, a
+spawn pose, a namespace), the **time** settings of ADR-0006, a **timeline** of actions, the
+**assertions** that turn the run into a test, and the **outputs** of the run. The Pydantic models
+here are the schema: unknown keys are errors in every section, :func:`json_schema` exports the
+JSON Schema for editors and the ``check-jsonschema`` hook, :func:`load_scenario` reads and
+validates a file. What the engine does with a scenario is :mod:`fieldproof.runner`.
+
+The timeline and the assertions are stubs in v0: the timeline knows one action,
+``navigate_to_pose`` (the event injection framework is task P2-T03), and an assertion is
+validated by name and type only, its parameters and evaluation arriving with task P1-T06.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import math
+import re
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Any, Literal
+
+import yaml
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PositiveFloat,
+    PrivateAttr,
+    ValidationError,
+    WithJsonSchema,
+    model_validator,
+)
+
+from fieldproof.manifest import Name, format_errors
+
+API_VERSION = "fieldproof.dev/v0alpha1"
+KIND = "Scenario"
+SCHEMA_ID = "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/scenario.schema.json"
+# The assertion primitives of task P1-T06; a scenario may declare them before they evaluate.
+ASSERTION_TYPES = ("reach_pose", "within_time", "topic_rate", "no_collision", "topic_value")
+DURATION = re.compile(
+    r"^\s*(?:(\d+(?:\.\d+)?)h)?\s*(?:(\d+(?:\.\d+)?)m)?\s*(?:(\d+(?:\.\d+)?)s)?\s*$"
+)
+
+
+class ScenarioError(ValueError):
+    """The scenario cannot be read, validated or resolved."""
+
+
+def parse_duration(value: Any) -> float:
+    """Seconds from a number or a ``1h2m3.5s`` string (any unit may be left out)."""
+    if isinstance(value, bool):
+        raise ValueError("a duration is a number of seconds or a string such as '90s' or '1m30s'")
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        match = DURATION.match(value)
+        if match and value.strip():
+            hours, minutes, seconds = (float(g) if g else 0.0 for g in match.groups())
+            return hours * 3600.0 + minutes * 60.0 + seconds
+    raise ValueError(f"{value!r} is not a duration ('90s', '1m30s', '0.5s' or a number of seconds)")
+
+
+DURATION_SCHEMA = {
+    "anyOf": [
+        {"type": "number", "minimum": 0},
+        {
+            "type": "string",
+            "pattern": r"^\s*(\d+(\.\d+)?h)?\s*(\d+(\.\d+)?m)?\s*(\d+(\.\d+)?s)?\s*$",
+        },
+    ],
+    "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'.",
+}
+Duration = Annotated[
+    float, BeforeValidator(parse_duration), Field(ge=0), WithJsonSchema(DURATION_SCHEMA)
+]
+
+
+class Strict(BaseModel):
+    """Base of every section: unknown keys are errors, so typos never pass silently."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+class Metadata(Strict):
+    """What the scenario is."""
+
+    name: Name = Field(description="Scenario name: lower case, digits and underscores.")
+    description: str = Field(default="", description="One line about the scenario.")
+    tags: list[str] = Field(default_factory=list, description="Free labels (`smoke`, `nav`).")
+
+
+class World(Strict):
+    """The world the simulator loads."""
+
+    file: str = Field(
+        description="World file in the workspace's worlds directory (`depot.sdf`); its named "
+        "frames are the poses vehicles spawn at and goals refer to."
+    )
+
+
+class Placement(Strict):
+    """A pose in the world: a named frame of the world file, or coordinates.
+
+    `frame` and `x`/`y` are exclusive. `z` is optional with coordinates (the model's default
+    spawn height, or the ground for a goal); `yaw` is in radians.
+    """
+
+    frame: str | None = Field(default=None, description="A `<frame name>` of the world file.")
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+    yaw: float | None = None
+
+    @model_validator(mode="after")
+    def _frame_or_coordinates(self) -> Placement:
+        if self.frame is not None:
+            if any(v is not None for v in (self.x, self.y, self.z, self.yaw)):
+                raise ValueError("give either frame or x, y, z, yaw")
+        elif self.x is None or self.y is None:
+            raise ValueError("give either frame or at least x and y")
+        return self
+
+
+class Vehicle(Strict):
+    """One vehicle of the scenario."""
+
+    name: Name = Field(description="Vehicle name: the model name in Gazebo and the container.")
+    manifest: str = Field(description="Vehicle manifest (robot.yaml), relative to the scenario.")
+    namespace: str = Field(
+        default="",
+        pattern=r"^([a-z][a-z0-9_]*)?$",
+        description="ROS and Gazebo namespace of the vehicle (empty: the root).",
+    )
+    spawn: Placement
+    image: str | None = Field(default=None, description="Image to run instead of the manifest's.")
+    env: dict[str, str] = Field(
+        default_factory=dict, description="Extra environment of the vehicle container."
+    )
+
+
+class Time(Strict):
+    """The clock of the run (ADR-0006)."""
+
+    mode: Literal["sim", "realtime"] = Field(
+        default="sim",
+        description="`sim`: simulated time on /clock at the target real-time factor; "
+        "`realtime`: real-time-locked mode (task P2-T04).",
+    )
+    rtf: PositiveFloat | None = Field(
+        default=None, description="Target real-time factor (absent: the world's own setting)."
+    )
+    tolerance: PositiveFloat = Field(
+        default=0.1, description="Allowed deviation of the real-time factor from the target."
+    )
+    timeout_s: Duration = Field(
+        default=600.0, description="Wall-clock budget of the run once every vehicle is ready."
+    )
+
+
+class NavigateToPose(Strict):
+    """Send a Nav2 `NavigateToPose` goal to a vehicle and wait for its result."""
+
+    at: Duration = Field(
+        default=0.0, description="When, after the vehicles are ready (`30s`, `1m`)."
+    )
+    name: str | None = Field(
+        default=None, description="Label in the run record (default: the action)."
+    )
+    vehicle: Name = Field(description="The vehicle the goal goes to.")
+    action: Literal["navigate_to_pose"]
+    goal: Placement = Field(description="The goal, in the world (frame or coordinates).")
+    timeout_s: Duration = Field(default=300.0, description="Give up on the result after this long.")
+
+
+TimelineEntry = NavigateToPose
+
+
+class Assertion(BaseModel):
+    """An assertion of task P1-T06, declared by name and type; its parameters follow its type."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    name: Name
+    type: Literal["reach_pose", "within_time", "topic_rate", "no_collision", "topic_value"]
+
+
+class Outputs(Strict):
+    """What the run writes."""
+
+    directory: str | None = Field(
+        default=None, description="Run directory root (default: the workspace's `runs`)."
+    )
+    record: bool = Field(default=False, description="Record the topics to MCAP (task P1-T06).")
+    topics: list[str] = Field(default_factory=list, description="Topics to record (all if empty).")
+    logs: bool = Field(default=True, description="Keep the containers' logs in the run directory.")
+
+
+class Scenario(Strict):
+    """A scenario file, `apiVersion: fieldproof.dev/v0alpha1`, `kind: Scenario`."""
+
+    api_version: Literal["fieldproof.dev/v0alpha1"] = Field(alias="apiVersion")
+    kind: Literal["Scenario"]
+    metadata: Metadata
+    world: World
+    vehicles: list[Vehicle] = Field(min_length=1)
+    time: Time = Time()
+    timeline: list[TimelineEntry] = Field(default_factory=list)
+    assertions: list[Assertion] = Field(default_factory=list)
+    outputs: Outputs = Outputs()
+
+    _path: Path | None = PrivateAttr(default=None)
+    _digest: str = PrivateAttr(default="")
+
+    @property
+    def path(self) -> Path | None:
+        """Where the scenario was loaded from."""
+        return self._path
+
+    @property
+    def directory(self) -> Path:
+        """The scenario's directory, which its relative paths resolve against."""
+        if self._path is None:
+            raise ScenarioError("the scenario was not loaded from a file")
+        return self._path.parent
+
+    @property
+    def name(self) -> str:
+        """`metadata.name`."""
+        return self.metadata.name
+
+    @property
+    def digest(self) -> str:
+        """Short SHA-256 of the file's text (the first part of a run id)."""
+        return self._digest
+
+    def vehicle(self, name: str) -> Vehicle:
+        """The vehicle called `name`."""
+        return next(v for v in self.vehicles if v.name == name)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Scenario:
+        names = [v.name for v in self.vehicles]
+        if len(set(names)) != len(names):
+            raise ValueError("vehicles: names must be unique")
+        namespaces = [v.namespace for v in self.vehicles]
+        if len(set(namespaces)) != len(namespaces):
+            raise ValueError(
+                "vehicles: namespaces must be unique (several vehicles at the root collide)"
+            )
+        for index, entry in enumerate(self.timeline):
+            if entry.vehicle not in names:
+                raise ValueError(f"timeline[{index}].vehicle: {entry.vehicle!r} is not a vehicle")
+        labels = [a.name for a in self.assertions]
+        if len(set(labels)) != len(labels):
+            raise ValueError("assertions: names must be unique")
+        return self
+
+
+# ------------------------------------------------------------------------------------ loading
+def validate_data(data: Any, path: Path | None = None, text: str = "") -> Scenario:
+    """Validate a scenario document."""
+    prefix = f"{path}: " if path else ""
+    if not isinstance(data, dict):
+        raise ScenarioError(f"{prefix}a scenario is a YAML mapping")
+    try:
+        scenario = Scenario.model_validate(data)
+    except ValidationError as error:
+        raise ScenarioError(prefix + format_errors(error)) from error
+    scenario._path = path
+    scenario._digest = hashlib.sha256(text.encode()).hexdigest()[:8] if text else ""
+    return scenario
+
+
+def load_scenario(path: Path | str) -> Scenario:
+    """Read and validate the scenario at `path`."""
+    file = Path(path).resolve()
+    try:
+        text = file.read_text()
+    except OSError as error:
+        raise ScenarioError(f"{file}: {error.strerror}") from error
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as error:
+        raise ScenarioError(f"{file}: not valid YAML: {error}") from error
+    return validate_data(data, file, text)
+
+
+def json_schema() -> dict[str, Any]:
+    """The JSON Schema of a scenario file."""
+    schema = Scenario.model_json_schema(by_alias=True)
+    schema["title"] = "Fieldproof scenario v0"
+    return {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": SCHEMA_ID, **schema}
+
+
+# ------------------------------------------------------------------------------------- worlds
+@dataclass(frozen=True)
+class Pose:
+    """A pose in the world: position and heading (roll and pitch are not used)."""
+
+    x: float
+    y: float
+    z: float
+    yaw: float
+
+    def relative(self, other: Pose) -> Pose:
+        """`other` expressed in this pose's frame (a goal in the map frame of a spawn)."""
+        dx, dy = other.x - self.x, other.y - self.y
+        cos, sin = math.cos(self.yaw), math.sin(self.yaw)
+        return Pose(
+            cos * dx + sin * dy,
+            -sin * dx + cos * dy,
+            other.z - self.z,
+            math.remainder(other.yaw - self.yaw, math.tau),
+        )
+
+
+@dataclass(frozen=True)
+class WorldInfo:
+    """What a world file declares that scenarios refer to."""
+
+    file: Path
+    name: str
+    frames: dict[str, Pose]
+
+
+def read_world(file: Path) -> WorldInfo:
+    """The world's name and named frames (`<frame name="..."><pose>x y z r p y</pose>`)."""
+    try:
+        root = ET.parse(file).getroot()  # noqa: S314  (a world file of the workspace)
+    except (OSError, ET.ParseError) as error:
+        raise ScenarioError(f"{file}: cannot read the world file: {error}") from error
+    world = root.find("world")
+    if world is None or not world.get("name"):
+        raise ScenarioError(f"{file}: no <world name=...> element")
+    frames: dict[str, Pose] = {}
+    for frame in world.findall("frame"):
+        name = frame.get("name")
+        values = (frame.findtext("pose") or "0 0 0 0 0 0").split()
+        if name and len(values) == 6:
+            x, y, z, _roll, _pitch, yaw = (float(v) for v in values)
+            frames[name] = Pose(x, y, z, yaw)
+    return WorldInfo(file, str(world.get("name")), frames)
+
+
+def place(placement: Placement, world: WorldInfo, what: str) -> Pose:
+    """The world pose of a placement (`z` and `yaw` default to 0 with coordinates)."""
+    if placement.frame is not None:
+        if placement.frame not in world.frames:
+            known = ", ".join(sorted(world.frames)) or "none"
+            raise ScenarioError(
+                f"{what}: world {world.name} has no frame {placement.frame!r} ({known})"
+            )
+        return world.frames[placement.frame]
+    if placement.x is None or placement.y is None:  # the model validator rules this out
+        raise ScenarioError(f"{what}: a placement needs a frame or x and y")
+    return Pose(placement.x, placement.y, placement.z or 0.0, placement.yaw or 0.0)

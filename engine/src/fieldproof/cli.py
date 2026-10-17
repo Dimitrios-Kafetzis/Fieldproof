@@ -1,8 +1,9 @@
 """The ``fieldproof`` command line interface.
 
 Task P0-T07 ships the entry point and ``--version``, P1-T03 the ``bridge`` commands, P1-T04 the
-``manifest`` and ``vehicle`` commands; the commands of the architecture (``validate``, ``run``,
-``replay``, ``report``, ``matrix``, ``cockpit``) arrive with the Phase 1 and Phase 2 tasks.
+``manifest`` and ``vehicle`` commands, P1-T05 ``validate``, ``run`` and ``schema`` (scenarios);
+the remaining commands of the architecture (``replay``, ``report``, ``matrix``, ``cockpit``)
+arrive with the Phase 1, 2 and 3 tasks.
 """
 
 from typing import Annotated
@@ -11,6 +12,7 @@ import typer
 
 from fieldproof import __version__
 from fieldproof.bridge import app as bridge_app
+from fieldproof.scenario_cli import run, schema, validate
 from fieldproof.vehicle_cli import manifest_app, vehicle_app
 
 APP_NAME = "fieldproof"
@@ -26,6 +28,9 @@ app = typer.Typer(
 app.add_typer(bridge_app, name="bridge")
 app.add_typer(manifest_app, name="manifest")
 app.add_typer(vehicle_app, name="vehicle")
+app.command("validate")(validate)
+app.command("run")(run)
+app.command("schema")(schema)
 
 
 def _print_version(value: bool) -> None:

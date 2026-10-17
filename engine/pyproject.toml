@@ -32,6 +32,7 @@ classifiers = [
 # fieldproof-bridge is the bridge ROS package of this repository (bridge/fieldproof_bridge), installed
 # from its path so that `fieldproof bridge gen` runs the generator the bridge container runs.
 dependencies = [
+  "docker==7.2.0",
   "fieldproof-bridge",
   "pydantic==2.14.1",
   "pyyaml==6.0.3",
@@ -54,6 +55,8 @@ fieldproof-bridge = { path = "../bridge/fieldproof_bridge", editable = true }
 [dependency-groups]
 dev = [
   "pytest==9.1.1",
+  "pytest-cov==7.1.0",
+  "types-docker==7.2.0.20261006",
 ]
 
 [tool.hatch.version]
@@ -73,3 +76,14 @@ minversion = "8.0"
 addopts = "-ra --strict-markers --strict-config"
 testpaths = ["tests"]
 xfail_strict = true
+
+# `make test-engine` runs pytest with --cov: the standards ask for 85 % of the engine's lines
+# (04-engineering-standards.md), the readiness probe's rclpy half runs only inside a vehicle.
+[tool.coverage.run]
+source = ["fieldproof"]
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
