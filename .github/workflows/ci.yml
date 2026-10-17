@@ -254,7 +254,7 @@ jobs:
       # models into assets/fuel.
       - name: Let the container user write to the ROS workspaces and the asset cache
         run: sudo chown -R 1000:1000 sim bridge robots assets
-      - name: ROS workspace tests (colcon build and test of sim, bridge and robots in the dev container)
+      - name: ROS workspace tests (colcon build and test of sim, robots and bridge in the dev container)
         run: make test-ros
       - name: clang-tidy over the C++ packages (make tidy)
         run: make tidy

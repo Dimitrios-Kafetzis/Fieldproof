@@ -14,14 +14,15 @@
 #   run     run a command with the install space of every built workspace sourced, in the
 #           default order (the cross-layer tests under tests/ use it: make test-worlds)
 #
-# Workspaces default to sim bridge robots, and that order is also the overlay chain: before a
+# Workspaces default to sim robots bridge, and that order is also the overlay chain: before a
 # workspace is built or tested, the install space of every workspace earlier in the list is
-# sourced (robots builds on sim: its launch test loads a fieldproof_worlds world).
+# sourced (robots builds on sim: its launch test loads a fieldproof_worlds world; bridge builds on
+# both: its contract test spawns the UGV of fieldproof_robots).
 # Set COLCON_JOBS to cap the parallelism.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DEFAULT_WORKSPACES=(sim bridge robots)
+DEFAULT_WORKSPACES=(sim robots bridge)
 
 usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
 

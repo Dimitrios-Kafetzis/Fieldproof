@@ -1,7 +1,7 @@
 # Worlds
 
 The worlds Fieldproof ships live in the `fieldproof_worlds` package of the `sim/` workspace
-([workspaces.md](../setup/workspaces.md#the-ros-workspaces-sim-bridge-robots)), as SDF 1.11
+([workspaces.md](../setup/workspaces.md#the-ros-workspaces-sim-robots-bridge)), as SDF 1.11
 files under `worlds/`, with the package's own primitive models under `models/` and the Gazebo
 Fuel models they include pinned in `assets/fuel.lock`
 ([01-architecture.md](../plan/01-architecture.md#l1-physics-and-sensor-engine)). Every world

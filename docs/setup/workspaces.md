@@ -28,7 +28,7 @@ fieldproof/
 | --- | --- | --- | --- |
 | `make test-engine` | uv | `uv sync --locked`, pytest in `engine/` | host |
 | `make test-cockpit` | pnpm, Node 22 | `pnpm install --frozen-lockfile`, `tsc --noEmit`, Vitest | host |
-| `make test-ros` | colcon, ROS 2 Jazzy, Gazebo Harmonic | `colcon build` and `colcon test` in `sim/`, `bridge/`, `robots/` | dev container |
+| `make test-ros` | colcon, ROS 2 Jazzy, Gazebo Harmonic | `colcon build` and `colcon test` in `sim/`, `robots/`, `bridge/` | dev container |
 | `make tidy` | clang-tidy 18 | `run-clang-tidy` over the C++ packages with the compile commands of the last build | dev container |
 | `make test-worlds` | pytest 7.4, Gazebo Harmonic | `tests/worlds`: the depot world with the UGV ([worlds.md](../reference/worlds.md#tests)) | dev container |
 | `make test-assets` | python3 | `tests/assets`: the asset convention, `assets/fuel.lock` and the fetch script | host |
@@ -46,7 +46,11 @@ A uv project with a `src/` layout: `engine/pyproject.toml` declares the package 
 exact dependencies (Pydantic, Typer, Rich) and the `fieldproof` console script;
 `engine/uv.lock` pins the resolution. The version is dynamic: hatchling reads it from the
 repository's `version.txt`, and uv's `cache-keys` rebuild the editable install when that file
-changes. `uv sync --locked --project engine` creates `engine/.venv`,
+changes. The engine also depends on `fieldproof-bridge`, the bridge ROS package of this
+repository, installed editable from `bridge/fieldproof_bridge` (`[tool.uv.sources]`): that package
+carries a `pyproject.toml` with a dynamic version (read from `fieldproof_bridge/__init__.py`), so
+`fieldproof bridge gen` runs the generator the bridge container runs and the lock file survives a
+release. `uv sync --locked --project engine` creates `engine/.venv`,
 and `uv run --project engine fieldproof --version` runs the CLI (`python -m fieldproof` works
 too). Tests live in `engine/tests/` and run with the `pytest` of the dev dependency group.
 
@@ -73,7 +77,7 @@ dependency: `pnpm --filter @fieldproof/cockpit add <name>@<version>`, then commi
 `pnpm-lock.yaml`. The root ESLint and Prettier configuration applies through the pre-commit
 hooks, with TypeScript at the same version as the app (checked by the layout test).
 
-## The ROS workspaces (`sim/`, `bridge/`, `robots/`)
+## The ROS workspaces (`sim/`, `robots/`, `bridge/`)
 
 Each directory is a colcon workspace whose packages sit at its top level, built with
 `tools/ros/colcon.sh` inside the dev container:
@@ -82,8 +86,8 @@ Each directory is a colcon workspace whose packages sit at its top level, built 
 | --- | --- | --- |
 | `sim/fieldproof_worlds` | `ament_cmake` | `gz sdf --check` on every world in `worlds/` and every model in `models/`, pytest on the worlds against `assets/fuel.lock`, the installed models and the generated map, `ament_xmllint` on `package.xml` ([worlds.md](../reference/worlds.md)) |
 | `sim/fieldproof_gz_plugins` | `ament_cmake`, C++17 | GoogleTest (`ament_add_gtest`), `ament_xmllint`; `fieldproof::HelloSystem` is the first system plugin |
-| `bridge/fieldproof_bridge` | `ament_python` | pytest in `test/` |
 | `robots/fieldproof_robots` | `ament_cmake` | `check_urdf` and `gz sdf --check` on the generated descriptions, pytest through `ament_cmake_pytest` on the installed layout and the manifest, a `launch_testing` spawn-and-drive test, `ament_xmllint` ([robots.md](../reference/robots.md)) |
+| `bridge/fieldproof_bridge` | `ament_python` | pytest in `test/`: generator and adapter unit tests, and the `launch_testing` contract test that spawns the UGV and checks the bridged interface ([bridge.md](../reference/bridge.md)) |
 
 `tools/ros/colcon.sh build|test|tidy [workspace ...]` builds with
 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` into `<workspace>/build`, `install` and `log` (ignored by
@@ -91,9 +95,10 @@ git), runs `colcon test` with `--return-code-on-test-failure` and prints
 `colcon test-result --verbose`. `tidy` runs `run-clang-tidy` with the repository `.clang-tidy`
 (warnings are errors) over each package's own translation units, with headers filtered to the
 `fieldproof_*` packages so Gazebo's headers are not diagnosed. The workspaces default to
-`sim bridge robots`, and that order is also the overlay chain: before a workspace is built or
+`sim robots bridge`, and that order is also the overlay chain: before a workspace is built or
 tested, the install space of every workspace earlier in the list is sourced, so `robots` sees
-`fieldproof_worlds` (its launch test spawns the UGV into the empty world). The Python packages
+`fieldproof_worlds` (its launch test spawns the UGV into the empty world) and `bridge` sees both
+(its contract test spawns the UGV and bridges it). The Python packages
 keep a `pytest.ini` of their own because the distribution pytest in the container (7.4) does not
 accept the root `pyproject.toml` settings written for the engine's pytest 9; for an `ament_cmake`
 package it sits at the workspace root (`robots/pytest.ini`), above `build/`, because
@@ -121,9 +126,9 @@ pytest 7.4, which the root `pyproject.toml` accepts).
 ([ci.md](ci.md#releases)). The engine reads it directly (dynamic version), so `engine/uv.lock`,
 which records no version for a dynamic project, stays valid across releases. The `extra-files`
 list in `release-please-config.json` makes the release pull request update the same number in
-both cockpit `package.json` files, the four `package.xml` files,
-`bridge/fieldproof_bridge/setup.py` and the bridge module (the last two through
-`x-release-please-version` markers); `pnpm-lock.yaml` records no version for workspace packages
+both cockpit `package.json` files, the four `package.xml` files and the bridge module
+`fieldproof_bridge/__init__.py` (through an `x-release-please-version` marker; the bridge's
+`pyproject.toml` reads it from there); `pnpm-lock.yaml` records no version for workspace packages
 either. `fieldproof --version`,
 the cockpit banner and the Gazebo plugin library all report that number, and
 `tests/layout/test_layout.sh` fails when any file disagrees with `version.txt`.

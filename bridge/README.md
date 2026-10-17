@@ -7,6 +7,7 @@ container with `make test-ros`.
 
 | Package | Type | Contents |
 | --- | --- | --- |
-| `fieldproof_bridge` | `ament_python` | generator, adapter nodes, contract tests (P1-T03); P0-T07 ships the package skeleton |
+| `fieldproof_bridge` | `ament_python` | `fieldproof bridge gen` (the bundle generator), the `imu_adapter`, `navsat_adapter` and `throttle` nodes, the contract checker, `bridge.launch.py`, the contract test against the reference UGV (P1-T03) |
 
-See [docs/setup/workspaces.md](../docs/setup/workspaces.md).
+See [docs/reference/bridge.md](../docs/reference/bridge.md) and
+[docs/setup/workspaces.md](../docs/setup/workspaces.md).

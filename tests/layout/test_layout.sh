@@ -85,6 +85,25 @@ if [[ -f bridge/fieldproof_bridge/setup.py && -f bridge/fieldproof_bridge/packag
 else
   fail "bridge/fieldproof_bridge: setup.py, package.xml or test/test_*.py is missing"
 fi
+# The engine installs the bridge package from its path (one generator for `fieldproof bridge gen`
+# and the bridge container); its metadata must then come from a pyproject.toml with a dynamic
+# version, or a release bump would invalidate engine/uv.lock, and must not set requires-python,
+# which colcon's setup.py probe cannot parse.
+if python3 - <<'PY'
+import tomllib
+engine = tomllib.load(open("engine/pyproject.toml", "rb"))
+source = engine["tool"]["uv"]["sources"]["fieldproof-bridge"]
+assert source["path"] == "../bridge/fieldproof_bridge", source
+bridge = tomllib.load(open("bridge/fieldproof_bridge/pyproject.toml", "rb"))
+assert bridge["project"]["name"] == "fieldproof-bridge"
+assert "version" in bridge["project"].get("dynamic", []), "the bridge version must be dynamic"
+assert "requires-python" not in bridge["project"], "colcon cannot parse requires-python"
+lock = tomllib.load(open("engine/uv.lock", "rb"))
+pkg = next(p for p in lock["package"] if p["name"] == "fieldproof-bridge")
+assert "version" not in pkg, pkg
+assert pkg["source"] == {"editable": "../bridge/fieldproof_bridge"}, pkg["source"]
+PY
+then pass "engine installs fieldproof-bridge from its path with a dynamic version (no re-lock on release)"; else fail "engine's fieldproof-bridge path dependency or the bridge pyproject.toml is misconfigured"; fi
 if compgen -G "sim/fieldproof_gz_plugins/test/*.cpp" >/dev/null && grep -q "ament_add_gtest" sim/fieldproof_gz_plugins/CMakeLists.txt; then
   pass "sim/fieldproof_gz_plugins has a GoogleTest suite"
 else
@@ -117,8 +136,6 @@ for p in ("cockpit/package.json", "cockpit/apps/cockpit/package.json"):
 for p in ("sim/fieldproof_worlds/package.xml", "sim/fieldproof_gz_plugins/package.xml",
           "bridge/fieldproof_bridge/package.xml", "robots/fieldproof_robots/package.xml"):
     rows.append((p, ET.parse(p).getroot().findtext("version")))
-m = re.search(r'version="([^"]+)",\s*# x-release-please-version', open("bridge/fieldproof_bridge/setup.py").read())
-rows.append(("bridge/fieldproof_bridge/setup.py", m.group(1) if m else "missing"))
 m = re.search(r'__version__ = "([^"]+)"\s*# x-release-please-version', open("bridge/fieldproof_bridge/fieldproof_bridge/__init__.py").read())
 rows.append(("bridge/fieldproof_bridge/fieldproof_bridge/__init__.py", m.group(1) if m else "missing"))
 for path, v in rows:
@@ -193,9 +210,15 @@ deps = dict(d.split("==") for d in mypy["additional_dependencies"])
 assert deps, "the mypy hook lists no dependencies"
 for name, version in deps.items():
     assert lock.get(name) == version, f"{name}: hook {version}, uv.lock {lock.get(name)}"
-project = tomllib.load(open("engine/pyproject.toml", "rb"))["project"]
-for dep in project["dependencies"]:
+engine = tomllib.load(open("engine/pyproject.toml", "rb"))
+# Packages of this repository installed from their path (tool.uv.sources) are type-checked from
+# the source tree (mypy_path), not from the hook's environment.
+first_party = set(engine.get("tool", {}).get("uv", {}).get("sources", {}))
+for dep in engine["project"]["dependencies"]:
     name = dep.split("==")[0]
+    if name in first_party:
+        assert "==" not in dep, f"{name}: a path dependency carries no version pin"
+        continue
     assert name in deps, f"{name} is an engine dependency but not in the mypy hook"
 PY
 then pass "mypy hook dependencies equal engine/uv.lock and cover every engine dependency"; else fail "mypy hook dependencies drift from engine/uv.lock"; fi

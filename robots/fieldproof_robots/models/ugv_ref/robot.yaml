@@ -2,13 +2,22 @@
 #
 # This is the contract between the model and the rest of the stack: which frames, drive
 # parameters, topics, types, rates and noise figures the simulated vehicle offers. The bridge
-# generator (P1-T03) turns it into a ros_gz configuration and the contract tests, and P1-T04
-# formalises the format as manifest schema v0 (image, entrypoint, driver-swap map, budgets).
+# generator (`fieldproof bridge gen`, P1-T03) turns it into a ros_gz configuration, adapter
+# nodes and the contract the bridge tests check; P1-T04 formalises the format as manifest schema
+# v0 (image, entrypoint, driver-swap map, budgets).
 # Until then the layout below is a draft; tests/test_ugv_ref.py checks that every topic, rate
 # and frame declared here matches the SDF generated from urdf/ugv_ref.urdf.xacro.
 #
 # Topic names are relative to the vehicle namespace: with the default empty namespace the Gazebo
-# topic `scan` is `/scan`; spawned with namespace `ugv1` it is `/ugv1/scan`.
+# topic `scan` is `/scan`; spawned with namespace `ugv1` it is `/ugv1/scan`. A ROS topic written
+# with a leading slash (`/tf`) is absolute and stays outside the namespace.
+#
+# Every ROS output may carry a `qos` block (`reliability`: reliable | best_effort, `durability`:
+# volatile | transient_local, `depth`); the defaults are reliable, volatile, 10, the QoS the
+# ros_gz bridge publishes with. An output whose `ros_frame_id` differs from the sensor's
+# `frame_id`, or whose Gazebo header carries no frame (`gz_header_frame_id: false`), is
+# relabelled by the bridge; `gz_rate` names an interface Gazebo publishes faster than the
+# declared `rate_hz`, which the bridge throttles.
 apiVersion: fieldproof.dev/v0alpha1
 kind: Robot
 metadata:
@@ -71,6 +80,18 @@ drive:
     gz_type: gz.msgs.Model
     ros_topic: joint_states
     ros_type: sensor_msgs/msg/JointState
+    gz_rate: physics # the JointStatePublisher system publishes every physics step (1 kHz)
+    rate_hz: 50 # what a wheel-encoder driver publishes; the bridge throttles to it
+  tf:
+    # odom -> base_link from the DiffDrive system. `/tf` is absolute: every vehicle shares the
+    # one TF tree and tells its frames apart with frame_prefix (REP 105).
+    gz_topic: tf
+    gz_type: gz.msgs.Pose_V
+    ros_topic: /tf
+    ros_type: tf2_msgs/msg/TFMessage
+    rate_hz: 50
+    qos:
+      depth: 100
 sensors:
   - name: lidar
     type: gpu_lidar
@@ -101,6 +122,7 @@ sensors:
         ros_topic: imu/data
         ros_type: sensor_msgs/msg/Imu
         ros_frame_id: imu_link
+        # The bridge's imu adapter fills the covariance diagonals from the noise figures above.
   - name: camera
     type: rgbd_camera
     frame_id: camera_link # Gazebo convention, x forward; the optical frame is camera_optical_link
@@ -111,26 +133,34 @@ sensors:
     noise:
       pixel_stddev: 0.007
     outputs:
+      # Camera drivers (image_transport's default profile) publish reliable with a short queue.
+      # Best effort would lose UDP fragments of these 1 to 5 MB messages at the default socket
+      # buffers: the contract test saw 13 of 15 Hz on the cloud locally and 9 of 15 Hz on the
+      # images on a loaded CI runner.
       - gz_topic: camera/image
         gz_type: gz.msgs.Image
         ros_topic: camera/image
         ros_type: sensor_msgs/msg/Image
         ros_frame_id: camera_optical_link
+        qos: { reliability: reliable, depth: 5 }
       - gz_topic: camera/camera_info
         gz_type: gz.msgs.CameraInfo
         ros_topic: camera/camera_info
         ros_type: sensor_msgs/msg/CameraInfo
         ros_frame_id: camera_optical_link
+        qos: { reliability: reliable, depth: 5 }
       - gz_topic: camera/depth_image
         gz_type: gz.msgs.Image
         ros_topic: camera/depth/image
         ros_type: sensor_msgs/msg/Image
         ros_frame_id: camera_optical_link
+        qos: { reliability: reliable, depth: 5 }
       - gz_topic: camera/points
         gz_type: gz.msgs.PointCloudPacked
         ros_topic: camera/points
         ros_type: sensor_msgs/msg/PointCloud2
         ros_frame_id: camera_link
+        qos: { reliability: reliable, depth: 5 }
   - name: gps
     type: navsat
     frame_id: gps_link
@@ -148,5 +178,6 @@ sensors:
         ros_type: sensor_msgs/msg/NavSatFix
         ros_frame_id: gps_link
         # Gazebo Harmonic's NavSat system publishes the fix without a frame_id in the header
-        # (gz-sim issue 2236); the bridge adapter of P1-T03 sets ros_frame_id.
+        # (gz-sim issue 2236); the bridge's navsat adapter sets ros_frame_id, the position
+        # covariance from the noise figures above, and the status and service of a plain GPS fix.
         gz_header_frame_id: false

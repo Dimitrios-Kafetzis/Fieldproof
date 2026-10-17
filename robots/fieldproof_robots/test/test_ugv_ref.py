@@ -171,6 +171,7 @@ def test_diff_drive_plugin_matches_the_manifest(manifest: Manifest, sdf_model: E
     assert float(text(diff_drive, "wheel_separation")) == pytest.approx(drive["wheel_separation_m"])
     assert text(diff_drive, "topic") == "/" + drive["command"]["gz_topic"]
     assert text(diff_drive, "odom_topic") == "/" + odometry["gz_topic"]
+    assert text(diff_drive, "tf_topic") == "/" + drive["tf"]["gz_topic"]
     assert text(diff_drive, "frame_id") == odometry["frame_id"]
     assert text(diff_drive, "child_frame_id") == odometry["child_frame_id"]
     assert float(text(diff_drive, "odom_publish_frequency")) == odometry["rate_hz"]
