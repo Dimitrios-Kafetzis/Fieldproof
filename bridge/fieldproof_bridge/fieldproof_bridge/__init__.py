@@ -13,7 +13,7 @@ __all__ = ["PACKAGE_NAME", "__version__", "package_version"]
 
 PACKAGE_NAME = "fieldproof_bridge"
 
-__version__ = "0.3.0"  # x-release-please-version
+__version__ = "0.4.0"  # x-release-please-version
 
 
 def package_version() -> str:
