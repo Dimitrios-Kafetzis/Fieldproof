@@ -17,6 +17,9 @@
 # vehicle tests (manifests, generated Dockerfile, image build and smoke), `test-integration`
 # runs the vertical slice (sim, bridge and the vehicle in the depot, a navigation goal); see
 # docs/reference/manifest.md.
+# Scenarios (task P1-T05): `scenario-schema` exports the scenario JSON Schema, `run` runs a
+# scenario with `fieldproof run` (SCENARIO=..., the example by default); `test-integration`
+# also runs the example scenario end to end; see docs/reference/scenarios.md.
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -euo pipefail -c
@@ -58,6 +61,9 @@ VEHICLE_MANIFEST ?= examples/vehicles/ugv_nav2/robot.yaml
 VEHICLE_BASE_IMAGE ?= $(or $(FIELDPROOF_IMAGE_PREFIX),ghcr.io/dimitrios-kafetzis/fieldproof-)base-ros2:$(or $(FIELDPROOF_IMAGE_TAG),local)
 VEHICLE_TEST_FLAGS ?=
 FIELDPROOF := $(UV) run --locked --project engine fieldproof
+# The scenario `make run` runs (task P1-T05) and extra `fieldproof run` arguments (RUN_FLAGS=--keep).
+SCENARIO ?= examples/scenarios/ugv_nav_to_goal.yaml
+RUN_FLAGS ?=
 
 # --- Containers -------------------------------------------------------------------------------
 # Rendering: when the host has a /dev/dri render node, compose.gpu.yaml is added so the sim and
@@ -101,7 +107,7 @@ IMAGE_TEST_FLAGS ?= --quick
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
 	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
 	test-vehicles test-integration tidy docs docs-serve docs-links branch-protection clean pins assets images \
-	manifest-schema vehicle-image up down shell prune
+	manifest-schema scenario-schema vehicle-image run up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -170,9 +176,9 @@ test-docs: ## Documentation tests: ADR index generator, strict site build, navig
 test-layout: ## Monorepo layout tests: directories per the standards, one version everywhere, lock files current, pins in sync
 	tests/layout/test_layout.sh
 
-test-engine: ## Engine unit tests: uv sync from engine/uv.lock, then pytest in engine/
+test-engine: ## Engine unit tests: uv sync from engine/uv.lock, then pytest with coverage (85 % of the engine's lines) in engine/
 	$(UV) sync --locked --project engine
-	$(UV) run --locked --directory engine pytest
+	$(UV) run --locked --directory engine pytest --cov
 
 test-cockpit: ## Cockpit tests: pnpm install from the lock file, TypeScript strict type check, Vitest in every package
 	$(PNPM) -C cockpit install --frozen-lockfile
@@ -205,16 +211,25 @@ test-worlds: ## World tests in the dev container: the depot loads in time and ru
 test-vehicles: ## Vehicle tests: every robot.yaml validates, the generated Dockerfile lints, the example image builds and runs
 	tests/vehicles/test_vehicles.sh $(VEHICLE_TEST_FLAGS)
 
-# Needs the stack images (make images) and the example vehicle image (make vehicle-image); runs
-# on the host from the engine's environment and drives Docker. FIELDPROOF_IT_KEEP=1 leaves the
-# containers running after a failure.
-test-integration: ## Integration test (tests/integration): sim, bridge and the example vehicle in the depot; Nav2 active, a NavigateToPose goal reached
+# Needs the stack images (make images), the example vehicle image (make vehicle-image) and the
+# Fuel models (make assets); runs on the host from the engine's environment and drives Docker.
+# FIELDPROOF_IT_KEEP=1 leaves the containers of the vertical-slice test running after a failure.
+test-integration: ## Integration tests (tests/integration): the vertical slice by hand, then `fieldproof run` of the example scenario, an interrupted run
 	$(UV) sync --locked --project engine
 	$(UV) run --locked --project engine pytest -s -v tests/integration
 
 manifest-schema: ## Export the vehicle manifest JSON Schema (engine/schemas/robot.schema.json) from the engine's models
 	$(UV) sync --locked --project engine
 	$(FIELDPROOF) manifest schema > engine/schemas/robot.schema.json
+
+scenario-schema: ## Export the scenario JSON Schema (engine/schemas/scenario.schema.json) from the engine's models
+	$(UV) sync --locked --project engine
+	$(FIELDPROOF) schema > engine/schemas/scenario.schema.json
+
+# Needs the images, the vehicle image and the assets like test-integration; writes runs/<run_id>.
+run: assets ## Run a scenario end to end with the Docker backend (SCENARIO=examples/scenarios/ugv_nav_to_goal.yaml, RUN_FLAGS=)
+	$(UV) sync --locked --project engine
+	$(FIELDPROOF) run $(SCENARIO) $(RUN_FLAGS)
 
 vehicle-image: ## Build the example vehicle image from its manifest (VEHICLE_MANIFEST, on VEHICLE_BASE_IMAGE)
 	$(UV) sync --locked --project engine
