@@ -198,10 +198,17 @@ else
     else
       fail "rplidar_ros is installed in the simulation image"
     fi
-    if run ros2 launch ugv_nav2_bringup bringup.launch.py --show-args 2>/dev/null | grep -q "'drivers'"; then
+    # The ros2 CLI in a container that has just started can fail its first command (issue #36):
+    # one retry, and the output stays in the failure message.
+    show_args=""
+    for _ in 1 2; do
+      show_args="$(run ros2 launch ugv_nav2_bringup bringup.launch.py --show-args 2>&1)" && break
+      sleep 2
+    done
+    if [[ "$show_args" == *"'drivers'"* ]]; then
       pass "the bringup launch file resolves and declares the drivers argument"
     else
-      fail "ros2 launch --show-args on bringup.launch.py"
+      fail "ros2 launch --show-args on bringup.launch.py: $(tail -n 3 <<<"$show_args" | tr '\n' ' ')"
     fi
     labels="$(docker image inspect "$IMAGE" --format '{{json .Config.Labels}}')"
     if python3 - "$labels" "$BASE_IMAGE" <<'PY'
