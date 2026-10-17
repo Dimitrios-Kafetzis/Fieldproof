@@ -99,8 +99,8 @@ Gazebo's camera convention is x forward, so image and depth data are labelled wi
 y down) as its child, and the bridge relabels image and camera info with it. The point cloud is
 expressed in `camera_link` and keeps that frame. Gazebo Harmonic's NavSat system publishes the
 fix without a `frame_id`; the bridge's adapter sets `gps_link`. Every ROS output may carry a `qos`
-block (the images use the sensor-data profile, best effort with a queue of 5; the point cloud is
-reliable), and `gz_rate` marks an interface Gazebo publishes faster than the declared `rate_hz`.
+block (the camera outputs are reliable with a queue of 5, like image_transport's default), and
+`gz_rate` marks an interface Gazebo publishes faster than the declared `rate_hz`.
 
 ### Sensor models
 

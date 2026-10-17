@@ -133,27 +133,28 @@ sensors:
     noise:
       pixel_stddev: 0.007
     outputs:
-      # Camera drivers publish with the sensor-data profile (best effort, short queue).
+      # Camera drivers (image_transport's default profile) publish reliable with a short queue.
+      # Best effort would lose UDP fragments of these 1 to 5 MB messages at the default socket
+      # buffers: the contract test saw 13 of 15 Hz on the cloud locally and 9 of 15 Hz on the
+      # images on a loaded CI runner.
       - gz_topic: camera/image
         gz_type: gz.msgs.Image
         ros_topic: camera/image
         ros_type: sensor_msgs/msg/Image
         ros_frame_id: camera_optical_link
-        qos: { reliability: best_effort, depth: 5 }
+        qos: { reliability: reliable, depth: 5 }
       - gz_topic: camera/camera_info
         gz_type: gz.msgs.CameraInfo
         ros_topic: camera/camera_info
         ros_type: sensor_msgs/msg/CameraInfo
         ros_frame_id: camera_optical_link
-        qos: { reliability: best_effort, depth: 5 }
+        qos: { reliability: reliable, depth: 5 }
       - gz_topic: camera/depth_image
         gz_type: gz.msgs.Image
         ros_topic: camera/depth/image
         ros_type: sensor_msgs/msg/Image
         ros_frame_id: camera_optical_link
-        qos: { reliability: best_effort, depth: 5 }
-      # The cloud is about 5 MB per message: over best effort its UDP fragments get lost at the
-      # default socket buffers, so it goes reliable like depth_image_proc's.
+        qos: { reliability: reliable, depth: 5 }
       - gz_topic: camera/points
         gz_type: gz.msgs.PointCloudPacked
         ros_topic: camera/points

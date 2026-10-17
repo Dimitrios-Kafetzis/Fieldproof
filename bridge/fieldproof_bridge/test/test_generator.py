@@ -119,7 +119,7 @@ def test_ugv_manifest_relabels_and_throttles(ugv: Manifest) -> None:
     assert by_topic["gps/fix"].gz_frame_id == ""
     assert by_topic["joint_states"].throttled
     assert by_topic["joint_states"].rate_hz == 50
-    assert by_topic["camera/image"].qos == Qos("best_effort", "volatile", 5)
+    assert by_topic["camera/image"].qos == Qos("reliable", "volatile", 5)
     assert by_topic["/tf"].qos.depth == 100
     assert by_topic["scan"].qos == Qos()
 
@@ -226,7 +226,7 @@ def test_ugv_plan_qos_overrides(ugv: Manifest) -> None:
     assert main["qos_overrides./camera/points.publisher.depth"] == 5
     assert main["qos_overrides./cmd_vel.subscription.depth"] == 10
     camera = bundle.node("ros_gz_bridge_camera_optical_link").params
-    assert camera["qos_overrides./camera/image.publisher.reliability"] == "best_effort"
+    assert camera["qos_overrides./camera/image.publisher.reliability"] == "reliable"
     assert camera["qos_overrides./camera/image.publisher.depth"] == 5
 
 

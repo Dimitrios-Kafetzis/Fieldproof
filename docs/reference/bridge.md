@@ -126,9 +126,9 @@ contract; with `--namespace ugv1` every name except `/tf`, `/tf_static` and `/cl
 | `/tf` | `tf2_msgs/msg/TFMessage` | publisher | `odom` → `base_link` | 50 Hz | reliable, 100 | `ros_gz_bridge`, `robot_state_publisher` |
 | `/scan` | `sensor_msgs/msg/LaserScan` | publisher | `lidar_link` | 10 Hz | reliable, 10 | `ros_gz_bridge` |
 | `/imu/data` | `sensor_msgs/msg/Imu` | publisher | `imu_link` | 100 Hz | reliable, 10 | `imu_adapter` |
-| `/camera/image` | `sensor_msgs/msg/Image` | publisher | `camera_optical_link` | 15 Hz | best effort, 5 | `ros_gz_bridge_camera_optical_link` |
-| `/camera/camera_info` | `sensor_msgs/msg/CameraInfo` | publisher | `camera_optical_link` | 15 Hz | best effort, 5 | `ros_gz_bridge_camera_optical_link` |
-| `/camera/depth/image` | `sensor_msgs/msg/Image` | publisher | `camera_optical_link` | 15 Hz | best effort, 5 | `ros_gz_bridge_camera_optical_link` |
+| `/camera/image` | `sensor_msgs/msg/Image` | publisher | `camera_optical_link` | 15 Hz | reliable, 5 | `ros_gz_bridge_camera_optical_link` |
+| `/camera/camera_info` | `sensor_msgs/msg/CameraInfo` | publisher | `camera_optical_link` | 15 Hz | reliable, 5 | `ros_gz_bridge_camera_optical_link` |
+| `/camera/depth/image` | `sensor_msgs/msg/Image` | publisher | `camera_optical_link` | 15 Hz | reliable, 5 | `ros_gz_bridge_camera_optical_link` |
 | `/camera/points` | `sensor_msgs/msg/PointCloud2` | publisher | `camera_link` | 15 Hz | reliable, 5 | `ros_gz_bridge` |
 | `/gps/fix` | `sensor_msgs/msg/NavSatFix` | publisher | `gps_link` | 5 Hz | reliable, 10 | `gps_adapter` |
 | `/clock` | `rosgraph_msgs/msg/Clock` | publisher | | | reliable, 10 | `ros_gz_bridge` |
@@ -136,10 +136,12 @@ contract; with `--namespace ugv1` every name except `/tf`, `/tf_static` and `/cl
 | `/robot_description` | `std_msgs/msg/String` | publisher | | | reliable, transient local, 1 | `robot_state_publisher` |
 
 The hidden topics `/_bridge/joint_states`, `/_bridge/imu/data` and `/_bridge/gps/fix` carry the
-bridge's raw output to the adapters. Nothing else is visible under the namespace. The images use
-the sensor-data profile of a camera driver (best effort, queue of 5); the point cloud, about 5 MB a
-message, is reliable because its UDP fragments get lost under best effort at the default socket
-buffers (the contract test measured 13 Hz of 15 before the change).
+bridge's raw output to the adapters. Nothing else is visible under the namespace. The camera
+outputs are reliable with a queue of 5, the default profile of image_transport publishers: under
+best effort the UDP fragments of these 1 to 5 MB messages get lost at the default socket buffers
+(the contract test measured 13 Hz of 15 on the cloud locally and 9 Hz of 15 on the images on a
+loaded CI runner before the change). The `qos` block of the manifest still allows best effort
+where a driver uses it.
 
 ## Checking a running stack
 
