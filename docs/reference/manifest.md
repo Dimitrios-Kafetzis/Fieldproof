@@ -178,9 +178,9 @@ changes and a final `ready` or `not ready` line (`--json` adds the evaluation as
 drops the progress):
 
 ```text
-waiting (1/9 ready): /bt_navigator lifecycle inactive, /controller_server lifecycle unresponsive, ...
-waiting (7/9 ready): /map topic no publisher, /navigate_to_pose action no server
-ready: 9 conditions hold after 42.3 s
+waiting (1/10 ready): /bt_navigator lifecycle inactive, /controller_server lifecycle unresponsive, ...
+waiting (8/10 ready): map->base_link tf no frames yet, /navigate_to_pose action no server
+ready: 10 conditions hold after 42.3 s
 ```
 
 | Condition | Holds when | Pending detail |
@@ -190,6 +190,7 @@ ready: 9 conditions hold after 42.3 s
 | `service: <name>` (`type` optional) | the service is offered, of the type when given | `no server`, or the types offered |
 | `action: <name>` (`type` optional) | an action server is offered (its `_action/send_goal` service), of the type when given | as for services |
 | `node: <name>` | the node is in the graph | `absent` |
+| `tf: <parent>` with `child: <frame>` | a chain of transforms seen on `/tf` or `/tf_static` (0.5 s of listening per evaluation) links the two frames, in either direction; `tf: map`, `child: base_link` holds once SLAM publishes `map` → `odom` on top of the bridge's `odom` → `base_link`, which is when Nav2 can plan (a goal sent before it is aborted) | `no frames yet`, or `no transform (N frames seen)` |
 
 Relative names resolve against the probe's namespace. With `runtime.ready` the generated
 Dockerfile also declares the probe as the image's `HEALTHCHECK` (`--interval=15s --timeout=30s
@@ -208,7 +209,7 @@ snapshot, driven by the bringup package `src/ugv_nav2_bringup`:
 
 | File | Contents |
 | --- | --- |
-| `robot.yaml` | extends the reference UGV's manifest; `runtime`: T1, image `fieldproof-vehicle-ugv-nav2:local` built from `src`, entrypoint `bringup.launch.py use_sim_time:=true drivers:=false`, the two parameter files, six drivers in the swap map (base through ros2_control, description, lidar, IMU, camera, GNSS), readiness on Nav2's and SLAM Toolbox's lifecycle nodes, the `/map` topic and the `navigate_to_pose` action, a budget of 2 CPUs and 2 GiB |
+| `robot.yaml` | extends the reference UGV's manifest; `runtime`: T1, image `fieldproof-vehicle-ugv-nav2:local` built from `src`, entrypoint `bringup.launch.py use_sim_time:=true drivers:=false`, the two parameter files, six drivers in the swap map (base through ros2_control, description, lidar, IMU, camera, GNSS), readiness on Nav2's and SLAM Toolbox's lifecycle nodes, the `/map` topic, the `map` → `base_link` transform and the `navigate_to_pose` action, a budget of 2 CPUs and 2 GiB |
 | `launch/bringup.launch.py` | the field bringup: `drivers.launch.py` when `drivers:=true` (the field default), SLAM Toolbox's `online_async_launch.py` with `config/slam.yaml`, the package's `navigation.launch.py` with `config/nav2.yaml`; `use_sim_time` defaults to `false` and is passed to every node; nothing else differs between the vehicle and the simulation |
 | `launch/navigation.launch.py` | the Nav2 servers (controller, smoother, planner, behaviors, bt_navigator, waypoint follower, velocity smoother, collision monitor) under `nav2_lifecycle_manager`, one process each, with Nav2's `cmd_vel_nav` → `cmd_vel_smoothed` → `cmd_vel` remaps; the vehicle's own launch rather than `nav2_bringup`'s, whose package pulls Gazebo, the TurtleBot models and the rviz plugins into the image |
 | `launch/drivers.launch.py` | the hardware drivers: `robot_state_publisher`, ros2_control (`controller_manager` with `diff_drive_controller` and `joint_state_broadcaster`), `rplidar_ros`, `microstrain_inertial_driver`, `nmea_navsat_driver`, `realsense2_camera`; `config/drivers.yaml` holds their ports and frames; not started and not installed in the simulation image |
@@ -249,7 +250,9 @@ environment, driving Docker (the P1-T04 verification; also the image job's last 
 
 The three containers share `ROS_DOMAIN_ID` (default 0, as with `make up`); the test stops what it
 started and prints their logs on a failure (`FIELDPROOF_IT_KEEP=1` leaves them running for a
-look). It needs `make images` and `make vehicle-image` first.
+look). It needs `make images` and `make vehicle-image` first. `fieldproof run` performs the same
+steps from a scenario file ([scenarios.md](scenarios.md)), and `tests/integration/test_run.py`
+checks that it does.
 
 ## Known limits
 

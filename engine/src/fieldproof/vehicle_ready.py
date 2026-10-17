@@ -41,6 +41,8 @@ import yaml
 DEFAULT_MANIFEST = "/opt/fieldproof/robot.yaml"
 DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_INTERVAL_S = 1.0
+# How long one evaluation listens on /tf for the frames of a `tf` condition.
+TF_LISTEN_S = 0.5
 LIFECYCLE_TIMEOUT_S = 2.0
 PROBE_NODE_NAME = "fieldproof_ready_probe"
 LIFECYCLE_DEFAULT_STATE = "active"
@@ -63,6 +65,9 @@ class Graph(Protocol):
 
     def nodes(self) -> list[str]:
         """The fully qualified names of the nodes in the graph."""
+
+    def transforms(self) -> set[tuple[str, str]]:
+        """The ``(parent, child)`` frame pairs seen on ``/tf`` and ``/tf_static`` so far."""
 
     def resolve(self, name: str) -> str:
         """``name`` made absolute against the probe's namespace."""
@@ -88,16 +93,39 @@ class Status:
 
 def kind_of(condition: dict[str, Any]) -> str:
     """The condition's kind (its discriminating key)."""
-    for kind in ("lifecycle", "topic", "service", "action", "node"):
+    for kind in ("lifecycle", "topic", "service", "action", "node", "tf"):
         if kind in condition:
             return kind
     raise ValueError(f"unknown ready condition {condition!r}")
 
 
 def describe(condition: dict[str, Any]) -> str:
-    """``/bt_navigator lifecycle``, ``/map topic``, ..."""
+    """``/bt_navigator lifecycle``, ``/map topic``, ``map->base_link tf``, ..."""
     kind = kind_of(condition)
+    if kind == "tf":
+        return f"{condition['tf']}->{condition.get('child', '?')} tf"
     return f"{condition[kind]} {kind}"
+
+
+def connected(edges: set[tuple[str, str]], parent: str, child: str) -> bool:
+    """Whether a chain of transforms links the two frames (in either direction)."""
+    if parent == child:
+        return True
+    neighbours: dict[str, set[str]] = {}
+    for a, b in edges:
+        neighbours.setdefault(a, set()).add(b)
+        neighbours.setdefault(b, set()).add(a)
+    seen = {parent}
+    frontier = [parent]
+    while frontier:
+        frame = frontier.pop()
+        for other in neighbours.get(frame, ()):
+            if other == child:
+                return True
+            if other not in seen:
+                seen.add(other)
+                frontier.append(other)
+    return False
 
 
 def load_conditions(manifest: Path | str) -> tuple[list[dict[str, Any]], float]:
@@ -120,9 +148,20 @@ def evaluate(conditions: Sequence[dict[str, Any]], graph: Graph) -> list[Status]
     states = graph.lifecycle_states(lifecycle) if lifecycle else {}
     services: dict[str, list[str]] | None = None
     nodes: list[str] | None = None
+    edges: set[tuple[str, str]] | None = None
     statuses: list[Status] = []
     for condition in conditions:
         kind = kind_of(condition)
+        if kind == "tf":
+            edges = graph.transforms() if edges is None else edges
+            parent, child = str(condition["tf"]), str(condition.get("child", ""))
+            if connected(edges, parent, child):
+                statuses.append(Status(condition, True, "available"))
+            else:
+                frames = sorted({f for edge in edges for f in edge})
+                detail = f"no transform ({len(frames)} frames seen)" if frames else "no frames yet"
+                statuses.append(Status(condition, False, detail))
+            continue
         name = graph.resolve(str(condition[kind]))
         wanted_type = condition.get("type")
         if kind == "lifecycle":
@@ -217,6 +256,8 @@ class RosGraph:
         rclpy.init(args=[])
         self._node: Any = rclpy.create_node(name)
         self._clients: dict[str, Any] = {}
+        self._edges: set[tuple[str, str]] = set()
+        self._tf_subscriptions: list[Any] = []
 
     def close(self) -> None:
         """Destroy the probe node and shut rclpy down."""
@@ -281,6 +322,37 @@ class RosGraph:
             f"{str(namespace).rstrip('/')}/{name}"
             for name, namespace in self._node.get_node_names_and_namespaces()
         ]
+
+    def transforms(self) -> set[tuple[str, str]]:
+        """Frame pairs from ``/tf`` and ``/tf_static``, collected while spinning briefly."""
+        if not self._tf_subscriptions:
+            from rclpy.qos import (  # noqa: PLC0415  (see __init__)
+                DurabilityPolicy,
+                QoSProfile,
+                ReliabilityPolicy,
+            )
+            from tf2_msgs.msg import TFMessage  # noqa: PLC0415
+
+            def collect(message: Any) -> None:
+                for transform in message.transforms:
+                    parent = str(transform.header.frame_id).lstrip("/")
+                    child = str(transform.child_frame_id).lstrip("/")
+                    if parent and child:
+                        self._edges.add((parent, child))
+
+            static = QoSProfile(
+                depth=100,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                reliability=ReliabilityPolicy.RELIABLE,
+            )
+            self._tf_subscriptions = [
+                self._node.create_subscription(TFMessage, "/tf", collect, 100),
+                self._node.create_subscription(TFMessage, "/tf_static", collect, static),
+            ]
+        deadline = time.monotonic() + TF_LISTEN_S
+        while time.monotonic() < deadline:
+            self._rclpy.spin_once(self._node, timeout_sec=0.1)
+        return set(self._edges)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

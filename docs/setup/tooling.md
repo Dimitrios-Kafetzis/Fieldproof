@@ -55,6 +55,7 @@ created.
 | hadolint | `Dockerfile*` | `.hadolint.yaml` | container image; `:latest`, unpinned apt packages, missing `--no-install-recommends` and a root final user are errors |
 | check-jsonschema | `.github/workflows/*.yml`, `.github/dependabot.yml` | hook defaults | GitHub Actions and Dependabot schemas |
 | check-jsonschema | `robot.yaml` (every vehicle manifest) | `engine/schemas/robot.schema.json` | manifest schema v0, exported from the engine's Pydantic models by `make manifest-schema` (P1-T04, [manifest.md](../reference/manifest.md)); sections are optional here because a manifest may inherit them through `extends` |
+| check-jsonschema | `examples/scenarios/*.yaml` | `engine/schemas/scenario.schema.json` | scenario schema v0, exported by `make scenario-schema` (P1-T05, [scenarios.md](../reference/scenarios.md)) |
 | actionlint | `.github/workflows/*.yml` | hook defaults | workflow semantics: expressions, job references, runner labels, shellcheck on `run` steps |
 | gitleaks | staged changes on commit; full history in `make secrets` | `.gitleaks.toml` | default rules plus repository allowlists |
 | commitlint | commit message | `commitlint.config.mjs` | see below |

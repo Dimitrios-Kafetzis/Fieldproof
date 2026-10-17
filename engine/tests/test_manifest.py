@@ -181,6 +181,7 @@ def test_minimal_runtime(ugv: RobotManifest, runtime: dict[str, Any]) -> None:
         (lambda r: r["ready"].__setitem__("conditions", []), "ready.conditions"),
         (lambda r: r["ready"]["conditions"].append({"lifecycle": "/x", "state": "up"}), "state"),
         (lambda r: r["ready"]["conditions"].append({"nope": "/x"}), "ready.conditions.2"),
+        (lambda r: r["ready"]["conditions"].append({"tf": "map"}), "child"),
         (lambda r: r["ready"].__setitem__("timeout_s", 0), "timeout_s"),
         (lambda r: r["resources"].__setitem__("memory", "lots"), "resources.memory"),
         (lambda r: r["resources"].__setitem__("cpus", -1), "resources.cpus"),

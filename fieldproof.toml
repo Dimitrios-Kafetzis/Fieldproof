@@ -1,0 +1,29 @@
+# Fieldproof workspace configuration (task P1-T05, docs/reference/scenarios.md#the-workspace).
+# The directory holding this file is the workspace root: relative paths below resolve against
+# it, the bridge containers mount it read-only at /workspace, and `fieldproof run` finds it by
+# walking up from the scenario's directory. Every value shown is the default; the environment
+# variables the compose stack reads (FIELDPROOF_IMAGE_PREFIX, FIELDPROOF_IMAGE_TAG,
+# FIELDPROOF_RENDER, ROS_DOMAIN_ID) override the file, and the command line overrides both.
+
+[runs]
+directory = "runs"
+
+[docker]
+network = "fieldproof"
+image_prefix = "ghcr.io/dimitrios-kafetzis/fieldproof-"
+image_tag = "local"
+render = "auto" # gpu when the host has a /dev/dri render node, software otherwise
+ros_domain_id = 0
+
+[stack]
+worlds = "sim/fieldproof_worlds/worlds"
+models = "sim/fieldproof_worlds/models"
+fuel = "assets/fuel/models"
+fuel_lock = "assets/fuel.lock"
+robots = "robots/fieldproof_robots/models"
+
+[timeouts]
+world_s = 300.0
+spawn_s = 300.0
+bridge_s = 120.0
+teardown_s = 10.0

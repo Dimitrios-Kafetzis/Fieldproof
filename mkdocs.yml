@@ -115,4 +115,5 @@ nav:
       - Reference vehicles: reference/robots.md
       - Bridge contract: reference/bridge.md
       - Vehicle manifest: reference/manifest.md
+      - Scenarios: reference/scenarios.md
       - Worlds: reference/worlds.md

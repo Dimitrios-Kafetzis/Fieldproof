@@ -15,6 +15,7 @@ from fieldproof.vehicle_ready import (
     UNAVAILABLE,
     UNRESPONSIVE,
     Status,
+    connected,
     describe,
     evaluate,
     kind_of,
@@ -38,6 +39,7 @@ class FakeGraph:
         self.topics: dict[str, list[str]] = {}
         self.service_types: dict[str, list[str]] = {}
         self.node_names: list[str] = []
+        self.edges: set[tuple[str, str]] = set()
         self.namespace = "/"
         self.queries = 0
         self.closed = False
@@ -54,6 +56,9 @@ class FakeGraph:
 
     def nodes(self) -> list[str]:
         return list(self.node_names)
+
+    def transforms(self) -> set[tuple[str, str]]:
+        return set(self.edges)
 
     def resolve(self, name: str) -> str:
         return name if name.startswith("/") else f"{self.namespace.rstrip('/')}/{name}"
@@ -76,7 +81,9 @@ def test_load_conditions_of_the_example() -> None:
     assert timeout == 180.0
     kinds = [kind_of(c) for c in conditions]
     assert kinds.count("lifecycle") == 7
+    assert len(conditions) == 10
     assert {"topic": "/map", "type": "nav_msgs/msg/OccupancyGrid"} in conditions
+    assert {"tf": "map", "child": "base_link"} in conditions
     assert {"action": "/navigate_to_pose", "type": NAV2_TYPE} in conditions
 
 
@@ -336,3 +343,32 @@ def test_the_probe_is_standalone() -> None:
     assert "import fieldproof" not in source
     assert "import rclpy" in source
     assert "lifecycle_msgs" in source
+
+
+def test_tf_condition(graph: FakeGraph) -> None:
+    condition = {"tf": "map", "child": "base_link"}
+    assert kind_of(condition) == "tf"
+    assert describe(condition) == "map->base_link tf"
+    (status,) = evaluate([condition], graph)
+    assert not status.ok
+    assert status.detail == "no frames yet"
+    graph.edges = {("odom", "base_link"), ("base_link", "lidar_link")}
+    (status,) = evaluate([condition], graph)
+    assert not status.ok
+    assert status.detail == "no transform (3 frames seen)"
+    graph.edges.add(("map", "odom"))
+    (status,) = evaluate([condition], graph)
+    assert status.ok
+    assert status.detail == "available"
+    assert summary(evaluate([condition, {"tf": "map", "child": "nowhere"}], graph)) == (
+        "map->nowhere tf no transform (4 frames seen)"
+    )
+
+
+def test_connected() -> None:
+    edges = {("map", "odom"), ("odom", "base_link"), ("base_link", "camera_link")}
+    assert connected(edges, "map", "camera_link")
+    assert connected(edges, "camera_link", "map"), "direction does not matter"
+    assert connected(edges, "map", "map")
+    assert not connected(edges, "map", "utm")
+    assert not connected(set(), "map", "odom")

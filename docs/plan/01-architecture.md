@@ -90,7 +90,7 @@ fieldproof cockpit                     # serve the GUI against the local engine
 Components:
 
 - **Schema** — Pydantic models, exported JSON Schema for editor autocompletion. Versioned
-  (`apiVersion: fieldproof/v1alpha1`).
+  (`apiVersion: fieldproof.dev/v0alpha1`, as the vehicle manifest and the Fuel lock).
 - **Orchestrator** — builds the per-run topology (sim container, bridge, N vehicle containers,
   recorder, cockpit backend) and drives it via the Docker API. Compose files are an output, not the
   source of truth.

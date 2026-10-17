@@ -1,0 +1,193 @@
+"""The :class:`fieldproof.backend.Backend` on the Docker SDK (task P1-T05, ADR-0004).
+
+Every operation maps to one or two Docker API calls; errors of the daemon surface as
+:class:`BackendError` with the container's name, so the runner can record and continue its
+teardown. Commands run inside containers through the low-level exec API so their output streams
+line by line (the readiness probe prints what is still pending) and their exit code is read
+afterwards.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+
+import docker
+import requests
+from docker.errors import APIError, DockerException, ImageNotFound, NotFound
+from docker.models.containers import Container
+from docker.types import Mount as DockerMount
+
+from fieldproof.backend import BackendError, ContainerSpec, ContainerState, ExecResult, LineSink
+
+
+class DockerBackend:
+    """Containers through the Docker daemon the environment points at (``DOCKER_HOST``)."""
+
+    def __init__(self, client: docker.DockerClient | None = None) -> None:
+        try:
+            self.client = client if client is not None else docker.from_env()
+        except DockerException as error:
+            raise BackendError(f"cannot reach the Docker daemon: {error}") from error
+
+    # ------------------------------------------------------------------------------- images
+    def image_exists(self, image: str) -> bool:
+        """Whether the image is present locally."""
+        try:
+            self.client.images.get(image)
+        except ImageNotFound:
+            return False
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{image}: {error}") from error
+        return True
+
+    def ensure_network(self, name: str) -> None:
+        """Create the bridge network unless it exists."""
+        try:
+            if not any(n.name == name for n in self.client.networks.list(names=[name])):
+                self.client.networks.create(name, driver="bridge")
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"network {name}: {error}") from error
+
+    # --------------------------------------------------------------------------- containers
+    def _create(self, spec: ContainerSpec) -> Container:
+        mounts = [
+            DockerMount(m.target, str(m.source), type="bind", read_only=m.read_only)
+            for m in spec.mounts
+        ]
+        try:
+            return self.client.containers.create(
+                spec.image,
+                command=list(spec.command) or None,
+                name=spec.name,
+                hostname=spec.hostname,
+                environment=dict(spec.env),
+                labels=dict(spec.labels),
+                network=spec.network,
+                mounts=mounts,
+                devices=[f"{d}:{d}:rwm" for d in spec.devices],
+                group_add=list(spec.group_add),
+                nano_cpus=int(spec.cpus * 1e9) if spec.cpus is not None else None,
+                mem_limit=spec.memory,
+                pids_limit=spec.pids,
+                detach=True,
+            )
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{spec.name}: cannot create the container: {error}") from error
+
+    def start(self, spec: ContainerSpec) -> None:
+        """Create and start a container in the background."""
+        container = self._create(spec)
+        try:
+            container.start()
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{spec.name}: cannot start the container: {error}") from error
+
+    def run_to_completion(self, spec: ContainerSpec, timeout_s: float) -> ExecResult:
+        """Create, start and wait for a one-shot container, remove it, return its result."""
+        container = self._create(spec)
+        try:
+            try:
+                container.start()
+                result = container.wait(timeout=timeout_s)
+            except (APIError, requests.RequestException) as error:
+                output = self._logs(container)
+                raise BackendError(
+                    f"{spec.name}: no exit after {timeout_s:.0f} s ({error}):\n"
+                    + "\n".join(output.splitlines()[-20:])
+                ) from error
+            return ExecResult(int(result.get("StatusCode", -1)), self._logs(container))
+        finally:
+            self._remove(container)
+
+    def exec(self, name: str, argv: Sequence[str], on_line: LineSink | None = None) -> ExecResult:
+        """Run a command in a running container, streaming its lines to `on_line` if given."""
+        api = self.client.api
+        chunks: list[str] = []
+        pending = ""
+        try:
+            exec_id = api.exec_create(name, list(argv))["Id"]
+            for chunk in api.exec_start(exec_id, stream=True):
+                text = chunk.decode("utf-8", errors="replace")
+                chunks.append(text)
+                if on_line is not None:
+                    pending += text
+                    while "\n" in pending:
+                        line, pending = pending.split("\n", 1)
+                        on_line(line)
+            if on_line is not None and pending:
+                on_line(pending)
+            code = api.exec_inspect(exec_id).get("ExitCode")
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: exec failed: {error}") from error
+        return ExecResult(int(code) if code is not None else -1, "".join(chunks))
+
+    def state(self, name: str) -> ContainerState:
+        """The container's state (`exists` false when there is no such container)."""
+        try:
+            container = self.client.containers.get(name)
+        except NotFound:
+            return ContainerState(exists=False)
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: cannot inspect the container: {error}") from error
+        state = container.attrs.get("State", {})
+        running = bool(state.get("Running"))
+        health = (state.get("Health") or {}).get("Status")
+        return ContainerState(
+            exists=True,
+            running=running,
+            exit_code=None if running else state.get("ExitCode"),
+            health=str(health) if health else None,
+        )
+
+    def logs(self, name: str) -> str:
+        """The container's output so far."""
+        try:
+            return self._logs(self.client.containers.get(name))
+        except NotFound:
+            return ""
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: cannot read the logs: {error}") from error
+
+    def stop(self, name: str, timeout_s: float) -> None:
+        """Stop the container, killing it after `timeout_s`."""
+        try:
+            self.client.containers.get(name).stop(timeout=math.ceil(timeout_s))
+        except NotFound:
+            return
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: cannot stop the container: {error}") from error
+
+    def remove(self, name: str) -> None:
+        """Remove the container (forced)."""
+        try:
+            self._remove(self.client.containers.get(name))
+        except NotFound:
+            return
+
+    def find(self, label: str, value: str) -> list[str]:
+        """Names of every container carrying `label=value`, running or not."""
+        try:
+            containers = self.client.containers.list(
+                all=True, filters={"label": f"{label}={value}"}
+            )
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"cannot list containers: {error}") from error
+        return [str(c.name) for c in containers]
+
+    # ---------------------------------------------------------------------------------- helpers
+    @staticmethod
+    def _logs(container: Container) -> str:
+        try:
+            return container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
+        except (APIError, requests.RequestException):
+            return ""
+
+    @staticmethod
+    def _remove(container: Container) -> None:
+        try:
+            container.remove(force=True, v=True)
+        except NotFound:
+            return
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{container.name}: cannot remove the container: {error}") from error

@@ -15,7 +15,7 @@ holds what spans layers or the repository itself.
 | `assets/` | asset convention, `assets/fuel.lock`, the Fuel fetch script against a local stand-in | `make test-assets` |
 | `worlds/` | the depot world with the UGV: load time, sensors, real-time factor (pytest, dev container) | `make test-worlds` |
 | `vehicles/` | vehicle manifests against schema v0, the generated Dockerfile, the example vehicle image: build, contents, Nav2 lifecycle on a Docker network | `make test-vehicles` |
-| `integration/` | the vertical slice: sim, bridge and the example vehicle as three containers in the depot; `fieldproof vehicle wait` until Nav2 is active, a `NavigateToPose` goal reached within tolerance (pytest, host) | `make test-integration` |
+| `integration/` | the vertical slice: sim, bridge and the example vehicle as three containers in the depot; `fieldproof vehicle wait` until Nav2 is active, a `NavigateToPose` goal reached within tolerance; then `fieldproof run` of the example scenario end to end (the run passes, the run directory is complete, no container is left) and a run interrupted with SIGINT that leaves nothing behind (pytest, host) | `make test-integration` |
 
 The pytest suites here use the root `pyproject.toml` configuration. `worlds/` runs inside the
 dev container with the ROS install spaces sourced (`tools/ros/colcon.sh run python3 -m pytest

@@ -9,8 +9,9 @@ inside an environment where the package is installed.
 | --- | --- | --- |
 | `fieldproof --version`, `-V` | P0-T07 | print `fieldproof <version>` and exit; the version is the repository version of `version.txt` |
 | `fieldproof --help` | P0-T07 | list the commands and options; running `fieldproof` without arguments prints the same |
-| `fieldproof validate <scenario>` | P1-T05 | validate a scenario file against the schema |
-| `fieldproof run <scenario>` | P1-T05 | run a scenario headless or with the cockpit attached |
+| `fieldproof validate <scenario>...` | P1-T05 | validate scenario files against schema v0 and resolve them against the workspace: the world file and its frames, every vehicle manifest, the timeline's goals ([scenarios.md](scenarios.md)); no container is started; option `--config` |
+| `fieldproof run <scenario>` | P1-T05 | run a scenario with the Docker backend: simulator, bridges and vehicles with readiness gates, the timeline, teardown; writes `runs/<run_id>/` ([scenarios.md](scenarios.md#running-a-scenario)); options `--config`, `--runs-dir`, `--run-id`, `--render`, `--domain-id`, `--network`, `--keep`, `--quiet`, `--dry-run` |
+| `fieldproof schema` | P1-T05 | print the JSON Schema of a scenario file (`make scenario-schema` writes `engine/schemas/scenario.schema.json`) |
 | `fieldproof report <run-id>` | P1-T06 | render the report of a run (Markdown, HTML, JUnit) |
 | `fieldproof replay <run-id>` | P2-T07 | replay a recording |
 | `fieldproof matrix <sweep>` | P2-T06 | run a parameter sweep |
@@ -23,5 +24,6 @@ inside an environment where the package is installed.
 | `fieldproof vehicle wait <robot.yaml>` | P1-T04 | wait until the running vehicle container satisfies the manifest's `runtime.ready` conditions, through the image's readiness probe ([manifest.md](manifest.md#the-readiness-probe)); exit code 1 with the pending conditions on timeout; options `--name`, `--timeout`, `--interval`, `--quiet`, `--dry-run` |
 | `fieldproof cockpit` | P3-T01 | serve the cockpit against the local engine |
 
-Exit codes: `0` on success, `1` on a failed scenario or assertion, `2` on a usage error (Typer's
-convention). Output is Rich-formatted on a terminal and plain when piped.
+Exit codes: `0` on success, `1` on a failed scenario or assertion (also a run that timed out or
+could not start), `2` on a usage error (Typer's convention), `130` on a run interrupted by Ctrl-C
+or SIGTERM. Output is Rich-formatted on a terminal and plain when piped.
