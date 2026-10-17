@@ -67,7 +67,9 @@ runtime:
       executable: nmea_serial_driver
       provides: [gps/fix]
   ready:
-    # Nav2's lifecycle nodes active, SLAM Toolbox publishing the map, the navigation action up.
+    # Nav2's lifecycle nodes active, SLAM Toolbox publishing the map and the map -> odom
+    # transform (it starts after the first scan; a goal sent before it is aborted by the
+    # planner), the navigation action up.
     timeout_s: 180
     conditions:
       - lifecycle: /bt_navigator
@@ -79,6 +81,8 @@ runtime:
       - lifecycle: /slam_toolbox
       - topic: /map
         type: nav_msgs/msg/OccupancyGrid
+      - tf: map
+        child: base_link
       - action: /navigate_to_pose
         type: nav2_msgs/action/NavigateToPose
   resources:

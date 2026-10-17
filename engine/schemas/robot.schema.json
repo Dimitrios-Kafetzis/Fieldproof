@@ -835,6 +835,9 @@
               },
               {
                 "$ref": "#/$defs/NodeCondition"
+              },
+              {
+                "$ref": "#/$defs/TfCondition"
               }
             ]
           },
@@ -1224,6 +1227,25 @@
       },
       "required": ["gz_topic", "gz_type", "ros_topic", "ros_type"],
       "title": "Tf",
+      "type": "object"
+    },
+    "TfCondition": {
+      "additionalProperties": false,
+      "description": "A chain of transforms on `/tf` or `/tf_static` links two frames.",
+      "properties": {
+        "tf": {
+          "description": "Parent (target) frame (`map`).",
+          "title": "Tf",
+          "type": "string"
+        },
+        "child": {
+          "description": "Child (source) frame (`base_link`).",
+          "title": "Child",
+          "type": "string"
+        }
+      },
+      "required": ["tf", "child"],
+      "title": "TfCondition",
       "type": "object"
     },
     "TopicCondition": {

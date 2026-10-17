@@ -228,8 +228,8 @@ PY
       fail "readiness probe or HEALTHCHECK missing: $health"
     fi
     probe="$(run fieldproof-vehicle-ready --timeout 3 2>&1)" && probe_status=0 || probe_status=$?
-    if [[ "$probe_status" -eq 1 && "$probe" == *"not ready after"*"9 of 9 pending"*"/bt_navigator lifecycle unavailable"*"/navigate_to_pose action no server"* ]]; then
-      pass "the probe alone reports the 9 conditions pending and exits 1"
+    if [[ "$probe_status" -eq 1 && "$probe" == *"not ready after"*"10 of 10 pending"*"/bt_navigator lifecycle unavailable"*"map->base_link tf no frames yet"*"/navigate_to_pose action no server"* ]]; then
+      pass "the probe alone reports the 10 conditions pending and exits 1"
     else
       fail "the probe alone exited $probe_status: $probe"
     fi

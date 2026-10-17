@@ -347,8 +347,20 @@ class NodeCondition(Strict):
     node: str
 
 
+class TfCondition(Strict):
+    """A chain of transforms on `/tf` or `/tf_static` links two frames."""
+
+    tf: str = Field(description="Parent (target) frame (`map`).")
+    child: str = Field(description="Child (source) frame (`base_link`).")
+
+
 ReadyCondition = Annotated[
-    LifecycleCondition | TopicCondition | ServiceCondition | ActionCondition | NodeCondition,
+    LifecycleCondition
+    | TopicCondition
+    | ServiceCondition
+    | ActionCondition
+    | NodeCondition
+    | TfCondition,
     Field(union_mode="left_to_right"),
 ]
 
