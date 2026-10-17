@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.7.0...v0.8.0) (2026-10-17)
+
+
+### Features
+
+* **engine:** add scenario schema v0, the workspace configuration and the runner v0 ([#31](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/31)) ([92982bc](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/92982bc1ab68c4efb6183d8372f43c5987df79ce))
+
+
+### Bug fixes
+
+* **engine:** tune the example vehicle for a CPU-starved simulation host ([#37](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/37)) ([ccb6985](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/ccb69852a1ebffbc71404ca2022d9bad9d2f06dd))
+
 ## [0.7.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.6.0...v0.7.0) (2026-10-17)
 
 
