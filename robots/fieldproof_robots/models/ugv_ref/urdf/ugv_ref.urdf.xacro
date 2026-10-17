@@ -190,6 +190,10 @@
   <xacro:rgbd_camera link="${prefix}camera_link" topic="${ns}/camera" rate="$(arg camera_rate)"
                      width="$(arg camera_width)" height="$(arg camera_height)"/>
 
+  <!-- Ground-truth contact sensor on the chassis collision (the generated SDF names it
+       <link>_collision); read by the scenario runner, not bridged. -->
+  <xacro:contact_sensor link="${prefix}base_link" collision="${prefix}base_link_collision" topic="${ns}/contacts"/>
+
   <!-- GNSS receiver on the rear of the roof (optional). -->
   <xacro:if value="$(arg gps)">
     <xacro:sensor_link name="gps" parent="${prefix}base_link" xyz="-0.25 0 ${chassis_top + 0.01}" rpy="0 0 0" mass="0.05">

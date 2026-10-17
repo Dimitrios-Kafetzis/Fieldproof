@@ -161,6 +161,10 @@ docker compose -f docker/compose.yaml --profile bridge up -d bridge
 ```
 
 `make images` builds the bridge image with the others, `make down` stops it with the stack.
+The bridge image is also what `fieldproof run` starts as the **recorder** of a run (task P1-T06,
+[assertions.md](../reference/assertions.md#how-a-run-is-observed)): the engine's observer script
+and the run directory bind-mounted, `ros2 bag record` to MCAP and the `/fieldproof/*` side
+channels; not a compose service, labelled `io.fieldproof.role=recorder`.
 `fieldproof run` (task P1-T05) starts the same three kinds of container itself through the
 Docker API, with the same mounts, environment and network, from a scenario file
 ([scenarios.md](../reference/scenarios.md#running-a-scenario)); the compose stack remains the

@@ -46,6 +46,8 @@ class ContainerSpec:
     cpus: float | None = None
     memory: str | None = None
     pids: int | None = None
+    user: str | None = None
+    """`uid:gid` to run as instead of the image's user (the recorder writes as the host user)."""
 
 
 @dataclass(frozen=True)

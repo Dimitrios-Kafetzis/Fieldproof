@@ -150,9 +150,11 @@ def test_start_maps_the_spec(backend: DockerBackend, client: StubClient) -> None
         cpus=2.0,
         memory="2g",
         pids=100,
+        user="1001:1001",
     )
     backend.start(spec)
     (created,) = client.containers.created
+    assert created["user"] == "1001:1001"
     assert created["image"] == "present:1"
     assert created["command"] == ["gz", "sim"]
     assert created["name"] == "c1"
@@ -175,6 +177,7 @@ def test_start_maps_the_spec(backend: DockerBackend, client: StubClient) -> None
     backend.start(minimal)
     assert client.containers.created[-1]["command"] is None
     assert client.containers.created[-1]["nano_cpus"] is None
+    assert client.containers.created[-1]["user"] is None
 
 
 def test_run_to_completion(backend: DockerBackend, client: StubClient) -> None:
