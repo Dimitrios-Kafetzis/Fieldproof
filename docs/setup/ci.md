@@ -173,7 +173,7 @@ but never fails the check, because any timestamp is a valid snapshot and it move
 | `make docs-links` | the link check of the Docs workflow |
 | `make test-images IMAGE_TEST_FLAGS="--quick --no-build"` | the image job's tests against images already built |
 | `make test-vehicles` | the image job's vehicle step: manifests, the generated Dockerfile, the example vehicle image built on the local `base-ros2` and started on a Docker network ([manifest.md](../reference/manifest.md)) |
-| `make test-integration` | the image job's last step: the simulator, the bridge container and the vehicle in the depot, `fieldproof vehicle wait` until Nav2 is active, a `NavigateToPose` goal reached ([manifest.md](../reference/manifest.md#the-integration-test)); then `fieldproof run` of the example scenario and an interrupted run ([scenarios.md](../reference/scenarios.md#tests)) |
+| `make test-integration` | the image job's last step: the simulator, the bridge container and the vehicle in the depot, `fieldproof vehicle wait` until Nav2 is active, a `NavigateToPose` goal reached ([manifest.md](../reference/manifest.md#the-integration-test)); then `fieldproof run` of the example scenario with its assertions, MCAP recording and report, an interrupted run, and the failing example scenario ([scenarios.md](../reference/scenarios.md#tests), [assertions.md](../reference/assertions.md#tests)) |
 | `make lint-title TITLE="..."` | the PR title check |
 | `make branch-protection` / `tools/ci/branch-protection.sh --check` | the required checks wiring |
 

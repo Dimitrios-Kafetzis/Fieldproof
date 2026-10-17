@@ -116,4 +116,5 @@ nav:
       - Bridge contract: reference/bridge.md
       - Vehicle manifest: reference/manifest.md
       - Scenarios: reference/scenarios.md
+      - Assertions, recording and reports: reference/assertions.md
       - Worlds: reference/worlds.md

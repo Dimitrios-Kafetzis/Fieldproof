@@ -94,6 +94,14 @@ the model publishes.
 | `camera` (`rgbd_camera`) | `camera/image`, `camera/depth_image` `gz.msgs.Image`; `camera/camera_info` `gz.msgs.CameraInfo`; `camera/points` `gz.msgs.PointCloudPacked` | 15 Hz | `camera_link` | `camera/image`, `camera/depth/image`, `camera/camera_info` in `camera_optical_link`; `camera/points` `sensor_msgs/msg/PointCloud2` in `camera_link` |
 | `gps` (`navsat`, optional) | `gps/fix` `gz.msgs.NavSat` | 5 Hz | none in the header | `gps/fix` `sensor_msgs/msg/NavSatFix` in `gps_link` |
 
+The chassis also carries a **ground-truth contact sensor** (`<sensor name="contact"
+type="contact">` on the `base_link_collision`, Gazebo topic `contacts` under the namespace, 50 Hz,
+task P1-T06). It is not an interface of the vehicle: nothing bridges it to ROS and the manifest's
+`sensors` list leaves it out; it is the simulator's report of what the body hit, which the
+scenario runner's `no_collision` assertion reads ([assertions.md](assertions.md#no_collision)).
+The casters and wheels are separate links, so any contact of the chassis collision is a collision
+with the world. The depot and `fieldproof_empty.sdf` load the Contact system it needs.
+
 Gazebo's camera convention is x forward, so image and depth data are labelled with the physical
 `camera_link`; the URDF adds the ROS optical frame `camera_optical_link` (z forward, x right,
 y down) as its child, and the bridge relabels image and camera info with it. The point cloud is
@@ -144,7 +152,7 @@ topic, rate, frame, limit and xacro default declared here is what the model carr
 | `xmllint` | `package.xml` |
 | `urdf_check_ugv_ref` | `check_urdf` parses the generated URDF (one tree rooted at `base_link`) |
 | `sdf_check_ugv_ref` | `gz sdf --check` accepts the generated `model.sdf` |
-| `test_ugv_ref` | pytest: installed files, mesh URIs and licence, manifest against SDF and URDF, noise on every sensor, xacro defaults, `gps:=false` and `namespace:=ugv1` renderings |
+| `test_ugv_ref` | pytest: installed files, mesh URIs and licence, manifest against SDF and URDF, noise on every interface sensor, the chassis contact sensor on the chassis collision only, xacro defaults, `gps:=false` and `namespace:=ugv1` renderings |
 | `ugv_ref_launch` | `launch_testing`: starts `gz sim -s -r --headless-rendering fieldproof_empty.sdf`, spawns through the launch file, measures every output's rate in simulation time against the manifest (±10 %), checks the header frames and joint names, drives the robot one metre on `/cmd_vel` and compares the odometry delta with the ground-truth pose (within 10 cm, no heading change), checks `/tf_static` for every sensor frame, and after shutdown that `create` exited 0 and the server resolved every resource |
 
 The launch test runs in its own Gazebo partition and ROS domain, so a stack started with
