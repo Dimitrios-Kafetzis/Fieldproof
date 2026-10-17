@@ -254,6 +254,7 @@ class Plan:
                 "cpus": s.cpus,
                 "memory": s.memory,
                 "user": s.user,
+                "working_dir": s.working_dir,
             }
 
         return {
@@ -401,8 +402,11 @@ def plan(
             f"{RUN_DIR_IN_CONTAINER}/{OBSERVE_FILE}",
         ),
         # Runs as the engine's user so what it writes into the run directory belongs to the
-        # user who started the run; HOME and the ROS log directory point at a writable place.
+        # user who started the run; HOME, the ROS log directory and the working directory point
+        # at places that user can reach (the image's home is not, when the uids differ: rosbag2
+        # then fails to open its file with "Permission denied").
         env={**env, "HOME": "/tmp", "ROS_LOG_DIR": "/tmp/ros-log"},  # noqa: S108  (in-container)
+        working_dir=RUN_DIR_IN_CONTAINER,
         labels={**labels, ROLE_LABEL: "recorder"},
         network=net,
         hostname=f"fieldproof-{short}-recorder",

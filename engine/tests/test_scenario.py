@@ -107,7 +107,7 @@ def test_example_loads(example: Scenario) -> None:
     assert (lidar.topic, lidar.vehicle, lidar.min_hz, lidar.window_s, lidar.after_s) == (
         "scan",
         "ugv1",
-        8.0,
+        2.0,
         5.0,
         5.0,
     )
@@ -186,7 +186,7 @@ def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
         ("assertions.1.action", "fly", r"assertions\[1\] \(arrived_in_time\).action: 'fly'"),
         ("assertions.1.max_s", -1, "max_s"),
         ("assertions.2.min_hz", -1, "min_hz"),
-        ("assertions.2.max_hz", 2, "max_hz must not be below min_hz"),
+        ("assertions.2.max_hz", 1, "max_hz must not be below min_hz"),
         ("assertions.2.vehicle", "ugv9", "is not a vehicle"),
         ("assertions.3.ignore", "wall", "ignore"),
         ("assertions.4.condition", "speed < 1", "unknown name 'speed'"),

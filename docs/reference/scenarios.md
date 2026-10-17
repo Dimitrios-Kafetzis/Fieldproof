@@ -66,7 +66,7 @@ assertions:                              # assertions.md
     type: topic_rate
     topic: scan
     vehicle: ugv1
-    min_hz: 8.0
+    min_hz: 2.0                          # 10 Hz nominal; about 3 Hz under software rendering in CI
     window_s: 5s
     after_s: 5s
   - name: no_collision

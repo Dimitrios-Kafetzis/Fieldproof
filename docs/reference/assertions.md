@@ -97,7 +97,10 @@ A ROS topic keeps publishing at a rate.
 The observer emits one rate per second once a full window has passed since it subscribed.
 Fails at the first window below `min_hz` or above `max_hz` after `after_s`; passes at the end of
 the timeline, or fails there if no window was measured. Evidence: `windows`, `lowest_hz`,
-`highest_hz`, `messages`, and the failing `window`.
+`highest_hz`, `messages`, and the failing `window`. Rendering sensors do not always reach their
+nominal rate in simulation time: with software rendering on a two-core CI runner the reference
+UGV's 10 Hz lidar arrives at about 3 Hz of simulation time while a GPU host gives 9 to 10 Hz, so
+the example asks for 2 Hz and a scenario meant for GPU hosts can ask for more.
 
 ### `no_collision`
 

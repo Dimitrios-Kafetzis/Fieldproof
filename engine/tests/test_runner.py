@@ -204,6 +204,7 @@ def test_plan_resolves_the_recorder_and_assertions(
     )
     assert recorder.user is not None
     assert recorder.user.count(":") == 1
+    assert recorder.working_dir == RUN_DIR_IN_CONTAINER
     assert recorder.env["HOME"] == "/tmp"  # noqa: S108
     assert recorder.env["GZ_PARTITION"] == "fieldproof"
     assert [(m.source, m.target, m.read_only) for m in recorder.mounts] == [
