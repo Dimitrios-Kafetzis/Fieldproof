@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.6.0...v0.7.0) (2026-10-17)
+
+
+### Features
+
+* **engine:** add the vehicle readiness probe, the bridge image and the integration test ([#29](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/29)) ([95dea47](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/95dea47d1e10d6fa6b3472f164f08fc36010da2b))
+
 ## [0.6.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.5.0...v0.6.0) (2026-10-17)
 
 
