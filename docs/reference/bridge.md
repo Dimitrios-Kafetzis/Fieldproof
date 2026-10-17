@@ -112,6 +112,32 @@ The launch reads `bridge.yaml` and starts one `parameter_bridge` per configurati
 `params.yaml` and its `config_file`), one adapter per hidden topic and `robot_state_publisher`,
 all under the bundle's namespace.
 
+### The bridge container
+
+The bridge of a vehicle runs as its own container (task P1-T04, [ADR-0004](../adr/0004-one-container-per-vehicle.md)):
+the image `fieldproof-bridge` (`docker/bridge/Dockerfile`) is the simulation image plus this
+package and `fieldproof_robots` built into `/opt/fieldproof_bridge`, and its default command
+`fieldproof-bridge` runs the launch above with `manifest:=$FIELDPROOF_MANIFEST` (extra arguments
+go to the launch). The compose service `bridge` sets the manifest from
+`FIELDPROOF_VEHICLE_MANIFEST` (default: the example vehicle) and bind-mounts the repository
+read-only at `/workspace`, so the manifest's `extends` chain and its description resolve
+([containers.md](../setup/containers.md#compose-profiles-and-networking)):
+
+```bash
+docker compose -f docker/compose.yaml --profile bridge up -d bridge          # the example vehicle
+FIELDPROOF_VEHICLE_MANIFEST=/workspace/robots/fieldproof_robots/models/ugv_ref/robot.yaml \
+    docker compose -f docker/compose.yaml --profile bridge up -d bridge      # the reference model
+docker run --rm --network fieldproof -e GZ_PARTITION=fieldproof -v "$PWD:/workspace:ro" \
+    -e FIELDPROOF_MANIFEST=/workspace/examples/vehicles/ugv_nav2/robot.yaml \
+    ghcr.io/dimitrios-kafetzis/fieldproof-bridge:local                         # without compose
+```
+
+The same image spawns the vehicle model before the bridge starts (`docker compose run --rm
+bridge ros2 launch fieldproof_robots spawn_ugv_ref.launch.py ... robot_state_publisher:=false`),
+which is what the integration test does
+([manifest.md](manifest.md#the-integration-test)); the scenario runner of P1-T05 drives both
+through the Docker API.
+
 ## The contract of the reference UGV
 
 `fieldproof bridge gen` on `ugv_ref/robot.yaml` with the default (empty) namespace yields this

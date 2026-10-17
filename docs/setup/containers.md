@@ -25,6 +25,7 @@ what CI does after building them with `docker buildx bake`).
 | `ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2` | `docker/base-ros2/Dockerfile` | Ubuntu 24.04, ROS 2 Jazzy `ros-base`, `tini`, non-root user `fieldproof` (uid 1000) | 0.9 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-sim` | `docker/sim/Dockerfile` | base + `ros-jazzy-ros-gz` (Gazebo Harmonic via the Jazzy vendor packages), `xacro` for the vehicle descriptions, Mesa EGL stack, headless defaults | 3.2 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-dev` | `docker/dev/Dockerfile` | sim + build-essential, cmake, ninja, clang/clang-format/clang-tidy/clangd, gdb, colcon with mixins, rosdep, vcstool, uv, passwordless sudo | 4.1 GB |
+| `ghcr.io/dimitrios-kafetzis/fieldproof-bridge` | `docker/bridge/Dockerfile` | sim + the repository's `fieldproof_bridge` and `fieldproof_robots` packages built into `/opt/fieldproof_bridge` (two stages: colcon in the first, nothing but the install space in the second); default command `fieldproof-bridge`, the bridge launch on `FIELDPROOF_MANIFEST` ([bridge.md](../reference/bridge.md#the-bridge-container)) | 3.3 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-apt-lists` | `docker/base-ros2/Dockerfile`, stage `apt-lists` | only `/var/lib/apt/lists` of the base image, tagged `<APT_SNAPSHOT>-<ROS_SNAPSHOT>`; seeds later builds (see [Package lists](#package-lists-from-ghcr)) | 46 MB |
 
 Local builds are tagged `:local`. CI pushes `sha-<short>`, `main` and `vX.Y.Z` tags after a
@@ -131,7 +132,8 @@ initialised to `~/.gz/rendering/ogre2.log` (`GL_RENDERER` line).
 | --- | --- | --- |
 | `sim` | `sim` | `gz sim -s -r --headless-rendering ${FIELDPROOF_WORLD:-depot.sdf}` with the Fieldproof worlds, models and assets bind-mounted (below) |
 | `dev` | `dev` | development container, repository bind-mounted at `/workspace`, `sleep infinity` |
-| `images` | `base-ros2`, `apt-lists` | build-only services (the base image the other two build on, and its package lists); never started |
+| `bridge` | `bridge` | the bridge of one vehicle (task P1-T04): `fieldproof-bridge` on `FIELDPROOF_VEHICLE_MANIFEST` (default `examples/vehicles/ugv_nav2/robot.yaml`), the repository bind-mounted read-only at `/workspace` so the manifest and its description resolve; started on demand, not by `make up` |
+| `images` | `base-ros2`, `apt-lists` | build-only services (the base image the others build on, and its package lists); never started |
 
 `make up` enables `sim` and `dev`, after `make assets` has fetched the Gazebo Fuel models pinned
 in `assets/fuel.lock`. The `sim` service runs a Fieldproof world: `FIELDPROOF_WORLD` names the
@@ -148,9 +150,17 @@ no rebuild ([worlds.md](../reference/worlds.md)):
 | `/fieldproof/robots` | `robots/fieldproof_robots/models` | the reference vehicle models, so a spawned UGV's meshes resolve (`model://ugv_ref/meshes/...`) |
 
 Gazebo's own worlds stay reachable through the ROS environment, so `FIELDPROOF_WORLD=empty.sdf
-make up` still works. The vehicle itself is spawned from the dev container
-(`ros2 launch fieldproof_robots spawn_ugv_ref.launch.py world:=depot ...`, see
-[robots.md](../reference/robots.md#spawning)).
+make up` still works. The vehicle itself is spawned from the dev container or by a one-shot
+container of the bridge image (`ros2 launch fieldproof_robots spawn_ugv_ref.launch.py
+world:=depot ...`, see [robots.md](../reference/robots.md#spawning)); the bridge follows:
+
+```bash
+docker compose -f docker/compose.yaml --profile bridge run --rm --no-deps bridge \
+    ros2 launch fieldproof_robots spawn_ugv_ref.launch.py world:=depot x:=10 y:=3 yaw:=-1.5708 robot_state_publisher:=false
+docker compose -f docker/compose.yaml --profile bridge up -d bridge
+```
+
+`make images` builds the bridge image with the others, `make down` stops it with the stack.
 
 The services share the `fieldproof` bridge network; Gazebo
 transport and DDS discovery use multicast on it, and `GZ_PARTITION=fieldproof` is set in every
@@ -175,10 +185,14 @@ vehicle manifest: `fieldproof vehicle build robot.yaml` writes a two-stage Docke
 dependencies, the install space and the manifest, as the `fieldproof` user) and runs
 `docker buildx build`. `make vehicle-image` builds the example vehicle
 `examples/vehicles/ugv_nav2` (Nav2 and SLAM Toolbox on the reference UGV) on the same base image
-prefix and tag as the stack, and `fieldproof vehicle run robot.yaml` starts it on the `fieldproof`
+prefix and tag as the stack, `fieldproof vehicle run robot.yaml` starts it on the `fieldproof`
 network with the manifest's CPU and memory budget, where it discovers the other containers over
-DDS. The generated Dockerfile, the commands and the example are described in
-[manifest.md](../reference/manifest.md#vehicle-images); `make test-vehicles` is their test.
+DDS, and `fieldproof vehicle wait robot.yaml` runs the image's readiness probe (also its
+`HEALTHCHECK`) until the manifest's `runtime.ready` conditions hold. The generated Dockerfile,
+the commands and the example are described in
+[manifest.md](../reference/manifest.md#vehicle-images); `make test-vehicles` is their test and
+`make test-integration` brings sim, bridge and vehicle up together in the depot
+([manifest.md](../reference/manifest.md#the-integration-test)).
 
 ## Dev container
 

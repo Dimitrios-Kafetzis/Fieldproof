@@ -82,7 +82,7 @@ empty. ROS topics are unique across the manifest; sensor names are unique.
 | `entrypoint` | `launch` or `command` | `launch: {package, file, args}` becomes `ros2 launch <package> <file> key:=value ...` (booleans as `true`/`false`), the default command of the image; `command: [...]` runs as given |
 | `params` | list of paths | parameter files the launch reads unchanged from the field, relative to the manifest; checked to exist, recorded for reports |
 | `drivers` | list | the driver-swap map (below) |
-| `ready` | mapping, optional | `timeout_s` (default 120) and `conditions[]`: `{lifecycle: <node>, state: active}` (default state), `{topic, type}`, `{service, type}`, `{action, type}`, `{node}`; the orchestrator starts the scenario clock once every condition holds |
+| `ready` | mapping, optional | `timeout_s` (default 120) and `conditions[]`: `{lifecycle: <node>, state: active}` (default state), `{topic, type}`, `{service, type}`, `{action, type}`, `{node}`; evaluated inside the container by the readiness probe (below), which is the image's `HEALTHCHECK` and what `fieldproof vehicle wait` runs; the orchestrator starts the scenario clock once every condition holds |
 | `resources` | mapping, optional | the container budget in Docker's units: `cpus`, `memory` (`2g`, `512m`), `pids` |
 | `env` | mapping | extra environment of the container (`ROS_DOMAIN_ID` is set per run by the orchestrator) |
 
@@ -131,7 +131,8 @@ reports the interfaces no driver provides, which is fine for a sensor the stack 
 ```bash
 uv run --project engine fieldproof vehicle dockerfile examples/vehicles/ugv_nav2/robot.yaml -o /tmp/ugv_nav2_image
 uv run --project engine fieldproof vehicle build examples/vehicles/ugv_nav2/robot.yaml      # make vehicle-image
-uv run --project engine fieldproof vehicle run examples/vehicles/ugv_nav2/robot.yaml --domain-id 7
+uv run --project engine fieldproof vehicle run examples/vehicles/ugv_nav2/robot.yaml --domain-id 7 --detach
+uv run --project engine fieldproof vehicle wait examples/vehicles/ugv_nav2/robot.yaml
 ```
 
 | Command | Effect |
@@ -139,6 +140,7 @@ uv run --project engine fieldproof vehicle run examples/vehicles/ugv_nav2/robot.
 | `vehicle dockerfile MANIFEST [-o DIR]` | write the build context: `Dockerfile`, `entrypoint.sh`, the resolved `robot.yaml` the image carries at `/opt/fieldproof/robot.yaml`, and `vehicle.repos` when there are repositories (default directory `./<name>_image`) |
 | `vehicle build MANIFEST [--context DIR] [-t TAG] [--base-image REF] [--no-cache] [--progress plain] [--builder NAME] [--docker-arg ARG] [--dry-run]` | write the context (a temporary directory by default) and run `docker buildx build --load` on the daemon's own builder (`default`, which sees a locally built base image; a `docker-container` builder does not) with the labels' build arguments (`GIT_SHA`, `BUILD_DATE`, `VERSION`) and the manifest's directory as the `vehicle-source` build context when there are local sources; the command line is printed first |
 | `vehicle run MANIFEST [--name N] [--network fieldproof] [--domain-id N] [-d] [--keep] [--image REF] [-e K=V] [--docker-arg ARG] [--dry-run] [-- CMD...]` | `docker run --rm` of the image with the manifest's `resources` and `env`, on the `fieldproof` network of the compose stack by default; extra arguments replace the entrypoint |
+| `vehicle wait MANIFEST [--name N] [--timeout S] [--interval S] [--quiet] [--dry-run]` | `docker exec` of the readiness probe in the running container (named after the vehicle by default): exit code 0 once every `runtime.ready` condition holds, 1 when the timeout (the manifest's `ready.timeout_s` by default) passes first, with the pending conditions listed |
 
 ### The generated Dockerfile
 
@@ -165,6 +167,39 @@ Two stages on the manifest's base image:
 No compiler, colcon or rosdep is left in the runtime stage. The Dockerfile passes hadolint with
 the repository's configuration (`tests/vehicles/test_vehicles.sh` checks it).
 
+### The readiness probe
+
+`fieldproof-vehicle-ready` (`engine/src/fieldproof/vehicle_ready.py`, copied unchanged into every
+image at `/usr/local/bin`) evaluates the manifest's `runtime.ready` conditions against the ROS
+graph as seen from inside the container, with rclpy from `ros-base` and nothing else: it polls
+every `--interval` (1 s) until every condition holds (exit 0) or `--timeout` passes (exit 1; the
+manifest's `ready.timeout_s` by default), printing a line each time the set of pending conditions
+changes and a final `ready` or `not ready` line (`--json` adds the evaluation as JSON, `--quiet`
+drops the progress):
+
+```text
+waiting (1/9 ready): /bt_navigator lifecycle inactive, /controller_server lifecycle unresponsive, ...
+waiting (7/9 ready): /map topic no publisher, /navigate_to_pose action no server
+ready: 9 conditions hold after 42.3 s
+```
+
+| Condition | Holds when | Pending detail |
+| --- | --- | --- |
+| `lifecycle: <node>` (`state: active` by default) | the node's `get_state` service answers with the state | the state it reported; `unavailable` (no service: the node is not in the graph); `unresponsive` (no answer in 2 s, what a Nav2 server blocked in its activation looks like while it waits for TF) |
+| `topic: <name>` (`type` optional) | a publisher exists, of the type when given | `no publisher`, or the types published |
+| `service: <name>` (`type` optional) | the service is offered, of the type when given | `no server`, or the types offered |
+| `action: <name>` (`type` optional) | an action server is offered (its `_action/send_goal` service), of the type when given | as for services |
+| `node: <name>` | the node is in the graph | `absent` |
+
+Relative names resolve against the probe's namespace. With `runtime.ready` the generated
+Dockerfile also declares the probe as the image's `HEALTHCHECK` (`--interval=15s --timeout=30s
+--start-period=60s --retries=3`, each check a 10 s wait), so `docker inspect` reports `starting`,
+then `healthy` as soon as one check passes or `unhealthy` after three failed ones past the start
+period, and `docker compose up --wait` or the orchestrator can gate on it. `fieldproof vehicle
+wait` runs the same probe through `docker exec` with the manifest's timeout and shows what is
+still pending, which is the readable form of the same answer. A manifest without `ready` carries
+the probe (it reports `ready` at once) and no `HEALTHCHECK`.
+
 ### The example vehicle `ugv_nav2`
 
 `examples/vehicles/ugv_nav2/` is the stand-in for a real vehicle codebase: the reference UGV
@@ -183,16 +218,38 @@ snapshot, driven by the bringup package `src/ugv_nav2_bringup`:
 `make test-vehicles` runs `tests/vehicles/test_vehicles.sh`: every `robot.yaml` validates
 (engine and `check-jsonschema`), the committed schema is current, the generated Dockerfile and
 entry point lint, the image builds (`--no-build` to use a present one, `--static` to skip the
-image), runs as `fieldproof` with the manifest, the install space, Nav2 and SLAM Toolbox but no
-compiler, no `nav2_bringup`, no rviz and no driver package, declares the launch arguments, carries
-the labels and the entrypoint command, and, started with `fieldproof vehicle run` on the
-`fieldproof` network with the manifest's budget, joins the ROS graph: from a second container on
-the same network its nodes are listed, `slam_toolbox` is `active` and Nav2's servers answer their
-lifecycle services. Without the bridge they stay `inactive`: the controller server's costmap waits
-in its activation for the `odom` → `base_link` transform, which is why the manifest's `ready`
-conditions need the whole stack. The readiness probe that evaluates `runtime.ready` inside the
-container and the integration test that brings the stack up in the depot, waits for `active` and
-sends a `NavigateToPose` goal arrive with the second session of P1-T04.
+image), runs as `fieldproof` with the manifest, the install space, the readiness probe and its
+`HEALTHCHECK`, Nav2 and SLAM Toolbox but no compiler, no `nav2_bringup`, no rviz and no driver
+package, declares the launch arguments, carries the labels and the entrypoint command, and,
+started with `fieldproof vehicle run` on the `fieldproof` network with the manifest's budget,
+joins the ROS graph: from a second container on the same network its nodes are listed,
+`slam_toolbox` is `active` and Nav2's servers answer their lifecycle services. Without the bridge
+they stay `inactive`: the controller server's costmap waits in its activation for the `odom` →
+`base_link` transform, so `fieldproof vehicle wait` exits 1 listing them and Docker reports the
+container `unhealthy`, which is why the manifest's `ready` conditions need the whole stack.
+
+### The integration test
+
+`make test-integration` runs `tests/integration/test_ugv_nav2.py` on the host from the engine's
+environment, driving Docker (the P1-T04 verification; also the image job's last step in CI):
+
+1. the compose service `sim` with the depot world ([containers.md](../setup/containers.md));
+2. the reference UGV spawned at the depot's `spawn_dock` frame by a one-shot container of the
+   bridge image (`docker compose run bridge ros2 launch fieldproof_robots spawn_ugv_ref.launch.py
+   ... robot_state_publisher:=false`);
+3. the compose service `bridge` on the example vehicle's manifest
+   ([bridge.md](bridge.md#the-bridge-container));
+4. `fieldproof vehicle run` of the example image, then `fieldproof vehicle wait` until Nav2's
+   servers and SLAM Toolbox are `active`, `/map` has a publisher and `navigate_to_pose` a server,
+   and Docker reports the container `healthy`;
+5. `ros2 action send_goal /navigate_to_pose` from inside the vehicle container to a point 4 m
+   ahead in the `map` frame: the goal `SUCCEEDED`, and the ground-truth pose the simulator
+   publishes is within 0.5 m of that point in the world (the map frame starts at the spawn pose);
+6. no node of the vehicle or the bridge died.
+
+The three containers share `ROS_DOMAIN_ID` (default 0, as with `make up`); the test stops what it
+started and prints their logs on a failure (`FIELDPROOF_IT_KEEP=1` leaves them running for a
+look). It needs `make images` and `make vehicle-image` first.
 
 ## Known limits
 

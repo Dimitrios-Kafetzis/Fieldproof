@@ -13,7 +13,7 @@ with the tasks that define each surface:
 | Scenario schema | P1-T05, P2-T05 | the YAML scenario format, versioned ([ADR-0005](../adr/0005-declarative-yaml-scenarios.md)) |
 | Events | P2-T03 | the event injection framework: types, parameters, timing |
 | Assertions and KPIs | P1-T06, P2-T05 | the assertion library and the metrics a run reports |
-| [Vehicle manifest](manifest.md) | P1-T04, P2-T08 | `robot.yaml` schema v0: model sections, `extends`, the `runtime` section (image or build, entrypoint, params, driver-swap map, readiness, budget), the generated vehicle images and the example vehicle |
+| [Vehicle manifest](manifest.md) | P1-T04, P2-T08 | `robot.yaml` schema v0: model sections, `extends`, the `runtime` section (image or build, entrypoint, params, driver-swap map, readiness, budget), the generated vehicle images, the readiness probe, the example vehicle and the integration test |
 | [Bridge contract](bridge.md) | P1-T03 | `fieldproof bridge gen`, the bundle, the adapters, the topic, type, frame, QoS and rate contract and its tests |
 | Run database and reports | P2-T06 | the run record, JUnit output and the report layout |
 
