@@ -12,6 +12,9 @@ Runs after ``test_ugv_nav2.py`` (pytest orders the files by name) against the sa
    container of the run is left behind ("a manual interrupted run leaves no containers
    behind", automated).
 
+When the first run fails, the run directory's ``engine.log`` and the containers' logs are
+printed, since CI keeps nothing else of the run.
+
 Needs the stack images (``make images``), the vehicle image (``make vehicle-image``) and the
 Fuel models (``make assets``); ``ROS_DOMAIN_ID`` (default 0) is shared with the other test.
 Software rendering keeps the simulator below real time on a CI runner, so the wall-clock
@@ -78,6 +81,13 @@ def record_of(runs_dir: Path, run_id: str) -> dict[str, Any]:
     return dict(json.loads((runs_dir / run_id / "run.json").read_text()))
 
 
+def print_run_logs(run_dir: Path, tail: int = 120) -> None:
+    """The run's engine log and the containers' logs, for a failure in CI."""
+    for path in sorted(run_dir.glob("*.log")) + sorted(run_dir.glob("logs/*.log")):
+        print(f"\n===== {path.relative_to(run_dir)} (last {tail} lines) =====", flush=True)  # noqa: T201
+        print("\n".join(path.read_text().splitlines()[-tail:]), flush=True)  # noqa: T201
+
+
 @pytest.mark.integration
 def test_01_fieldproof_run_passes(tmp_path: Path) -> None:
     run_id = f"it-run-{os.getpid()}"
@@ -89,9 +99,11 @@ def test_01_fieldproof_run_passes(tmp_path: Path) -> None:
     )
     print(completed.stdout[-6000:], flush=True)  # noqa: T201
     print(f"fieldproof run took {time.monotonic() - started:.0f} s wall-clock", flush=True)  # noqa: T201
+    run_dir = tmp_path / run_id
+    if completed.returncode != 0:
+        print_run_logs(run_dir)
     assert completed.returncode == 0, completed.stderr[-4000:]
     assert containers_of(run_id) == [], "the run left containers behind"
-    run_dir = tmp_path / run_id
     assert (run_dir / "scenario.yaml").read_text() == SCENARIO.read_text()
     assert (run_dir / "engine.log").is_file()
     assert sorted(p.name for p in (run_dir / "logs").iterdir()) == [
