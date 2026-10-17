@@ -38,6 +38,8 @@ from fieldproof.manifest import Build, RobotManifest, Runtime, load_manifest
 from fieldproof_bridge.manifest import ManifestError, read_manifest_data
 
 SOURCE_CONTEXT = "vehicle-source"
+# The buildx builder of the Docker daemon itself, which sees locally built images.
+DEFAULT_BUILDER = "default"
 INSTALL_BASE = "/opt/vehicle"
 WORKSPACE = "/opt/vehicle_ws"
 MANIFEST_IN_IMAGE = "/opt/fieldproof/robot.yaml"
@@ -361,15 +363,21 @@ def build_command(
     base_image: str | None = None,
     no_cache: bool = False,
     progress: str | None = None,
+    builder: str | None = DEFAULT_BUILDER,
     extra_args: tuple[str, ...] = (),
 ) -> list[str]:
-    """The ``docker buildx build`` command line for a written context."""
+    """The ``docker buildx build`` command line for a written context.
+
+    The daemon's own builder (``default``) is selected unless ``builder`` says otherwise: the
+    base image is usually a local build (``make images``), which a ``docker-container`` builder,
+    such as the one GitHub's setup-buildx-action makes current, cannot see.
+    """
     runtime = runtime_of(manifest)
     build = build_of(manifest)
-    command = [
-        "docker",
-        "buildx",
-        "build",
+    command = ["docker", "buildx", "build"]
+    if builder:
+        command += ["--builder", builder]
+    command += [
         "--load",
         "--file",
         str(context.dockerfile),

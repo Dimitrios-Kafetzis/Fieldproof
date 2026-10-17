@@ -137,7 +137,7 @@ uv run --project engine fieldproof vehicle run examples/vehicles/ugv_nav2/robot.
 | Command | Effect |
 | --- | --- |
 | `vehicle dockerfile MANIFEST [-o DIR]` | write the build context: `Dockerfile`, `entrypoint.sh`, the resolved `robot.yaml` the image carries at `/opt/fieldproof/robot.yaml`, and `vehicle.repos` when there are repositories (default directory `./<name>_image`) |
-| `vehicle build MANIFEST [--context DIR] [-t TAG] [--base-image REF] [--no-cache] [--progress plain] [--docker-arg ARG] [--dry-run]` | write the context (a temporary directory by default) and run `docker buildx build --load` with the labels' build arguments (`GIT_SHA`, `BUILD_DATE`, `VERSION`) and the manifest's directory as the `vehicle-source` build context when there are local sources; the command line is printed first |
+| `vehicle build MANIFEST [--context DIR] [-t TAG] [--base-image REF] [--no-cache] [--progress plain] [--builder NAME] [--docker-arg ARG] [--dry-run]` | write the context (a temporary directory by default) and run `docker buildx build --load` on the daemon's own builder (`default`, which sees a locally built base image; a `docker-container` builder does not) with the labels' build arguments (`GIT_SHA`, `BUILD_DATE`, `VERSION`) and the manifest's directory as the `vehicle-source` build context when there are local sources; the command line is printed first |
 | `vehicle run MANIFEST [--name N] [--network fieldproof] [--domain-id N] [-d] [--keep] [--image REF] [-e K=V] [--docker-arg ARG] [--dry-run] [-- CMD...]` | `docker run --rm` of the image with the manifest's `resources` and `env`, on the `fieldproof` network of the compose stack by default; extra arguments replace the entrypoint |
 
 ### The generated Dockerfile

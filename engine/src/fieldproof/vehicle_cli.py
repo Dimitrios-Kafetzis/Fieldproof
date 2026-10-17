@@ -134,6 +134,13 @@ def build(  # noqa: PLR0917  (Typer reads the options from the signature)
     progress: Annotated[
         str | None, typer.Option("--progress", help="BuildKit progress output (auto, plain, tty).")
     ] = None,
+    builder: Annotated[
+        str,
+        typer.Option(
+            "--builder",
+            help="buildx builder; the daemon's own one sees local images (empty: the current one).",
+        ),
+    ] = "default",
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Write the context and print the command only.")
     ] = False,
@@ -158,6 +165,7 @@ def build(  # noqa: PLR0917  (Typer reads the options from the signature)
             base_image=base_image,
             no_cache=no_cache,
             progress=progress,
+            builder=builder or None,
             extra_args=tuple(docker_args or ()),
         )
     except (ManifestError, VehicleError) as error:

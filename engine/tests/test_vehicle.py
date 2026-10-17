@@ -209,7 +209,9 @@ def test_write_context_checks_sources_and_params(tmp_path: Path) -> None:
 def test_build_command(nav2: RobotManifest, tmp_path: Path) -> None:
     context = write_context(nav2, tmp_path / "ctx")
     command = build_command(nav2, context, progress="plain")
-    assert command[:4] == ["docker", "buildx", "build", "--load"]
+    assert command[:6] == ["docker", "buildx", "build", "--builder", "default", "--load"]
+    assert build_command(nav2, context, builder=None)[:4] == ["docker", "buildx", "build", "--load"]
+    assert "--builder" not in build_command(nav2, context, builder=None)
     assert command[command.index("--file") + 1] == str(context.dockerfile)
     assert (
         command[command.index("--tag") + 1]
@@ -319,7 +321,7 @@ def test_cli_build_dry_run(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     output = plain(result.output)
-    assert output.startswith("docker buildx build --load --file")
+    assert output.startswith("docker buildx build --builder default --load --file")
     assert "--tag t:1" in output
     assert (tmp_path / "ctx" / "Dockerfile").is_file()
 
