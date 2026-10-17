@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.5.0...v0.6.0) (2026-10-17)
+
+
+### Features
+
+* **engine:** add manifest schema v0, the vehicle image generator and the ugv_nav2 example vehicle ([#27](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/27)) ([d63cc32](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/d63cc32a6b3729eecd3a2debe2bbfb4c97b1379c))
+
 ## [0.5.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.4.0...v0.5.0) (2026-10-17)
 
 
