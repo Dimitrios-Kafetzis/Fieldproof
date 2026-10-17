@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ugv_nav2_bringup</name>
+  <version>0.1.0</version>
+  <description>Bringup of the example UGV: Nav2 with SLAM Toolbox, parameters and the field drivers</description>
+  <maintainer email="dimitrioskafetzis@gmail.com">Dimitris Kafetzis</maintainer>
+  <license>Apache-2.0</license>
+  <url type="repository">https://github.com/Dimitrios-Kafetzis/Fieldproof</url>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- The navigation stack, as on the vehicle: the Nav2 servers navigation.launch.py starts
+       (not the nav2_bringup metapackage, whose demo launch files pull in Gazebo, the TurtleBot
+       models and the rviz plugins) and SLAM Toolbox. -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_mppi_controller</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_smoother</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+
+  <!-- Hardware drivers: only when the package is built for the vehicle (UGV_TARGET=field).
+       In Fieldproof the bridge provides their topics (robot.yaml, runtime.drivers), so a
+       simulation build neither installs nor starts them. -->
+  <exec_depend condition="$UGV_TARGET == field">controller_manager</exec_depend>
+  <exec_depend condition="$UGV_TARGET == field">diff_drive_controller</exec_depend>
+  <exec_depend condition="$UGV_TARGET == field">joint_state_broadcaster</exec_depend>
+  <exec_depend condition="$UGV_TARGET == field">microstrain_inertial_driver</exec_depend>
+  <exec_depend condition="$UGV_TARGET == field">nmea_navsat_driver</exec_depend>
+  <exec_depend condition="$UGV_TARGET == field">realsense2_camera</exec_depend>
+  <exec_depend condition="$UGV_TARGET == field">robot_state_publisher</exec_depend>
+  <exec_depend condition="$UGV_TARGET == field">rplidar_ros</exec_depend>
+  <exec_depend condition="$UGV_TARGET == field">xacro</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_xmllint</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

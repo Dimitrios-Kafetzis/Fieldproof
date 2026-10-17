@@ -14,6 +14,7 @@ holds what spans layers or the repository itself.
 | `images/` | container images, compose stack, rendering | `make test-images` |
 | `assets/` | asset convention, `assets/fuel.lock`, the Fuel fetch script against a local stand-in | `make test-assets` |
 | `worlds/` | the depot world with the UGV: load time, sensors, real-time factor (pytest, dev container) | `make test-worlds` |
+| `vehicles/` | vehicle manifests against schema v0, the generated Dockerfile, the example vehicle image: build, contents, Nav2 lifecycle on a Docker network | `make test-vehicles` |
 
 The pytest suites here run inside the dev container with the ROS install spaces sourced
 (`tools/ros/colcon.sh run python3 -m pytest tests/<suite>`) and use the root `pyproject.toml`
