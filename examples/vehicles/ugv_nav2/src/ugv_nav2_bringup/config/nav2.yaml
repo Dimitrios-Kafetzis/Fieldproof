@@ -10,7 +10,9 @@ bt_navigator:
     robot_base_frame: base_link
     odom_topic: odom
     bt_loop_duration: 10
-    default_server_timeout: 20
+    # A starved host (software rendering in CI) can take longer than Nav2's 20 ms to
+    # acknowledge a goal; the behaviour tree then aborts the navigation.
+    default_server_timeout: 1000
     wait_for_service_timeout: 1000
     action_server_result_timeout: 900.0
     navigators: [navigate_to_pose, navigate_through_poses]
@@ -136,6 +138,9 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
+      # Simulated time can lag the wall clock on a loaded host (software rendering in CI):
+      # wait longer for a transform than the 0.3 s default before giving up on it.
+      transform_tolerance: 0.5
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: odom
@@ -169,6 +174,9 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
+      # Simulated time can lag the wall clock on a loaded host (software rendering in CI):
+      # wait longer for a transform than the 0.3 s default before giving up on it.
+      transform_tolerance: 0.5
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map

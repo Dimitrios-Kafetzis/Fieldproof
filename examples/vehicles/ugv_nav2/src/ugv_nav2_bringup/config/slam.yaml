@@ -26,7 +26,10 @@ slam_toolbox:
     min_laser_range: 0.1
     max_laser_range: 20.0
     minimum_time_interval: 0.5
-    transform_timeout: 0.2
+    # The map -> odom transform is stamped this far ahead of now; a publisher stalled by scan
+    # matching on a loaded host then still covers the controller's lookups (CI, software
+    # rendering).
+    transform_timeout: 0.5
     tf_buffer_duration: 30.0
     stack_size_to_use: 40000000
     enable_interactive_mode: false
