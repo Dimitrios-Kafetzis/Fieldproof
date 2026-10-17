@@ -117,9 +117,11 @@ from field logs. Every parameter is a xacro macro argument in `sensors.xacro`.
 ### Manifest (`robot.yaml`)
 
 The manifest is the contract between the model and the rest of the stack and the input of the bridge
-generator (`fieldproof bridge gen`, [bridge.md](bridge.md)). P1-T04 formalises the format as
-manifest schema v0 (image, entrypoint, driver-swap map, readiness, budgets); the draft shipped with
-P1-T01 is `apiVersion: fieldproof.dev/v0alpha1`, `kind: Robot`, with these sections:
+generator (`fieldproof bridge gen`, [bridge.md](bridge.md)). P1-T04 formalised the format as
+manifest schema v0 ([manifest.md](manifest.md)): `fieldproof manifest validate` checks this file,
+and a vehicle manifest such as `examples/vehicles/ugv_nav2/robot.yaml` `extends` it to add the
+`runtime` section (image, entrypoint, driver-swap map, readiness, budget). The model sections, as
+shipped with P1-T01 (`apiVersion: fieldproof.dev/v0alpha1`, `kind: Robot`):
 
 | Section | Contents |
 | --- | --- |

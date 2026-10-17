@@ -249,6 +249,18 @@ jobs:
       - name: Show the sim container log on failure
         if: failure()
         run: docker compose -f docker/compose.yaml --profile sim logs sim || true
+      # The example vehicle image (task P1-T04): built on the base image above with
+      # `fieldproof vehicle build`, then checked (non-root, labels, packages) and started on a
+      # Docker network, where its nodes are seen from a second container. Runs before the chown
+      # below: `uv sync` installs the bridge package editable and writes its metadata into
+      # bridge/, which must still belong to the runner user.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+      - name: Vehicle tests (tests/vehicles, manifests, generated Dockerfile, example image build and smoke)
+        run: make test-vehicles
       # The checkout belongs to the runner user (uid 1001); the dev container builds as uid 1000
       # and writes build/, install/ and log/ into the bind-mounted workspaces and the fetched
       # models into assets/fuel.

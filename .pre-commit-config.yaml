@@ -152,6 +152,14 @@ repos:
     hooks:
       - id: check-github-workflows
       - id: check-dependabot
+      # Vehicle manifests against schema v0 (task P1-T04). The schema is exported from the engine's
+      # Pydantic models by `make manifest-schema`; engine/tests/test_manifest.py keeps it current.
+      # Sections are optional here because a manifest may inherit them through `extends`; the
+      # engine's loader checks completeness after the merge.
+      - id: check-jsonschema
+        name: check vehicle manifests (robot.yaml) against engine/schemas/robot.schema.json
+        files: (^|/)robot\.yaml$
+        args: [--schemafile, engine/schemas/robot.schema.json]
 
   # Workflow semantics (expressions, job references, runner labels, shellcheck on run steps).
   - repo: https://github.com/rhysd/actionlint

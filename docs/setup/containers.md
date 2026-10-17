@@ -165,6 +165,21 @@ docker compose -f docker/compose.yaml exec dev bash            # interactive
 docker compose -f docker/compose.yaml exec -T dev bash -lc 'ros2 topic list'
 ```
 
+## Vehicle images
+
+A vehicle runs in its own container built from its repository
+([ADR-0004](../adr/0004-one-container-per-vehicle.md)). Task P1-T04 generates that image from the
+vehicle manifest: `fieldproof vehicle build robot.yaml` writes a two-stage Dockerfile on
+`fieldproof-base-ros2` (build tools, `vcs import` at pinned commits, rosdep against a pinned
+`ros/rosdistro` commit, `colcon build --merge-install`; then a runtime stage with only the run-time
+dependencies, the install space and the manifest, as the `fieldproof` user) and runs
+`docker buildx build`. `make vehicle-image` builds the example vehicle
+`examples/vehicles/ugv_nav2` (Nav2 and SLAM Toolbox on the reference UGV) on the same base image
+prefix and tag as the stack, and `fieldproof vehicle run robot.yaml` starts it on the `fieldproof`
+network with the manifest's CPU and memory budget, where it discovers the other containers over
+DDS. The generated Dockerfile, the commands and the example are described in
+[manifest.md](../reference/manifest.md#vehicle-images); `make test-vehicles` is their test.
+
 ## Dev container
 
 `.devcontainer/devcontainer.json` opens the repository in the `dev` service with VS Code's

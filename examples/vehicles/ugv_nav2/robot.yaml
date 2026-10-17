@@ -1,0 +1,86 @@
+# Vehicle manifest of the example vehicle `ugv_nav2` (task P1-T04): the reference UGV running
+# Nav2 with SLAM Toolbox as the stand-in for a real vehicle codebase.
+#
+# The model sections (description, frames, drive, sensors) are inherited from the reference UGV's
+# manifest through `extends`; this file adds the `runtime` section: how the image is built from
+# the vehicle's sources, what it runs, which field drivers the bridge replaces, when the stack is
+# ready and what it may consume. Schema: docs/reference/manifest.md (`fieldproof manifest schema`).
+#
+#   fieldproof manifest validate examples/vehicles/ugv_nav2/robot.yaml
+#   fieldproof vehicle build examples/vehicles/ugv_nav2/robot.yaml
+#   fieldproof vehicle run examples/vehicles/ugv_nav2/robot.yaml
+apiVersion: fieldproof.dev/v0alpha1
+kind: Robot
+extends: ../../../robots/fieldproof_robots/models/ugv_ref/robot.yaml
+metadata:
+  name: ugv_nav2
+  description: Reference UGV running Nav2 and SLAM Toolbox (stand-in vehicle codebase)
+runtime:
+  tier: T1 # SIL: the stack rebuilt for x86 (ADR-0007)
+  image: ghcr.io/dimitrios-kafetzis/fieldproof-vehicle-ugv-nav2:local
+  build:
+    # The vehicle codebase: the bringup package next to this file. A real vehicle lists its
+    # repositories under `repos` at pinned commits (vcs import) instead of, or next to, `sources`.
+    sources: [src]
+    # Everything else comes from rosdep (Nav2, SLAM Toolbox) resolved against the pinned
+    # ros/rosdistro commit and installed from the base image's apt snapshots.
+  entrypoint:
+    # The field bringup launch, unchanged; the simulation only sets the clock and swaps the
+    # drivers. Every other argument keeps its field default (parameter files included).
+    launch:
+      package: ugv_nav2_bringup
+      file: bringup.launch.py
+      args:
+        use_sim_time: true
+        drivers: false
+  params:
+    # Read by the launch exactly as in the field (installed with the package).
+    - src/ugv_nav2_bringup/config/nav2.yaml
+    - src/ugv_nav2_bringup/config/slam.yaml
+  drivers:
+    # The driver-swap map: what `drivers.launch.py` starts on the real vehicle and the topics of
+    # the model's interface the bridge provides instead (docs/reference/bridge.md).
+    - name: base
+      package: controller_manager
+      executable: ros2_control_node
+      provides: [cmd_vel, odom, joint_states, /tf]
+      note: ros2_control with diff_drive_controller and joint_state_broadcaster
+    - name: description
+      package: robot_state_publisher
+      executable: robot_state_publisher
+      provides: [/tf_static, /robot_description]
+      note: the bridge publishes the same description from the manifest's xacro
+    - name: lidar
+      package: rplidar_ros
+      executable: rplidar_composition
+      provides: [scan]
+    - name: imu
+      package: microstrain_inertial_driver
+      executable: microstrain_inertial_driver_node
+      provides: [imu/data]
+    - name: camera
+      package: realsense2_camera
+      executable: rs_launch.py
+      provides: [camera/image, camera/camera_info, camera/depth/image, camera/points]
+    - name: gnss
+      package: nmea_navsat_driver
+      executable: nmea_serial_driver
+      provides: [gps/fix]
+  ready:
+    # Nav2's lifecycle nodes active, SLAM Toolbox publishing the map, the navigation action up.
+    timeout_s: 180
+    conditions:
+      - lifecycle: /bt_navigator
+      - lifecycle: /controller_server
+      - lifecycle: /planner_server
+      - lifecycle: /behavior_server
+      - lifecycle: /velocity_smoother
+      - lifecycle: /collision_monitor
+      - lifecycle: /slam_toolbox
+      - topic: /map
+        type: nav_msgs/msg/OccupancyGrid
+      - action: /navigate_to_pose
+        type: nav2_msgs/action/NavigateToPose
+  resources:
+    cpus: 2.0
+    memory: 2g

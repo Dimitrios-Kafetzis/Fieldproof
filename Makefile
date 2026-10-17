@@ -12,6 +12,10 @@
 # Assets (task P1-T02): `assets` fetches the Gazebo Fuel models pinned in assets/fuel.lock,
 # `test-assets` checks the convention, `test-worlds` runs the world tests in the dev container;
 # see docs/reference/worlds.md.
+# Vehicles (task P1-T04): `manifest-schema` exports the manifest JSON Schema from the engine,
+# `vehicle-image` builds the example vehicle image from its manifest, `test-vehicles` runs the
+# vehicle tests (manifests, generated Dockerfile, image build and smoke); see
+# docs/reference/manifest.md.
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -euo pipefail -c
@@ -46,6 +50,13 @@ ROS_WORKSPACES ?= sim robots bridge
 PYTHON ?= python3
 # Limits of the world tests (tests/worlds); CI relaxes them for software rendering.
 WORLD_TEST_ENV := $(foreach v,FIELDPROOF_WORLD_LOAD_LIMIT_S FIELDPROOF_WORLD_RTF_MIN,$(if $($(v)),-e $(v)=$($(v))))
+# The example vehicle (task P1-T04): its manifest, and the base image its build starts from
+# (the same prefix and tag as the stack's images, so `FIELDPROOF_IMAGE_TAG=main` builds on the
+# published base). `make test-vehicles VEHICLE_TEST_FLAGS=--no-build` tests an image already built.
+VEHICLE_MANIFEST ?= examples/vehicles/ugv_nav2/robot.yaml
+VEHICLE_BASE_IMAGE ?= $(or $(FIELDPROOF_IMAGE_PREFIX),ghcr.io/dimitrios-kafetzis/fieldproof-)base-ros2:$(or $(FIELDPROOF_IMAGE_TAG),local)
+VEHICLE_TEST_FLAGS ?=
+FIELDPROOF := $(UV) run --locked --project engine fieldproof
 
 # --- Containers -------------------------------------------------------------------------------
 # Rendering: when the host has a /dev/dri render node, compose.gpu.yaml is added so the sim and
@@ -85,7 +96,8 @@ IMAGE_TEST_FLAGS ?= --quick
 
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
 	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
-	tidy docs docs-serve docs-links branch-protection clean pins assets images up down shell prune
+	test-vehicles tidy docs docs-serve docs-links branch-protection clean pins assets images \
+	manifest-schema vehicle-image up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -134,7 +146,7 @@ secrets: ## Scan the full git history for secrets with the pinned gitleaks conta
 fmt: ## Apply the formatters (ruff, clang-format, cmake-format, prettier, whitespace fixers)
 	@for hook in $(FORMAT_HOOKS); do $(PRE_COMMIT) run "$$hook" --all-files || true; done
 
-test: test-tooling test-ci test-docs test-layout test-assets test-engine test-cockpit test-ros test-worlds test-host test-images ## Run every test suite: tooling, CI, docs, layout, assets, engine (pytest), cockpit (Vitest), ROS workspaces (ctest, pytest), worlds, host, images
+test: test-tooling test-ci test-docs test-layout test-assets test-engine test-cockpit test-ros test-worlds test-host test-images test-vehicles ## Run every test suite: tooling, CI, docs, layout, assets, engine (pytest), cockpit (Vitest), ROS workspaces (ctest, pytest), worlds, host, images, vehicles
 
 test-tooling: ## Quality-gate tests: hooks pass on the repo, each gate catches a bad file, commitlint rejects bad messages
 	tests/tooling/test_quality_gates.sh
@@ -183,6 +195,19 @@ test-worlds: ## World tests in the dev container: the depot loads in time and ru
 	$(COMPOSE) --profile dev up -d --wait --no-build dev
 	$(COMPOSE) --profile dev exec -T dev tools/ros/colcon.sh build sim robots
 	$(COMPOSE) --profile dev exec -T $(WORLD_TEST_ENV) dev tools/ros/colcon.sh run python3 -m pytest -s tests/worlds
+
+# The vehicle tests build the example image (minutes: Nav2 from the apt snapshots) unless
+# VEHICLE_TEST_FLAGS=--no-build; --static skips the image altogether.
+test-vehicles: ## Vehicle tests: every robot.yaml validates, the generated Dockerfile lints, the example image builds and runs
+	tests/vehicles/test_vehicles.sh $(VEHICLE_TEST_FLAGS)
+
+manifest-schema: ## Export the vehicle manifest JSON Schema (engine/schemas/robot.schema.json) from the engine's models
+	$(UV) sync --locked --project engine
+	$(FIELDPROOF) manifest schema > engine/schemas/robot.schema.json
+
+vehicle-image: ## Build the example vehicle image from its manifest (VEHICLE_MANIFEST, on VEHICLE_BASE_IMAGE)
+	$(UV) sync --locked --project engine
+	$(FIELDPROOF) vehicle build $(VEHICLE_MANIFEST) --base-image $(VEHICLE_BASE_IMAGE) $(BUILD_FLAGS)
 
 docs: ## Build the documentation site into site/ (strict: a broken link or a page outside the nav fails)
 	$(MKDOCS) build --strict
