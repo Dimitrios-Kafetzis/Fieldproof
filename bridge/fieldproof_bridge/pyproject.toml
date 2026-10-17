@@ -1,0 +1,29 @@
+# Python project metadata of the fieldproof_bridge ROS package (task P1-T03). ament_python builds
+# it through setup.py (which keeps the setuptools-only options: package discovery, data_files,
+# tests_require); this file carries the metadata that the engine needs when it installs the
+# package from its path (engine/pyproject.toml, `[tool.uv.sources]`), so that `fieldproof bridge
+# gen` runs the same generator as `ros2 run fieldproof_bridge bridge_gen`. The version is dynamic
+# (read from fieldproof_bridge/__init__.py, maintained by release-please) so engine/uv.lock stays
+# valid across releases. No `requires-python`: colcon's setup.py metadata probe cannot parse it.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fieldproof-bridge"
+dynamic = ["version"]
+description = "ros_gz bridge configuration generator and adapter nodes for Fieldproof vehicles"
+# The licence and maintainer are in package.xml; the setuptools of Ubuntu 24.04 (68) rejects the
+# PEP 639 `license` string and the newer releases deprecate the table form.
+authors = [{ name = "Dimitris Kafetzis", email = "dimitrioskafetzis@gmail.com" }]
+dependencies = ["pyyaml"]
+
+[project.scripts]
+bridge_gen = "fieldproof_bridge.generator:main"
+contract_check = "fieldproof_bridge.contract:main"
+imu_adapter = "fieldproof_bridge.adapters.imu:main"
+navsat_adapter = "fieldproof_bridge.adapters.navsat:main"
+throttle = "fieldproof_bridge.adapters.throttle:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "fieldproof_bridge.__version__" }

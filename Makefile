@@ -41,7 +41,7 @@ LYCHEE_ARGS ?=
 # (cockpit/node_modules from cockpit/pnpm-lock.yaml). Both toolchains come from the host setup
 # (uv, Node 22 with pnpm). The ROS workspaces build only inside the dev container.
 PNPM ?= pnpm
-ROS_WORKSPACES ?= sim bridge robots
+ROS_WORKSPACES ?= sim robots bridge
 # tools/assets/fetch_fuel.py needs python3 with PyYAML, as the layout tests do.
 PYTHON ?= python3
 # Limits of the world tests (tests/worlds); CI relaxes them for software rendering.
@@ -165,7 +165,7 @@ test-cockpit: ## Cockpit tests: pnpm install from the lock file, TypeScript stri
 
 # The dev container is started (not built: `make images` or FIELDPROOF_IMAGE_TAG=main first) and
 # left running; `make down` stops it. Build output lands in <workspace>/build, install and log.
-test-ros: ## ROS workspace tests: colcon build and colcon test of sim/, bridge/ and robots/ in the dev container (ROS_WORKSPACES=...)
+test-ros: ## ROS workspace tests: colcon build and colcon test of sim/, robots/ and bridge/ in the dev container (ROS_WORKSPACES=...)
 	$(COMPOSE) --profile dev up -d --wait --no-build dev
 	$(COMPOSE) --profile dev exec -T dev tools/ros/colcon.sh test $(ROS_WORKSPACES)
 

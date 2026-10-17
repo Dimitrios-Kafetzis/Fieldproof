@@ -29,8 +29,12 @@ classifiers = [
   "Typing :: Typed",
 ]
 # Exact pins: the lock file resolves the transitive dependencies, Dependabot proposes bumps weekly.
+# fieldproof-bridge is the bridge ROS package of this repository (bridge/fieldproof_bridge), installed
+# from its path so that `fieldproof bridge gen` runs the generator the bridge container runs.
 dependencies = [
+  "fieldproof-bridge",
   "pydantic==2.14.1",
+  "pyyaml==6.0.3",
   "rich==15.0.0",
   "typer==0.27.3",
 ]
@@ -43,6 +47,9 @@ Issues = "https://github.com/Dimitrios-Kafetzis/Fieldproof/issues"
 
 [project.scripts]
 fieldproof = "fieldproof.cli:main"
+
+[tool.uv.sources]
+fieldproof-bridge = { path = "../bridge/fieldproof_bridge", editable = true }
 
 [dependency-groups]
 dev = [

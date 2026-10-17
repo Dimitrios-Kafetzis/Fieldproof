@@ -1,8 +1,8 @@
 """The ``fieldproof`` command line interface.
 
-Task P0-T07 ships the entry point and ``--version``; the commands of the architecture
-(``validate``, ``run``, ``replay``, ``report``, ``matrix``, ``cockpit``) arrive with the Phase 1
-and Phase 2 tasks.
+Task P0-T07 ships the entry point and ``--version``, P1-T03 the ``bridge`` commands; the commands
+of the architecture (``validate``, ``run``, ``replay``, ``report``, ``matrix``, ``cockpit``) arrive
+with the Phase 1 and Phase 2 tasks.
 """
 
 from typing import Annotated
@@ -10,6 +10,7 @@ from typing import Annotated
 import typer
 
 from fieldproof import __version__
+from fieldproof.bridge import app as bridge_app
 
 APP_NAME = "fieldproof"
 
@@ -20,6 +21,8 @@ app = typer.Typer(
     no_args_is_help=False,
     rich_markup_mode="rich",
 )
+
+app.add_typer(bridge_app, name="bridge")
 
 
 def _print_version(value: bool) -> None:

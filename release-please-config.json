@@ -45,7 +45,6 @@
           "path": "robots/fieldproof_robots/package.xml",
           "xpath": "//package/version"
         },
-        "bridge/fieldproof_bridge/setup.py",
         "bridge/fieldproof_bridge/fieldproof_bridge/__init__.py"
       ]
     }

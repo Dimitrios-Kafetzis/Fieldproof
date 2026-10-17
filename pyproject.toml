@@ -76,9 +76,13 @@ namespace_packages = false
 [[tool.mypy.overrides]]
 module = ["rclpy.*", "launch.*", "launch_ros.*", "launch_testing.*", "launch_testing_ros.*",
           "ament_index_python.*", "std_msgs.*", "geometry_msgs.*", "sensor_msgs.*", "nav_msgs.*",
-          "tf2_msgs.*", "tf2_ros.*", "mcap.*", "xacro", "gz.*", "yaml",
-          "setuptools", "setuptools.*"]  # setuptools: the setup.py of ament_python packages
+          "tf2_msgs.*", "tf2_ros.*", "mcap.*", "xacro", "gz.*", "yaml", "rosgraph_msgs.*",
+          "rosidl_runtime_py.*", "setuptools", "setuptools.*"]  # setuptools: ament_python setup.py
 ignore_missing_imports = true
+# The adapter nodes subclass rclpy's Node, which is Any to mypy since rclpy ships no types.
+[[tool.mypy.overrides]]
+module = ["fieldproof_bridge.adapters.*"]
+disallow_subclassing_any = false
 
 [tool.pytest.ini_options]
 # The cross-layer tests under tests/ run inside the dev container with the distribution pytest
