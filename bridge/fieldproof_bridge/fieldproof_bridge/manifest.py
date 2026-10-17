@@ -7,11 +7,17 @@ Gazebo and ROS names and types, the direction, the frame its messages carry, the
 profile. :class:`Manifest` validates those sections and exposes them as :class:`Interface` values;
 everything else in the file passes through untouched in :attr:`Manifest.data`.
 
+A manifest may ``extends`` another one (a path relative to its own directory): the vehicle
+manifest of a stack then inherits the model sections of the reference vehicle it runs on and adds
+its own (task P1-T04 adds ``runtime``). :func:`read_manifest_data` resolves the chain before any
+validation, so the bridge and the engine read the same merged document.
+
 Plain Python (PyYAML and the standard library only), so the engine can run it on the host.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,8 +39,67 @@ DRIVE_INTERFACES = {
 }
 
 
+# Keys of the `description` section that hold paths relative to the manifest declaring them; an
+# inherited description keeps pointing at the parent's files.
+DESCRIPTION_PATH_KEYS = ("xacro", "urdf", "sdf", "meshes")
+
+
 class ManifestError(ValueError):
     """The manifest is missing something the bridge needs, or a value is out of range."""
+
+
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Return ``base`` updated by ``override``: mappings merge key by key, anything else replaces.
+
+    Lists replace as a whole (a child manifest that lists ``sensors`` declares all of them).
+    """
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _read_yaml(file: Path) -> Any:
+    try:
+        return yaml.safe_load(file.read_text())
+    except FileNotFoundError as error:
+        raise ManifestError(f"{file}: no such file") from error
+    except yaml.YAMLError as error:
+        raise ManifestError(f"{file}: not valid YAML ({error})") from error
+
+
+def read_manifest_data(path: Path | str, _chain: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Read the manifest at ``path`` with its ``extends`` chain resolved.
+
+    The parent named by ``extends`` (a path relative to the manifest's directory) is read first,
+    recursively; the child's sections are merged over it with :func:`deep_merge`. Relative paths
+    of the parent's ``description`` section are rewritten to be relative to the child's
+    directory, so the merged document still resolves them. The ``extends`` key itself is removed.
+    """
+    file = Path(path).resolve()
+    if file in _chain:
+        cycle = " -> ".join(str(p) for p in (*_chain, file))
+        raise ManifestError(f"extends cycle: {cycle}")
+    data = _read_yaml(file)
+    if not isinstance(data, dict):
+        raise ManifestError(f"{file}: the manifest must be a mapping")
+    parent = data.pop("extends", None)
+    if parent is None:
+        return data
+    if not isinstance(parent, str) or not parent.strip():
+        raise ManifestError(f"{file}: extends must be a relative path")
+    parent_file = (file.parent / parent).resolve()
+    parent_data = read_manifest_data(parent_file, (*_chain, file))
+    description = parent_data.get("description")
+    if isinstance(description, dict):
+        for key in DESCRIPTION_PATH_KEYS:
+            value = description.get(key)
+            if isinstance(value, str) and value and not Path(value).is_absolute():
+                description[key] = os.path.relpath(parent_file.parent / value, file.parent)
+    return deep_merge(parent_data, data)
 
 
 @dataclass(frozen=True)
@@ -180,15 +245,9 @@ class Manifest:
 
     @classmethod
     def load(cls, path: Path | str) -> Manifest:
-        """Read and validate the manifest at ``path``."""
-        file = Path(path)
-        try:
-            data = yaml.safe_load(file.read_text())
-        except FileNotFoundError as error:
-            raise ManifestError(f"{file}: no such file") from error
-        except yaml.YAMLError as error:
-            raise ManifestError(f"{file}: not valid YAML ({error})") from error
-        return cls(data, file.resolve())
+        """Read and validate the manifest at ``path`` (its ``extends`` chain resolved)."""
+        file = Path(path).resolve()
+        return cls(read_manifest_data(file), file)
 
     @property
     def interfaces(self) -> list[Interface]:

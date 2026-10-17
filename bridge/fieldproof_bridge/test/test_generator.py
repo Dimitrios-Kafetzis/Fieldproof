@@ -7,6 +7,7 @@ inline manifests, no ROS.
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,14 @@ import yaml
 
 from fieldproof_bridge import generator
 from fieldproof_bridge.generator import GeneratorError, generate, plan, write_bundle
-from fieldproof_bridge.manifest import GZ_TO_ROS, ROS_TO_GZ, Manifest, ManifestError, Qos
+from fieldproof_bridge.manifest import (
+    GZ_TO_ROS,
+    ROS_TO_GZ,
+    Manifest,
+    ManifestError,
+    Qos,
+    deep_merge,
+)
 
 REPO = Path(__file__).resolve().parents[3]
 UGV_MANIFEST = REPO / "robots/fieldproof_robots/models/ugv_ref/robot.yaml"
@@ -177,6 +185,70 @@ def test_manifest_load_errors(tmp_path: Path) -> None:
     bad.write_text("apiVersion: [unclosed\n")
     with pytest.raises(ManifestError, match="not valid YAML"):
         Manifest.load(bad)
+
+
+def test_manifest_extends_inherits_the_model(tmp_path: Path) -> None:
+    """A vehicle manifest inherits the model sections of the one it extends (task P1-T04)."""
+    child_dir = tmp_path / "vehicles" / "ugv_nav2"
+    child_dir.mkdir(parents=True)
+    rel = Path(os.path.relpath(UGV_MANIFEST, child_dir))
+    child = child_dir / "robot.yaml"
+    child.write_text(
+        yaml.safe_dump(
+            {
+                "apiVersion": "fieldproof.dev/v0alpha1",
+                "kind": "Robot",
+                "extends": str(rel),
+                "metadata": {"name": "ugv_nav2", "description": "Nav2 on the reference UGV"},
+                "drive": {"tf": {"qos": {"depth": 50}}},
+                "runtime": {"image": "example:local"},
+            }
+        )
+    )
+    manifest = Manifest.load(child)
+    parent = Manifest.load(UGV_MANIFEST)
+    assert manifest.name == "ugv_nav2"
+    assert manifest.data["metadata"]["domain"] == "ground"  # inherited key next to overridden ones
+    assert "extends" not in manifest.data
+    assert manifest.data["runtime"] == {"image": "example:local"}
+    # Interfaces are the parent's, except where the child overrides a nested key.
+    assert [i.ros_topic for i in manifest.interfaces] == [i.ros_topic for i in parent.interfaces]
+    tf = next(i for i in manifest.interfaces if i.key == "drive.tf")
+    assert tf.qos.depth == 50
+    assert tf.gz_type == "gz.msgs.Pose_V"
+    # The inherited description still points at the parent's files.
+    assert manifest.xacro_path() == parent.xacro_path()
+    assert manifest.xacro_path().is_file()
+    assert manifest.data["description"]["meshes"].endswith("ugv_ref/meshes")
+    child_plan, parent_plan = plan(manifest), plan(parent)
+    assert child_plan.topics != parent_plan.topics, "the child's TF depth differs"
+    assert [t.name for t in child_plan.topics] == [t.name for t in parent_plan.topics]
+    assert child_plan.description == parent_plan.description
+
+
+def test_manifest_extends_errors(tmp_path: Path) -> None:
+    a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    a.write_text("apiVersion: fieldproof.dev/v0alpha1\nkind: Robot\nextends: b.yaml\n")
+    b.write_text("apiVersion: fieldproof.dev/v0alpha1\nkind: Robot\nextends: a.yaml\n")
+    with pytest.raises(ManifestError, match="extends cycle"):
+        Manifest.load(a)
+    a.write_text("apiVersion: fieldproof.dev/v0alpha1\nkind: Robot\nextends: missing.yaml\n")
+    with pytest.raises(ManifestError, match="no such file"):
+        Manifest.load(a)
+    a.write_text("apiVersion: fieldproof.dev/v0alpha1\nkind: Robot\nextends: [b.yaml]\n")
+    with pytest.raises(ManifestError, match="extends must be a relative path"):
+        Manifest.load(a)
+    a.write_text("- not a mapping\n")
+    with pytest.raises(ManifestError, match="must be a mapping"):
+        Manifest.load(a)
+
+
+def test_deep_merge() -> None:
+    base = {"a": {"x": 1, "y": [1, 2]}, "b": 2, "c": {"k": "v"}}
+    override = {"a": {"y": [3], "z": 0}, "c": "flat", "d": None}
+    merged = deep_merge(base, override)
+    assert merged == {"a": {"x": 1, "y": [3], "z": 0}, "b": 2, "c": "flat", "d": None}
+    assert base["a"] == {"x": 1, "y": [1, 2]}, "the inputs are not modified"
 
 
 # ------------------------------------------------------------------------------------ plan

@@ -1,0 +1,1350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/robot.schema.json",
+  "$defs": {
+    "ActionCondition": {
+      "additionalProperties": false,
+      "description": "An action server is offered.",
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": ["action"],
+      "title": "ActionCondition",
+      "type": "object"
+    },
+    "Build": {
+      "additionalProperties": false,
+      "description": "How the image is built from the vehicle's sources (`fieldproof vehicle build`).",
+      "properties": {
+        "base": {
+          "default": "ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2:local",
+          "description": "Base image of both stages.",
+          "title": "Base",
+          "type": "string"
+        },
+        "ros_distro": {
+          "default": "jazzy",
+          "description": "ROS 2 distribution of the base.",
+          "title": "Ros Distro",
+          "type": "string"
+        },
+        "rosdistro_commit": {
+          "default": "8e9a99d200fd312f106418b2b497b0cc5146e6a7",
+          "description": "ros/rosdistro commit rosdep resolves keys against.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Rosdistro Commit",
+          "type": "string"
+        },
+        "repos": {
+          "description": "Repositories at pinned commits.",
+          "items": {
+            "$ref": "#/$defs/Repo"
+          },
+          "title": "Repos",
+          "type": "array"
+        },
+        "sources": {
+          "description": "Local source directories, relative to the manifest, copied into `src/`.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "apt": {
+          "description": "Runtime apt packages beyond what rosdep resolves.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Apt",
+          "type": "array"
+        },
+        "rosdep_skip_keys": {
+          "description": "rosdep keys to ignore (`--skip-keys`).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Rosdep Skip Keys",
+          "type": "array"
+        },
+        "colcon_args": {
+          "description": "Extra `colcon build` arguments.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Colcon Args",
+          "type": "array"
+        }
+      },
+      "title": "Build",
+      "type": "object"
+    },
+    "Command": {
+      "additionalProperties": false,
+      "description": "The velocity command the stack publishes.",
+      "properties": {
+        "gz_topic": {
+          "description": "Gazebo topic, relative to the model.",
+          "title": "Gz Topic",
+          "type": "string"
+        },
+        "gz_type": {
+          "description": "Gazebo message type (`gz.msgs.X`).",
+          "title": "Gz Type",
+          "type": "string"
+        },
+        "ros_topic": {
+          "description": "ROS topic the real driver uses.",
+          "title": "Ros Topic",
+          "type": "string"
+        },
+        "ros_type": {
+          "description": "ROS message type (`pkg/msg/X`).",
+          "title": "Ros Type",
+          "type": "string"
+        },
+        "qos": {
+          "$ref": "#/$defs/Qos"
+        }
+      },
+      "required": ["gz_topic", "gz_type", "ros_topic", "ros_type"],
+      "title": "Command",
+      "type": "object"
+    },
+    "Description": {
+      "additionalProperties": false,
+      "description": "The vehicle description: the xacro and what is generated from it.\n\nPaths are relative to the manifest that declares them; an inherited description keeps\npointing at the parent's files.",
+      "properties": {
+        "xacro": {
+          "description": "xacro URDF of the vehicle.",
+          "title": "Xacro",
+          "type": "string"
+        },
+        "urdf": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "URDF generated from the xacro at build time.",
+          "title": "Urdf"
+        },
+        "sdf": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SDF generated from the URDF at build time.",
+          "title": "Sdf"
+        },
+        "model_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`model://` URI Gazebo resolves the SDF by.",
+          "title": "Model Uri"
+        },
+        "launch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Spawn launch file of the model.",
+          "title": "Launch"
+        },
+        "meshes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Mesh directory (with its licence file).",
+          "title": "Meshes"
+        },
+        "xacro_args": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": "xacro argument defaults the spawn and bridge use.",
+          "title": "Xacro Args",
+          "type": "object"
+        }
+      },
+      "required": ["xacro"],
+      "title": "Description",
+      "type": "object"
+    },
+    "Dimensions": {
+      "additionalProperties": false,
+      "description": "Outer dimensions and mass.",
+      "properties": {
+        "length_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length M"
+        },
+        "width_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width M"
+        },
+        "height_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height M"
+        },
+        "ground_clearance_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ground Clearance M"
+        },
+        "mass_kg": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass Kg"
+        }
+      },
+      "title": "Dimensions",
+      "type": "object"
+    },
+    "Drive": {
+      "additionalProperties": false,
+      "description": "The drive train and its four interfaces.",
+      "properties": {
+        "type": {
+          "description": "`differential`, `ackermann`, `skid_steer`, ...",
+          "title": "Type",
+          "type": "string"
+        },
+        "wheel_radius_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wheel Radius M"
+        },
+        "wheel_separation_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wheel Separation M"
+        },
+        "joints": {
+          "description": "Driven joints.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Joints",
+          "type": "array"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DriveLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "command": {
+          "$ref": "#/$defs/Command"
+        },
+        "odometry": {
+          "$ref": "#/$defs/Odometry"
+        },
+        "joint_states": {
+          "$ref": "#/$defs/JointStates"
+        },
+        "tf": {
+          "$ref": "#/$defs/Tf"
+        }
+      },
+      "required": ["type", "command", "odometry", "joint_states", "tf"],
+      "title": "Drive",
+      "type": "object"
+    },
+    "DriveLimits": {
+      "additionalProperties": false,
+      "description": "Kinematic limits the drive system enforces.",
+      "properties": {
+        "max_linear_velocity_mps": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Linear Velocity Mps"
+        },
+        "max_angular_velocity_radps": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Angular Velocity Radps"
+        },
+        "max_linear_acceleration_mps2": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Linear Acceleration Mps2"
+        },
+        "max_angular_acceleration_radps2": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Angular Acceleration Radps2"
+        }
+      },
+      "title": "DriveLimits",
+      "type": "object"
+    },
+    "Driver": {
+      "additionalProperties": false,
+      "description": "One hardware driver of the field launch and the bridge interfaces that replace it.",
+      "properties": {
+        "name": {
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "package": {
+          "description": "Driver package the field launch starts.",
+          "title": "Package",
+          "type": "string"
+        },
+        "executable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Node or launch file of the driver.",
+          "title": "Executable"
+        },
+        "provides": {
+          "description": "ROS topics of this manifest the bridge provides instead (`/tf_static`, `/robot_description` and `/clock` are the bridge's own).",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Provides",
+          "type": "array"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": ["name", "package", "provides"],
+      "title": "Driver",
+      "type": "object"
+    },
+    "Entrypoint": {
+      "additionalProperties": false,
+      "description": "What the container runs: a launch file or a plain command.",
+      "properties": {
+        "launch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Launch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "command": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        }
+      },
+      "title": "Entrypoint",
+      "type": "object"
+    },
+    "Frames": {
+      "additionalProperties": false,
+      "description": "REP 105 frames of the vehicle.",
+      "properties": {
+        "base": {
+          "description": "Base frame (`base_link`).",
+          "title": "Base",
+          "type": "string"
+        },
+        "footprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Footprint frame on the ground.",
+          "title": "Footprint"
+        },
+        "odom": {
+          "description": "Odometry frame.",
+          "title": "Odom",
+          "type": "string"
+        }
+      },
+      "required": ["base", "odom"],
+      "title": "Frames",
+      "type": "object"
+    },
+    "JointStates": {
+      "additionalProperties": false,
+      "description": "Joint states; `gz_rate` names a faster Gazebo rate the bridge throttles.",
+      "properties": {
+        "gz_topic": {
+          "description": "Gazebo topic, relative to the model.",
+          "title": "Gz Topic",
+          "type": "string"
+        },
+        "gz_type": {
+          "description": "Gazebo message type (`gz.msgs.X`).",
+          "title": "Gz Type",
+          "type": "string"
+        },
+        "ros_topic": {
+          "description": "ROS topic the real driver uses.",
+          "title": "Ros Topic",
+          "type": "string"
+        },
+        "ros_type": {
+          "description": "ROS message type (`pkg/msg/X`).",
+          "title": "Ros Type",
+          "type": "string"
+        },
+        "qos": {
+          "$ref": "#/$defs/Qos"
+        },
+        "rate_hz": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate Hz"
+        },
+        "gz_rate": {
+          "anyOf": [
+            {
+              "const": "physics",
+              "type": "string"
+            },
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gz Rate"
+        }
+      },
+      "required": ["gz_topic", "gz_type", "ros_topic", "ros_type"],
+      "title": "JointStates",
+      "type": "object"
+    },
+    "Launch": {
+      "additionalProperties": false,
+      "description": "`ros2 launch <package> <file> key:=value ...`.",
+      "properties": {
+        "package": {
+          "title": "Package",
+          "type": "string"
+        },
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": "Launch arguments the simulation adds (`use_sim_time`, driver swap).",
+          "title": "Args",
+          "type": "object"
+        }
+      },
+      "required": ["package", "file"],
+      "title": "Launch",
+      "type": "object"
+    },
+    "LifecycleCondition": {
+      "additionalProperties": false,
+      "description": "A lifecycle node reached a state.",
+      "properties": {
+        "lifecycle": {
+          "description": "Node name (`/bt_navigator`).",
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "state": {
+          "default": "active",
+          "enum": ["unconfigured", "inactive", "active", "finalized"],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": ["lifecycle"],
+      "title": "LifecycleCondition",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "description": "Who the vehicle is.",
+      "properties": {
+        "name": {
+          "description": "Vehicle name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "description": "One line about the vehicle.",
+          "title": "Description",
+          "type": "string"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "enum": ["ground", "aerial", "surface"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operating domain.",
+          "title": "Domain"
+        },
+        "licence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SPDX licence identifier of the description.",
+          "title": "Licence"
+        }
+      },
+      "required": ["name"],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "NodeCondition": {
+      "additionalProperties": false,
+      "description": "A node is in the graph.",
+      "properties": {
+        "node": {
+          "title": "Node",
+          "type": "string"
+        }
+      },
+      "required": ["node"],
+      "title": "NodeCondition",
+      "type": "object"
+    },
+    "Odometry": {
+      "additionalProperties": false,
+      "description": "Wheel odometry.",
+      "properties": {
+        "gz_topic": {
+          "description": "Gazebo topic, relative to the model.",
+          "title": "Gz Topic",
+          "type": "string"
+        },
+        "gz_type": {
+          "description": "Gazebo message type (`gz.msgs.X`).",
+          "title": "Gz Type",
+          "type": "string"
+        },
+        "ros_topic": {
+          "description": "ROS topic the real driver uses.",
+          "title": "Ros Topic",
+          "type": "string"
+        },
+        "ros_type": {
+          "description": "ROS message type (`pkg/msg/X`).",
+          "title": "Ros Type",
+          "type": "string"
+        },
+        "qos": {
+          "$ref": "#/$defs/Qos"
+        },
+        "rate_hz": {
+          "exclusiveMinimum": 0,
+          "title": "Rate Hz",
+          "type": "number"
+        },
+        "frame_id": {
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "child_frame_id": {
+          "title": "Child Frame Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gz_topic",
+        "gz_type",
+        "ros_topic",
+        "ros_type",
+        "rate_hz",
+        "frame_id",
+        "child_frame_id"
+      ],
+      "title": "Odometry",
+      "type": "object"
+    },
+    "Qos": {
+      "additionalProperties": false,
+      "description": "QoS profile of a ROS topic (defaults: what the ros_gz bridge publishes with).",
+      "properties": {
+        "reliability": {
+          "default": "reliable",
+          "enum": ["reliable", "best_effort"],
+          "title": "Reliability",
+          "type": "string"
+        },
+        "durability": {
+          "default": "volatile",
+          "enum": ["volatile", "transient_local"],
+          "title": "Durability",
+          "type": "string"
+        },
+        "depth": {
+          "default": 10,
+          "exclusiveMinimum": 0,
+          "title": "Depth",
+          "type": "integer"
+        }
+      },
+      "title": "Qos",
+      "type": "object"
+    },
+    "Ready": {
+      "additionalProperties": false,
+      "description": "When the stack counts as up (the orchestrator starts the scenario clock after it).",
+      "properties": {
+        "timeout_s": {
+          "default": 120.0,
+          "description": "Give up after this long.",
+          "exclusiveMinimum": 0,
+          "title": "Timeout S",
+          "type": "number"
+        },
+        "conditions": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/LifecycleCondition"
+              },
+              {
+                "$ref": "#/$defs/TopicCondition"
+              },
+              {
+                "$ref": "#/$defs/ServiceCondition"
+              },
+              {
+                "$ref": "#/$defs/ActionCondition"
+              },
+              {
+                "$ref": "#/$defs/NodeCondition"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Conditions",
+          "type": "array"
+        }
+      },
+      "required": ["conditions"],
+      "title": "Ready",
+      "type": "object"
+    },
+    "Repo": {
+      "additionalProperties": false,
+      "description": "A repository `vcs import` clones into the workspace at a pinned commit.",
+      "properties": {
+        "name": {
+          "description": "Directory under `src/`.",
+          "pattern": "^[A-Za-z0-9_.-]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "description": "Clone URL.",
+          "title": "Url",
+          "type": "string"
+        },
+        "version": {
+          "description": "Commit SHA (40 hex digits); branches and tags are not pins.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Version",
+          "type": "string"
+        },
+        "type": {
+          "const": "git",
+          "default": "git",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["name", "url", "version"],
+      "title": "Repo",
+      "type": "object"
+    },
+    "Resources": {
+      "additionalProperties": false,
+      "description": "Container budget, in Docker's units.",
+      "properties": {
+        "cpus": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`--cpus`.",
+          "title": "Cpus"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*(\\.[0-9]+)?[kKmMgG]?[bB]?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`--memory` (`2g`).",
+          "title": "Memory"
+        },
+        "pids": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`--pids-limit`.",
+          "title": "Pids"
+        }
+      },
+      "title": "Resources",
+      "type": "object"
+    },
+    "Runtime": {
+      "additionalProperties": false,
+      "description": "What runs on the vehicle and how.",
+      "properties": {
+        "tier": {
+          "default": "T1",
+          "description": "Fidelity tier (ADR-0007); only T1 (SIL) is implemented before Phase 6.",
+          "enum": ["T1", "T2", "T3"],
+          "title": "Tier",
+          "type": "string"
+        },
+        "image": {
+          "description": "Image reference to build or run.",
+          "title": "Image",
+          "type": "string"
+        },
+        "build": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Build"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Absent: `image` is prebuilt."
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/Entrypoint"
+        },
+        "params": {
+          "description": "Parameter files the launch reads unchanged from the field, relative to the manifest.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Params",
+          "type": "array"
+        },
+        "drivers": {
+          "description": "The driver-swap map.",
+          "items": {
+            "$ref": "#/$defs/Driver"
+          },
+          "title": "Drivers",
+          "type": "array"
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ready"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resources": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Resources"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra environment of the container.",
+          "title": "Env",
+          "type": "object"
+        }
+      },
+      "required": ["image", "entrypoint"],
+      "title": "Runtime",
+      "type": "object"
+    },
+    "Sensor": {
+      "additionalProperties": false,
+      "description": "A simulated sensor with its outputs and noise figures.",
+      "properties": {
+        "name": {
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "description": "Gazebo sensor type (`gpu_lidar`, `imu`, `rgbd_camera`, ...).",
+          "title": "Type",
+          "type": "string"
+        },
+        "frame_id": {
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "rate_hz": {
+          "exclusiveMinimum": 0,
+          "title": "Rate Hz",
+          "type": "number"
+        },
+        "gz_topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gz Topic"
+        },
+        "optional": {
+          "default": false,
+          "description": "Removable with the xacro argument `<name>:=false`.",
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolution"
+        },
+        "horizontal_fov_rad": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Horizontal Fov Rad"
+        },
+        "noise": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "description": "Standard deviations in SI units, per figure.",
+          "title": "Noise",
+          "type": "object"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/SensorOutput"
+          },
+          "minItems": 1,
+          "title": "Outputs",
+          "type": "array"
+        }
+      },
+      "required": ["name", "type", "frame_id", "rate_hz", "outputs"],
+      "title": "Sensor",
+      "type": "object"
+    },
+    "SensorOutput": {
+      "additionalProperties": false,
+      "description": "One topic a sensor publishes.",
+      "properties": {
+        "gz_topic": {
+          "description": "Gazebo topic, relative to the model.",
+          "title": "Gz Topic",
+          "type": "string"
+        },
+        "gz_type": {
+          "description": "Gazebo message type (`gz.msgs.X`).",
+          "title": "Gz Type",
+          "type": "string"
+        },
+        "ros_topic": {
+          "description": "ROS topic the real driver uses.",
+          "title": "Ros Topic",
+          "type": "string"
+        },
+        "ros_type": {
+          "description": "ROS message type (`pkg/msg/X`).",
+          "title": "Ros Type",
+          "type": "string"
+        },
+        "qos": {
+          "$ref": "#/$defs/Qos"
+        },
+        "ros_frame_id": {
+          "description": "Frame the ROS messages carry (relabelled if needed).",
+          "title": "Ros Frame Id",
+          "type": "string"
+        },
+        "gz_header_frame_id": {
+          "default": true,
+          "description": "False where Gazebo leaves the header frame empty.",
+          "title": "Gz Header Frame Id",
+          "type": "boolean"
+        }
+      },
+      "required": ["gz_topic", "gz_type", "ros_topic", "ros_type", "ros_frame_id"],
+      "title": "SensorOutput",
+      "type": "object"
+    },
+    "ServiceCondition": {
+      "additionalProperties": false,
+      "description": "A service is offered.",
+      "properties": {
+        "service": {
+          "title": "Service",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": ["service"],
+      "title": "ServiceCondition",
+      "type": "object"
+    },
+    "Tf": {
+      "additionalProperties": false,
+      "description": "The odometry transform the drive system publishes (`/tf` is global).",
+      "properties": {
+        "gz_topic": {
+          "description": "Gazebo topic, relative to the model.",
+          "title": "Gz Topic",
+          "type": "string"
+        },
+        "gz_type": {
+          "description": "Gazebo message type (`gz.msgs.X`).",
+          "title": "Gz Type",
+          "type": "string"
+        },
+        "ros_topic": {
+          "description": "ROS topic the real driver uses.",
+          "title": "Ros Topic",
+          "type": "string"
+        },
+        "ros_type": {
+          "description": "ROS message type (`pkg/msg/X`).",
+          "title": "Ros Type",
+          "type": "string"
+        },
+        "qos": {
+          "$ref": "#/$defs/Qos"
+        },
+        "rate_hz": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate Hz"
+        }
+      },
+      "required": ["gz_topic", "gz_type", "ros_topic", "ros_type"],
+      "title": "Tf",
+      "type": "object"
+    },
+    "TopicCondition": {
+      "additionalProperties": false,
+      "description": "A topic has a publisher.",
+      "properties": {
+        "topic": {
+          "title": "Topic",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": ["topic"],
+      "title": "TopicCondition",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A vehicle manifest, `apiVersion: fieldproof.dev/v0alpha1`, `kind: Robot`.",
+  "properties": {
+    "apiVersion": {
+      "const": "fieldproof.dev/v0alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Robot",
+      "title": "Kind",
+      "type": "string"
+    },
+    "extends": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Manifest this one inherits from (relative path); resolved before validation.",
+      "title": "Extends"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Description"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "frames": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Frames"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "dimensions": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Dimensions"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "drive": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Drive"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "sensors": {
+      "items": {
+        "$ref": "#/$defs/Sensor"
+      },
+      "title": "Sensors",
+      "type": "array"
+    },
+    "runtime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Runtime"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": ["apiVersion", "kind", "metadata"],
+  "title": "Fieldproof vehicle manifest (robot.yaml) v0",
+  "type": "object"
+}
