@@ -512,6 +512,7 @@ def test_observer_waits_for_the_recorder(run_dir: Path) -> None:
         FakeGz(),
         recorder=recorder,  # type: ignore[arg-type]
         clock=clock,
+        sleep=lambda _s: None,
     )
     watcher.start()
     assert recorder.started
@@ -522,9 +523,12 @@ def test_observer_waits_for_the_recorder(run_dir: Path) -> None:
     ready = next(s for s in samples(run_dir) if s["kind"] == "ready")
     assert ready["recording"] is True
     assert samples(run_dir)[0]["kind"] == "recording"
+    slept: list[float] = []
+    watcher.sleep = slept.append
     watcher.stop()
     assert watcher.run() == 0
     assert recorder.stopped
+    assert slept == [observer.RELAY_GRACE_S], "the recorder gets the last messages before SIGINT"
     assert any(s["kind"] == "recorder.stopped" for s in samples(run_dir))
 
 
@@ -539,6 +543,7 @@ def test_observer_fails_when_the_recorder_dies(run_dir: Path) -> None:
         None,
         recorder=recorder,  # type: ignore[arg-type]
         clock=clock,
+        sleep=lambda _s: None,
     )
     clock.t = 60.0
     assert watcher.run() == 1, "never ready: the recorder exited during start-up"
@@ -558,6 +563,7 @@ def test_observer_stops_when_the_recorder_dies_later(run_dir: Path) -> None:
         None,
         recorder=recorder,  # type: ignore[arg-type]
         clock=clock,
+        sleep=lambda _s: None,
     )
     clock.t = 60.0
     assert watcher.run() == 0, "ready, then the recorder died: stopped, reported, exit 0"

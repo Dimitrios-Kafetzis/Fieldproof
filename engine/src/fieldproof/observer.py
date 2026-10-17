@@ -49,6 +49,9 @@ CONTACT_HZ = 10.0
 RECORDER_STOP_S = 15.0
 # The recorder is given this long to come up before the observer reports ready.
 RECORDER_WARMUP_S = 2.0
+# After the last side-channel messages are published, the recorder gets this long to receive
+# them before it is stopped (the final verdicts are written just before the teardown).
+RELAY_GRACE_S = 1.0
 FIELD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)?((?:\[\d+\])*)$")
 
 
@@ -389,6 +392,7 @@ class Observer:
         *,
         recorder: Recorder | None = None,
         clock: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.config = config
         self.sink = sink
@@ -396,6 +400,7 @@ class Observer:
         self.gz = gz
         self.recorder = recorder
         self.clock = clock
+        self.sleep = sleep
         self.started = clock()
         self.stopping = False
         self.ready = False
@@ -618,6 +623,8 @@ class Observer:
         finally:
             self.relay_files()
             if self.recorder is not None:
+                if self.recorder.alive:
+                    self.sleep(RELAY_GRACE_S)  # let the recorder receive the last messages
                 self.recorder.stop()
                 self.sink.emit("recorder.stopped", exit_code=self.recorder.exit_code)
             self.sink.emit("stopped", samples=self.sink.count, errors=self.errors)
