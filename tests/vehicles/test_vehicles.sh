@@ -247,19 +247,28 @@ else
   # activation until the bridge publishes the odom -> base_link transform, so the Nav2 servers
   # stay `inactive` here and reach `active` in the integration test with the simulator (P1-T04,
   # session 2), which is what the manifest's `ready` conditions describe.
+  # The probe's fresh ROS daemon needs a few seconds of discovery, longer on a loaded runner,
+  # so the node list is taken without the daemon after a spin and the whole probe is retried
+  # until every expected node is there.
+  expected=(/slam_toolbox /bt_navigator /controller_server /planner_server /behavior_server /velocity_smoother /collision_monitor /lifecycle_manager_navigation)
   probe() {
     docker run --rm --network "$NETWORK" --env "ROS_DOMAIN_ID=$domain" --entrypoint /usr/local/bin/fieldproof-vehicle-entrypoint "$IMAGE" \
-      bash -c 'nodes=$(timeout 20 ros2 node list 2>/dev/null | tr "\n" " "); printf "nodes: %s\n" "$nodes"; for n in /slam_toolbox /bt_navigator /planner_server; do s=$(timeout 20 ros2 lifecycle get "$n" 2>/dev/null | cut -d" " -f1); printf "%s=%s\n" "$n" "${s:-none}"; done'
+      bash -c 'nodes=$(timeout 60 ros2 node list --no-daemon --spin-time 10 2>/dev/null | tr "\n" " "); printf "nodes: %s\n" "$nodes"; for n in /slam_toolbox /bt_navigator /planner_server; do s=$(timeout 20 ros2 lifecycle get "$n" 2>/dev/null | cut -d" " -f1); printf "%s=%s\n" "$n" "${s:-none}"; done'
+  }
+  all_nodes_listed() {
+    local node
+    for node in "${expected[@]}"; do [[ " $1 " == *" $node "* ]] || return 1; done
   }
   start=$SECONDS
   result=""
-  while ((SECONDS - start < 120)); do
+  nodes=""
+  while ((SECONDS - start < 180)); do
     result="$(probe || true)"
-    if [[ "$result" == *"/slam_toolbox=active"* && "$result" == *"/bt_navigator=inactive"* && "$result" == *"/planner_server=inactive"* ]]; then break; fi
+    nodes="$(sed -n 's/^nodes: //p' <<<"$result")"
+    if all_nodes_listed "$nodes" && [[ "$result" == *"/slam_toolbox=active"* && "$result" == *"/bt_navigator=inactive"* && "$result" == *"/planner_server=inactive"* ]]; then break; fi
     sleep 5
   done
-  nodes="$(sed -n 's/^nodes: //p' <<<"$result")"
-  for node in /slam_toolbox /bt_navigator /controller_server /planner_server /behavior_server /velocity_smoother /collision_monitor /lifecycle_manager_navigation; do
+  for node in "${expected[@]}"; do
     if [[ " $nodes " == *" $node "* ]]; then pass "node $node is in the graph, seen from another container"; else fail "node $node is not in the graph ($nodes)"; fi
   done
   if [[ "$result" == *"/slam_toolbox=active"* ]]; then
