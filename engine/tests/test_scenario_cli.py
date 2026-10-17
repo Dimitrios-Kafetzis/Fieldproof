@@ -1,9 +1,10 @@
-"""Tests of `fieldproof validate`, `fieldproof run` and `fieldproof schema` (task P1-T05)."""
+"""Tests of `fieldproof validate`, `run`, `schema` (task P1-T05) and `report` (task P1-T06)."""
 
 from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +39,22 @@ def plain(text: str) -> str:
     return " ".join(ANSI.sub("", text).split())
 
 
+GOOD_SAMPLES = [
+    {"kind": "pose", "sim": 9.0, "model": "ugv1", "x": 10.0, "y": -0.8, "z": 0.1, "yaw": -1.57},
+    {"kind": "rate", "sim": 6.0, "topic": "/scan", "hz": 10.0, "window_s": 5.0, "total": 60},
+    {"kind": "value", "sim": 6.0, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4},
+]
+
+
 class ReadyFake(FakeBackend):
-    """A fake that has every image (the CLI builds the backend itself)."""
+    """A fake that has every image (the CLI builds the backend itself) and a happy vehicle."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.samples_on_goal = list(GOOD_SAMPLES)
+        # The runner reads the real clock here and the fake goal returns at once: stamp the
+        # samples a little ahead, so they land after the timeline's start and its grace periods.
+        self.wall = lambda: time.time() + 10.0
 
     def image_exists(self, image: str) -> bool:
         return True
@@ -59,7 +74,7 @@ def test_validate_example() -> None:
     assert result.exit_code == 0, result.output
     out = plain(result.output)
     assert out.startswith(f"ok {EXAMPLE}: ugv_nav_to_goal (world depot, 1 vehicle(s): ugv1")
-    assert "1 timeline entry, 1 assertion(s), time sim, budget 600 s" in out
+    assert "1 timeline entry, 5 assertion(s), time sim, budget 600 s" in out
 
 
 def test_validate_reports_errors(tmp_path: Path) -> None:
@@ -148,15 +163,21 @@ def test_run_passes_with_a_fake_backend(fake: ReadyFake, tmp_path: Path) -> None
     )
     assert result.exit_code == 0, result.output
     out = plain(result.output)
-    assert "passed ugv_nav_to_goal (cli-1): the timeline completed; run directory" in out
+    assert (
+        "PASS ugv_nav_to_goal (cli-1): the timeline completed and every assertion passed; "
+        "run directory"
+    ) in out
     assert "drive_ahead: goal SUCCEEDED" in out
     assert "waiting (3/9 ready)" in out, "the probe's lines are shown"
+    assert "PASS reached_goal (reach_pose): 0.20 m from (10, -1)" in out
+    assert "PASS no_collision (no_collision): no contact of ugv1" in out
+    assert f"report: {tmp_path / 'cli-1' / 'report.md'}" in out
     assert fake.containers == {}
     assert fake.networks == {"fieldproof"}
-    assert fake.containers == {}
     assert fake.started[0] == "fieldproof-1-sim"
     assert json.loads((tmp_path / "cli-1" / "run.json").read_text())["stack"]["ros_domain_id"] == 3
     assert (tmp_path / "cli-1" / "engine.log").is_file()
+    assert (tmp_path / "cli-1" / "report.json").is_file()
 
 
 def test_run_quiet_hides_command_output(fake: ReadyFake, tmp_path: Path) -> None:
@@ -176,9 +197,38 @@ def test_run_failure_exit_code(fake: ReadyFake, tmp_path: Path) -> None:
         app, ["run", str(EXAMPLE), "--render", "software", "--runs-dir", str(tmp_path)]
     )
     assert result.exit_code == 1, result.output
-    assert "failed ugv_nav_to_goal" in plain(result.output)
+    assert "FAIL ugv_nav_to_goal" in plain(result.output)
     assert "goal CANCELED" in plain(result.output)
+    assert "SKIPPED lidar_streams (topic_rate): the run ended failed" in plain(result.output)
     assert fake.containers == {}
+
+
+def test_run_failed_assertion_exit_code(fake: ReadyFake, tmp_path: Path) -> None:
+    fake.samples_on_goal = [
+        {"kind": "pose", "sim": 9.0, "model": "ugv1", "x": 10.0, "y": 2.0, "z": 0.1, "yaw": -1.57},
+        *GOOD_SAMPLES[1:],
+    ]
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(EXAMPLE),
+            "--render",
+            "software",
+            "--runs-dir",
+            str(tmp_path),
+            "--run-id",
+            "f1",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    out = plain(result.output)
+    assert "FAIL ugv_nav_to_goal (f1): assertion reached_goal failed: not reached by the end" in out
+    assert "FAIL reached_goal (reach_pose): not reached by the end of the timeline" in out
+    assert "PASS arrived_in_time (within_time)" in out
+    report = json.loads((tmp_path / "f1" / "report.json").read_text())
+    assert report["verdict"] == "FAIL"
+    assert report["exit_code"] == 1
 
 
 def test_run_interrupted_exit_code(fake: ReadyFake, tmp_path: Path) -> None:
@@ -192,7 +242,7 @@ def test_run_interrupted_exit_code(fake: ReadyFake, tmp_path: Path) -> None:
         app, ["run", str(EXAMPLE), "--render", "software", "--runs-dir", str(tmp_path)]
     )
     assert result.exit_code == 130, result.output
-    assert "interrupted ugv_nav_to_goal" in plain(result.output)
+    assert "INTERRUPTED ugv_nav_to_goal" in plain(result.output)
     assert fake.containers == {}
 
 
@@ -201,7 +251,7 @@ def test_run_keep_and_leftovers(fake: ReadyFake, tmp_path: Path) -> None:
         app, ["run", str(EXAMPLE), "--render", "software", "--runs-dir", str(tmp_path), "--keep"]
     )
     assert result.exit_code == 0, result.output
-    assert len(fake.containers) == 3
+    assert len(fake.containers) == 4
     assert "left behind" not in plain(result.output)
 
 
@@ -243,10 +293,60 @@ def test_run_without_docker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert "cannot reach the Docker daemon" in plain(result.output)
 
 
+def test_report_command(fake: ReadyFake, tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(EXAMPLE),
+            "--render",
+            "software",
+            "--runs-dir",
+            str(tmp_path),
+            "--run-id",
+            "r1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    run_dir = tmp_path / "r1"
+    # The run's report was written before its last log lines, so the artefact sizes differ
+    # between the two renderings; everything above them is the same.
+    markdown = (run_dir / "report.md").read_text().split("## Artefacts")[0]
+    result = runner.invoke(app, ["report", str(run_dir)])
+    assert result.exit_code == 0, result.output
+    assert result.output.split("## Artefacts")[0] == markdown
+    assert "## Artefacts" in result.output
+    result = runner.invoke(app, ["report", str(run_dir / "run.json"), "--format", "json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["verdict"] == "PASS"
+    (run_dir / "report.md").unlink()
+    result = runner.invoke(app, ["report", str(run_dir), "--write"])
+    assert result.exit_code == 0, result.output
+    assert (run_dir / "report.md").read_text().startswith(markdown)
+    assert "written:" in plain(result.output)
+    # A run id is looked up under the workspace's runs directory.
+    (tmp_path / "fieldproof.toml").write_text('[runs]\ndirectory = "."\n')
+    result = runner.invoke(app, ["report", "r1", "--config", str(tmp_path / "fieldproof.toml")])
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith(markdown)
+    result = runner.invoke(app, ["report", "r9", "--config", str(tmp_path / "fieldproof.toml")])
+    assert result.exit_code == 2
+    assert "no such run directory or run id" in plain(result.output)
+    result = runner.invoke(app, ["report", str(run_dir), "--format", "html"])
+    assert result.exit_code == 2
+    assert "expected md or json" in plain(result.output)
+    (run_dir / "run.json").write_text("{bad")
+    result = runner.invoke(app, ["report", str(run_dir)])
+    assert result.exit_code == 2
+    assert "not valid JSON" in plain(result.output)
+
+
 def test_help_lists_the_commands() -> None:
     result = runner.invoke(app, ["--help"])
     out = plain(result.output)
     assert "validate" in out
     assert "run" in out
     assert "schema" in out
+    assert "report" in out
     assert scenario_cli.run.__doc__ is not None
+    assert scenario_cli.report.__doc__ is not None

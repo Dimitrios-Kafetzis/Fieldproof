@@ -1,10 +1,12 @@
-# The first Fieldproof scenario (task P1-T05): the example vehicle ugv_nav2 (the reference UGV
-# running Nav2 and SLAM Toolbox) spawns at the depot's loading dock and drives to a goal 4 m
-# ahead, the vertical slice of task P1-T04 as a scenario file. Schema: docs/reference/scenarios.md
-# (`fieldproof schema`).
+# The first Fieldproof scenario (tasks P1-T05, P1-T06): the example vehicle ugv_nav2 (the
+# reference UGV running Nav2 and SLAM Toolbox) spawns at the depot's loading dock and drives to a
+# goal 4 m ahead, the vertical slice of task P1-T04 as a scenario file, with the five assertion
+# primitives turning the run into a test and the topics recorded to MCAP. Schema:
+# docs/reference/scenarios.md (`fieldproof schema`); assertions: docs/reference/assertions.md.
 #
 #   fieldproof validate examples/scenarios/ugv_nav_to_goal.yaml
 #   fieldproof run examples/scenarios/ugv_nav_to_goal.yaml
+#   fieldproof report runs/<run_id>
 apiVersion: fieldproof.dev/v0alpha1
 kind: Scenario
 metadata:
@@ -29,11 +31,48 @@ timeline:
     goal: { x: 10.0, y: -1.0, yaw: -1.5708 } # 4 m ahead of spawn_dock, in the world
     timeout_s: 5m
 assertions:
-  # Declared for task P1-T06, which evaluates them; recorded as skipped until then.
+  # Ground truth from Gazebo: the model ends up within half a metre of the goal.
   - name: reached_goal
     type: reach_pose
     vehicle: ugv1
     target: { x: 10.0, y: -1.0 }
     tolerance_m: 0.5
+  # The navigation action reports its result within four minutes (wall clock; generous for a
+  # CI runner with software rendering, where the simulation runs below real time).
+  - name: arrived_in_time
+    type: within_time
+    action: drive_ahead
+    max_s: 4m
+  # The lidar keeps publishing at its nominal 10 Hz (measured in simulation time).
+  - name: lidar_streams
+    type: topic_rate
+    topic: scan
+    vehicle: ugv1
+    min_hz: 8.0
+    window_s: 5s
+    after_s: 5s
+  # The chassis never touches the world (the model's ground-truth contact sensor).
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+  # Nav2 never commands more than the manifest's forward speed limit (1.5 m/s).
+  - name: speed_limit
+    type: topic_value
+    topic: cmd_vel
+    vehicle: ugv1
+    field: linear.x
+    condition: value <= 1.5
 outputs:
   logs: true
+  record: true # recording/*.mcap in the run directory (opens in Foxglove Studio)
+  topics: # the allow-list; the /fieldproof/* side channels are always recorded
+    - /clock
+    - /tf
+    - /tf_static
+    - /odom
+    - /cmd_vel
+    - /scan
+    - /imu/data
+    - /map
+    - /plan
+    - /rosout

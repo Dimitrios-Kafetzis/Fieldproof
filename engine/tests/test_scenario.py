@@ -11,10 +11,16 @@ import pytest
 import yaml
 
 from fieldproof.scenario import (
+    NoCollision,
     Placement,
     Pose,
+    ReachPose,
     Scenario,
     ScenarioError,
+    TopicRate,
+    TopicValue,
+    WithinTime,
+    entry_label,
     json_schema,
     load_scenario,
     parse_duration,
@@ -79,14 +85,48 @@ def test_example_loads(example: Scenario) -> None:
     assert example.timeline[0].action == "navigate_to_pose"
     assert example.timeline[0].timeout_s == 300.0
     assert example.timeline[0].goal.x == 10.0
-    assert example.assertions[0].type == "reach_pose"
-    assert example.assertions[0].model_extra == {
-        "vehicle": "ugv1",
-        "target": {"x": 10.0, "y": -1.0},
-        "tolerance_m": 0.5,
-    }
+    assert [a.type for a in example.assertions] == [
+        "reach_pose",
+        "within_time",
+        "topic_rate",
+        "no_collision",
+        "topic_value",
+    ]
+    reached = example.assertions[0]
+    assert isinstance(reached, ReachPose)
+    assert reached.vehicle == "ugv1"
+    assert reached.target.x == 10.0
+    assert reached.tolerance_m == 0.5
+    assert reached.within_s is None
+    in_time = example.assertions[1]
+    assert isinstance(in_time, WithinTime)
+    assert in_time.action == "drive_ahead"
+    assert in_time.max_s == 240.0
+    lidar = example.assertions[2]
+    assert isinstance(lidar, TopicRate)
+    assert (lidar.topic, lidar.vehicle, lidar.min_hz, lidar.window_s, lidar.after_s) == (
+        "scan",
+        "ugv1",
+        8.0,
+        5.0,
+        5.0,
+    )
+    assert lidar.max_hz is None
+    safe = example.assertions[3]
+    assert isinstance(safe, NoCollision)
+    assert safe.topic is None
+    assert safe.ignore == []
+    speed = example.assertions[4]
+    assert isinstance(speed, TopicValue)
+    assert (speed.topic, speed.field, speed.condition, speed.mode) == (
+        "cmd_vel",
+        "linear.x",
+        "value <= 1.5",
+        "always",
+    )
     assert example.outputs.logs is True
-    assert example.outputs.record is False
+    assert example.outputs.record is True
+    assert "/clock" in example.outputs.topics
 
 
 def test_defaults_without_optional_sections(data: dict[str, Any]) -> None:
@@ -136,8 +176,23 @@ def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
         ("timeline.0.vehicle", "ugv2", r"timeline\[0\].vehicle: 'ugv2' is not a vehicle"),
         ("timeline.0.action", "teleport", "action"),
         ("timeline.0.at", -1, "at"),
-        ("assertions.0.type", "reach_goal", "assertions.0.type"),
-        ("assertions.0.name", "Reached", "assertions.0.name"),
+        ("assertions.0.type", "reach_goal", "assertions.0: .*'reach_goal'"),
+        ("assertions.0.name", "Reached", "assertions.0.reach_pose.name"),
+        ("assertions.0.tolerance_m", 0, "tolerance_m"),
+        ("assertions.0.target", {"frame": "x", "x": 1.0}, "either frame or x"),
+        ("assertions.0.vehicle", "ugv9", r"assertions\[0\] \(reached_goal\).vehicle: 'ugv9'"),
+        ("assertions.0.within_s", "soon", "duration"),
+        ("assertions.0.extra", 1, "extra"),
+        ("assertions.1.action", "fly", r"assertions\[1\] \(arrived_in_time\).action: 'fly'"),
+        ("assertions.1.max_s", -1, "max_s"),
+        ("assertions.2.min_hz", -1, "min_hz"),
+        ("assertions.2.max_hz", 2, "max_hz must not be below min_hz"),
+        ("assertions.2.vehicle", "ugv9", "is not a vehicle"),
+        ("assertions.3.ignore", "wall", "ignore"),
+        ("assertions.4.condition", "speed < 1", "unknown name 'speed'"),
+        ("assertions.4.condition", "import os", "not an expression"),
+        ("assertions.4.mode", "sometimes", "mode"),
+        ("assertions.4.within_s", 5, "within_s applies to mode eventually"),
         ("outputs.format", "md", "outputs.format"),
     ],
 )
@@ -192,13 +247,40 @@ def test_json_schema_is_committed_and_current() -> None:
     assert schema["title"] == "Fieldproof scenario v0"
     assert set(schema["required"]) == {"apiVersion", "kind", "metadata", "world", "vehicles"}
     assert schema["$defs"]["NavigateToPose"]["properties"]["action"]["const"] == "navigate_to_pose"
-    assert schema["$defs"]["Assertion"]["additionalProperties"] is True
-    assert schema["$defs"]["Vehicle"]["additionalProperties"] is False
+    assertion = schema["properties"]["assertions"]["items"]
+    assert assertion["discriminator"]["propertyName"] == "type"
+    assert {ref["$ref"].rsplit("/", 1)[1] for ref in assertion["oneOf"]} == {
+        "ReachPose",
+        "WithinTime",
+        "TopicRate",
+        "NoCollision",
+        "TopicValue",
+    }
+    for name in ("ReachPose", "TopicValue", "Vehicle"):
+        assert schema["$defs"][name]["additionalProperties"] is False
+    assert schema["$defs"]["TopicValue"]["properties"]["mode"]["enum"] == ["always", "eventually"]
     assert SCHEMA_FILE.is_file(), "run `make scenario-schema`"
     assert json.loads(SCHEMA_FILE.read_text()) == schema, "stale: run `make scenario-schema`"
 
 
 # -------------------------------------------------------------------------------- the world
+def test_entry_label(example: Scenario) -> None:
+    assert entry_label(example.timeline[0]) == "drive_ahead"
+    unnamed = example.timeline[0].model_copy(update={"name": None, "at": 30.0})
+    assert entry_label(unnamed) == "navigate_to_pose@30s"
+
+
+def test_within_time_needs_a_named_entry(data: dict[str, Any]) -> None:
+    del data["timeline"][0]["name"]
+    with pytest.raises(ScenarioError, match=r"is not a timeline entry \(navigate_to_pose@0s\)"):
+        validate_data(data)
+    data["assertions"][1]["action"] = "navigate_to_pose@0s"
+    validate_data(data)
+    data["timeline"] = []
+    with pytest.raises(ScenarioError, match=r"is not a timeline entry \(none\)"):
+        validate_data(data)
+
+
 def test_read_depot() -> None:
     world = read_world(DEPOT)
     assert world.name == "depot"

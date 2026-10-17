@@ -52,6 +52,7 @@ def test_explicit_path(tmp_path: Path) -> None:
     assert config.docker.render == "software"
     assert config.timeouts.world_s == 5.0
     assert config.timeouts.spawn_s == 300.0
+    assert config.timeouts.recorder_s == 60.0
 
 
 def test_environment_overrides(tmp_path: Path) -> None:

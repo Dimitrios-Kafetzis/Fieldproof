@@ -1,0 +1,467 @@
+{"kind": "recording", "wall": 1792274756.458, "sim": null, "command": ["ros2", "bag", "record", "-s", "mcap", "-o", "/fieldproof/run/recording", "--topics", "/clock", "/tf", "/tf_static", "/odom", "/cmd_vel", "/scan", "/imu/data", "/map", "/plan", "/local_plan", "/navigate_to_pose/_action/status", "/rosout", "/fieldproof/events", "/fieldproof/assertions", "/fieldproof/metrics"]}
+{"kind": "pose", "wall": 1792274756.462, "sim": 4.133, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274756.579, "sim": 4.245, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "subscribed", "wall": 1792274756.601, "sim": null, "topic": "/scan", "type": "sensor_msgs/msg/LaserScan"}
+{"kind": "subscribed", "wall": 1792274756.648, "sim": null, "topic": "/cmd_vel", "type": "geometry_msgs/msg/Twist"}
+{"kind": "clock", "wall": 1792274756.649, "sim": 4.223, "rtf": null}
+{"kind": "pose", "wall": 1792274756.682, "sim": 4.339, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274756.785, "sim": 4.438, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274756.888, "sim": 4.535, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274756.993, "sim": 4.629, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274757.094, "sim": 4.722, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274757.196, "sim": 4.823, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274757.298, "sim": 4.925, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "clock", "wall": 1792274757.376, "sim": 5.0, "rtf": 1.068}
+{"kind": "pose", "wall": 1792274757.402, "sim": 5.025, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274757.503, "sim": 5.126, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274757.605, "sim": 5.226, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274757.707, "sim": 5.327, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274757.81, "sim": 5.43, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274757.912, "sim": 5.531, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.014, "sim": 5.632, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.117, "sim": 5.735, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.22, "sim": 5.838, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.322, "sim": 5.94, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "clock", "wall": 1792274758.382, "sim": 6.0, "rtf": 0.994}
+{"kind": "pose", "wall": 1792274758.424, "sim": 6.042, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.526, "sim": 6.144, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.629, "sim": 6.246, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.731, "sim": 6.346, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.834, "sim": 6.449, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274758.937, "sim": 6.55, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.039, "sim": 6.652, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.141, "sim": 6.75, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.252, "sim": 6.848, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.356, "sim": 6.949, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "ready", "wall": 1792274759.406, "sim": null, "recording": true, "subscribed": ["/cmd_vel", "/scan"], "waiting": []}
+{"kind": "clock", "wall": 1792274759.406, "sim": 7.0, "rtf": 0.976}
+{"kind": "pose", "wall": 1792274759.458, "sim": 7.043, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.56, "sim": 7.145, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.662, "sim": 7.242, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.766, "sim": 7.339, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.872, "sim": 7.432, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274759.978, "sim": 7.534, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274760.079, "sim": 7.633, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274760.183, "sim": 7.734, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274760.286, "sim": 7.829, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274760.391, "sim": 7.892, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274760.496, "sim": 7.964, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "clock", "wall": 1792274760.534, "sim": 8.001, "rtf": 0.888}
+{"kind": "pose", "wall": 1792274760.6, "sim": 8.066, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274760.702, "sim": 8.167, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274760.805, "sim": 8.264, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274760.908, "sim": 8.365, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.011, "sim": 8.464, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.114, "sim": 8.547, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.217, "sim": 8.638, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.321, "sim": 8.722, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.425, "sim": 8.804, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.529, "sim": 8.889, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.633, "sim": 8.979, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274761.653, "sim": 9.0, "topic": "/scan", "hz": 9.2, "window_s": 5.0, "total": 47}
+{"kind": "clock", "wall": 1792274761.653, "sim": 9.0, "rtf": 0.892}
+{"kind": "pose", "wall": 1792274761.737, "sim": 9.07, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.84, "sim": 9.173, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274761.941, "sim": 9.275, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.044, "sim": 9.376, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.146, "sim": 9.477, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.248, "sim": 9.578, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.35, "sim": 9.679, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.455, "sim": 9.778, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.557, "sim": 9.869, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.66, "sim": 9.96, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274762.704, "sim": 10.0, "topic": "/scan", "hz": 9.2, "window_s": 5.0, "total": 57}
+{"kind": "clock", "wall": 1792274762.704, "sim": 10.0, "rtf": 0.951}
+{"kind": "pose", "wall": 1792274762.763, "sim": 10.044, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.872, "sim": 10.134, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274762.974, "sim": 10.226, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274763.077, "sim": 10.306, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274763.18, "sim": 10.4, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274763.282, "sim": 10.497, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274763.386, "sim": 10.591, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274763.489, "sim": 10.685, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274763.599, "sim": 10.785, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274763.701, "sim": 10.887, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274763.804, "sim": 10.987, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274763.817, "sim": 11.0, "topic": "/scan", "hz": 9.0, "window_s": 5.0, "total": 67}
+{"kind": "clock", "wall": 1792274763.817, "sim": 11.0, "rtf": 0.899}
+{"kind": "pose", "wall": 1792274763.907, "sim": 11.088, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.01, "sim": 11.19, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.112, "sim": 11.29, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.214, "sim": 11.389, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.318, "sim": 11.492, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.421, "sim": 11.595, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.524, "sim": 11.696, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.627, "sim": 11.795, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.732, "sim": 11.891, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274764.835, "sim": 11.968, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274764.873, "sim": 12.0, "topic": "/scan", "hz": 9.0, "window_s": 5.0, "total": 77}
+{"kind": "clock", "wall": 1792274764.873, "sim": 12.0, "rtf": 0.947}
+{"kind": "pose", "wall": 1792274764.937, "sim": 12.052, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.041, "sim": 12.155, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.144, "sim": 12.254, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.249, "sim": 12.35, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.352, "sim": 12.445, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.453, "sim": 12.541, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.557, "sim": 12.635, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.659, "sim": 12.735, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.762, "sim": 12.829, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274765.863, "sim": 12.928, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274765.935, "sim": 13.0, "topic": "/scan", "hz": 9.2, "window_s": 5.0, "total": 87}
+{"kind": "clock", "wall": 1792274765.935, "sim": 13.0, "rtf": 0.941}
+{"kind": "pose", "wall": 1792274765.966, "sim": 13.023, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.07, "sim": 13.118, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.173, "sim": 13.216, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.277, "sim": 13.315, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.38, "sim": 13.405, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.481, "sim": 13.502, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.583, "sim": 13.6, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.685, "sim": 13.691, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.79, "sim": 13.793, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.896, "sim": 13.883, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274766.999, "sim": 13.985, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274767.013, "sim": 14.0, "topic": "/scan", "hz": 9.2, "window_s": 5.0, "total": 97}
+{"kind": "clock", "wall": 1792274767.013, "sim": 14.0, "rtf": 0.928}
+{"kind": "pose", "wall": 1792274767.107, "sim": 14.081, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274767.211, "sim": 14.18, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274767.314, "sim": 14.278, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274767.416, "sim": 14.379, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274767.518, "sim": 14.464, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274767.622, "sim": 14.558, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274767.725, "sim": 14.649000000000001, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274767.83, "sim": 14.737, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274767.934, "sim": 14.832, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.037, "sim": 14.928, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274768.114, "sim": 15.0, "topic": "/scan", "hz": 9.2, "window_s": 5.0, "total": 107}
+{"kind": "clock", "wall": 1792274768.114, "sim": 15.0, "rtf": 0.908}
+{"kind": "pose", "wall": 1792274768.139, "sim": 15.019, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.241, "sim": 15.11, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.344, "sim": 15.194, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.446, "sim": 15.296, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.548, "sim": 15.398, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.65, "sim": 15.5, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.754, "sim": 15.6, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.856, "sim": 15.699, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274768.958, "sim": 15.797, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.06, "sim": 15.896, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.162, "sim": 15.998, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274769.163, "sim": 16.0, "topic": "/scan", "hz": 9.2, "window_s": 5.0, "total": 117}
+{"kind": "clock", "wall": 1792274769.163, "sim": 16.0, "rtf": 0.953}
+{"kind": "pose", "wall": 1792274769.264, "sim": 16.1, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.366, "sim": 16.2, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.47, "sim": 16.302, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.572, "sim": 16.392, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.674, "sim": 16.492, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.778, "sim": 16.593, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.881, "sim": 16.695, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274769.983, "sim": 16.786, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274770.085, "sim": 16.886, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274770.194, "sim": 16.985, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "rate", "wall": 1792274770.209, "sim": 17.0, "topic": "/scan", "hz": 9.2, "window_s": 5.0, "total": 127}
+{"kind": "clock", "wall": 1792274770.209, "sim": 17.0, "rtf": 0.957}
+{"kind": "pose", "wall": 1792274770.299, "sim": 17.085, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274770.407, "sim": 17.184, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274770.509, "sim": 17.285, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274770.616, "sim": 17.386, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274770.72, "sim": 17.488, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274770.823, "sim": 17.579, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274770.929, "sim": 17.675, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "pose", "wall": 1792274771.032, "sim": 17.776, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "value", "wall": 1792274771.132, "sim": 17.875, "topic": "/cmd_vel", "field": "linear.x", "value": 0.03764249011874199}
+{"kind": "pose", "wall": 1792274771.136, "sim": 17.879, "model": "ugv1", "x": 10.0, "y": 3.0, "z": 0.11, "yaw": -1.5708}
+{"kind": "value", "wall": 1792274771.191, "sim": 17.934, "topic": "/cmd_vel", "field": "linear.x", "value": 0.06093345209956169}
+{"kind": "value", "wall": 1792274771.231, "sim": 17.973, "topic": "/cmd_vel", "field": "linear.x", "value": 0.08596399426460266}
+{"kind": "pose", "wall": 1792274771.238, "sim": 17.979, "model": "ugv1", "x": 10.0, "y": 2.9955, "z": 0.11, "yaw": -1.5713}
+{"kind": "rate", "wall": 1792274771.258, "sim": 18.0, "topic": "/scan", "hz": 9.4, "window_s": 5.0, "total": 137}
+{"kind": "clock", "wall": 1792274771.258, "sim": 18.0, "rtf": 0.953}
+{"kind": "value", "wall": 1792274771.301, "sim": 18.043, "topic": "/cmd_vel", "field": "linear.x", "value": 0.10006897896528244}
+{"kind": "value", "wall": 1792274771.331, "sim": 18.073, "topic": "/cmd_vel", "field": "linear.x", "value": 0.12979547679424286}
+{"kind": "pose", "wall": 1792274771.34, "sim": 18.081, "model": "ugv1", "x": 10.0, "y": 2.9863, "z": 0.11, "yaw": -1.5735}
+{"kind": "value", "wall": 1792274771.381, "sim": 18.119, "topic": "/cmd_vel", "field": "linear.x", "value": 0.14461791515350342}
+{"kind": "value", "wall": 1792274771.441, "sim": 18.18, "topic": "/cmd_vel", "field": "linear.x", "value": 0.17084933817386627}
+{"kind": "pose", "wall": 1792274771.443, "sim": 18.181, "model": "ugv1", "x": 9.9999, "y": 2.9725, "z": 0.11, "yaw": -1.5759}
+{"kind": "value", "wall": 1792274771.481, "sim": 18.219, "topic": "/cmd_vel", "field": "linear.x", "value": 0.183288112282753}
+{"kind": "value", "wall": 1792274771.541, "sim": 18.277, "topic": "/cmd_vel", "field": "linear.x", "value": 0.20612792670726776}
+{"kind": "pose", "wall": 1792274771.545, "sim": 18.28, "model": "ugv1", "x": 9.9998, "y": 2.955, "z": 0.11, "yaw": -1.5785}
+{"kind": "value", "wall": 1792274771.581, "sim": 18.313, "topic": "/cmd_vel", "field": "linear.x", "value": 0.22144871950149536}
+{"kind": "value", "wall": 1792274771.641, "sim": 18.371, "topic": "/cmd_vel", "field": "linear.x", "value": 0.2372087985277176}
+{"kind": "pose", "wall": 1792274771.648, "sim": 18.377, "model": "ugv1", "x": 9.9996, "y": 2.9341, "z": 0.11, "yaw": -1.5815}
+{"kind": "value", "wall": 1792274771.681, "sim": 18.411, "topic": "/cmd_vel", "field": "linear.x", "value": 0.24819155037403107}
+{"kind": "value", "wall": 1792274771.741, "sim": 18.471, "topic": "/cmd_vel", "field": "linear.x", "value": 0.26355695724487305}
+{"kind": "pose", "wall": 1792274771.752, "sim": 18.481, "model": "ugv1", "x": 9.9993, "y": 2.9086, "z": 0.11, "yaw": -1.5843}
+{"kind": "value", "wall": 1792274771.781, "sim": 18.511, "topic": "/cmd_vel", "field": "linear.x", "value": 0.27355462312698364}
+{"kind": "value", "wall": 1792274771.841, "sim": 18.57, "topic": "/cmd_vel", "field": "linear.x", "value": 0.29155638813972473}
+{"kind": "pose", "wall": 1792274771.854, "sim": 18.582, "model": "ugv1", "x": 9.9989, "y": 2.8812, "z": 0.11, "yaw": -1.5861}
+{"kind": "value", "wall": 1792274771.881, "sim": 18.61, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3010236322879791}
+{"kind": "value", "wall": 1792274771.931, "sim": 18.658, "topic": "/cmd_vel", "field": "linear.x", "value": 0.31631937623023987}
+{"kind": "pose", "wall": 1792274771.959, "sim": 18.686, "model": "ugv1", "x": 9.9984, "y": 2.8498, "z": 0.11, "yaw": -1.587}
+{"kind": "value", "wall": 1792274771.991, "sim": 18.716, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3253491520881653}
+{"kind": "value", "wall": 1792274772.031, "sim": 18.755, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3379465341567993}
+{"kind": "pose", "wall": 1792274772.061, "sim": 18.784, "model": "ugv1", "x": 9.9979, "y": 2.8179, "z": 0.11, "yaw": -1.5872}
+{"kind": "value", "wall": 1792274772.091, "sim": 18.815, "topic": "/cmd_vel", "field": "linear.x", "value": 0.34740275144577026}
+{"kind": "value", "wall": 1792274772.131, "sim": 18.855, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3585118055343628}
+{"kind": "pose", "wall": 1792274772.164, "sim": 18.887, "model": "ugv1", "x": 9.9973, "y": 2.7821, "z": 0.11, "yaw": -1.5864}
+{"kind": "value", "wall": 1792274772.192, "sim": 18.915, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3701384365558624}
+{"kind": "value", "wall": 1792274772.232, "sim": 18.952, "topic": "/cmd_vel", "field": "linear.x", "value": 0.37898409366607666}
+{"kind": "pose", "wall": 1792274772.268, "sim": 18.984, "model": "ugv1", "x": 9.9968, "y": 2.7463, "z": 0.11, "yaw": -1.5856}
+{"kind": "value", "wall": 1792274772.281, "sim": 18.998, "topic": "/cmd_vel", "field": "linear.x", "value": 0.39006882905960083}
+{"kind": "rate", "wall": 1792274772.283, "sim": 19.0, "topic": "/scan", "hz": 9.4, "window_s": 5.0, "total": 147}
+{"kind": "clock", "wall": 1792274772.283, "sim": 19.0, "rtf": 0.976}
+{"kind": "value", "wall": 1792274772.341, "sim": 19.056, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4021369218826294}
+{"kind": "pose", "wall": 1792274772.373, "sim": 19.084, "model": "ugv1", "x": 9.9962, "y": 2.7072, "z": 0.11, "yaw": -1.5853}
+{"kind": "value", "wall": 1792274772.381, "sim": 19.093, "topic": "/cmd_vel", "field": "linear.x", "value": 0.40520262718200684}
+{"kind": "value", "wall": 1792274772.442, "sim": 19.15, "topic": "/cmd_vel", "field": "linear.x", "value": 0.41519924998283386}
+{"kind": "pose", "wall": 1792274772.474, "sim": 19.183, "model": "ugv1", "x": 9.9956, "y": 2.6668, "z": 0.11, "yaw": -1.5844}
+{"kind": "value", "wall": 1792274772.481, "sim": 19.191, "topic": "/cmd_vel", "field": "linear.x", "value": 0.42127519845962524}
+{"kind": "value", "wall": 1792274772.541, "sim": 19.251, "topic": "/cmd_vel", "field": "linear.x", "value": 0.42771410942077637}
+{"kind": "pose", "wall": 1792274772.576, "sim": 19.284, "model": "ugv1", "x": 9.9951, "y": 2.6241, "z": 0.11, "yaw": -1.583}
+{"kind": "value", "wall": 1792274772.581, "sim": 19.29, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4350615441799164}
+{"kind": "value", "wall": 1792274772.631, "sim": 19.339, "topic": "/cmd_vel", "field": "linear.x", "value": 0.44097504019737244}
+{"kind": "pose", "wall": 1792274772.679, "sim": 19.385, "model": "ugv1", "x": 9.9946, "y": 2.58, "z": 0.11, "yaw": -1.5805}
+{"kind": "value", "wall": 1792274772.691, "sim": 19.398, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4483547508716583}
+{"kind": "value", "wall": 1792274772.731, "sim": 19.435, "topic": "/cmd_vel", "field": "linear.x", "value": 0.45780056715011597}
+{"kind": "pose", "wall": 1792274772.782, "sim": 19.483, "model": "ugv1", "x": 9.9942, "y": 2.5358, "z": 0.11, "yaw": -1.5766}
+{"kind": "value", "wall": 1792274772.791, "sim": 19.494, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4600505828857422}
+{"kind": "value", "wall": 1792274772.831, "sim": 19.533, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4685824513435364}
+{"kind": "value", "wall": 1792274772.881, "sim": 19.578, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4757389724254608}
+{"kind": "pose", "wall": 1792274772.885, "sim": 19.581, "model": "ugv1", "x": 9.9941, "y": 2.4903, "z": 0.11, "yaw": -1.5723}
+{"kind": "value", "wall": 1792274772.941, "sim": 19.635, "topic": "/cmd_vel", "field": "linear.x", "value": 0.48467347025871277}
+{"kind": "value", "wall": 1792274772.981, "sim": 19.675, "topic": "/cmd_vel", "field": "linear.x", "value": 0.48973655700683594}
+{"kind": "pose", "wall": 1792274772.987, "sim": 19.679, "model": "ugv1", "x": 9.9941, "y": 2.4433, "z": 0.11, "yaw": -1.5673}
+{"kind": "value", "wall": 1792274773.041, "sim": 19.732, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4993627965450287}
+{"kind": "value", "wall": 1792274773.081, "sim": 19.772, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5051470398902893}
+{"kind": "pose", "wall": 1792274773.089, "sim": 19.78, "model": "ugv1", "x": 9.9944, "y": 2.3934, "z": 0.11, "yaw": -1.5622}
+{"kind": "value", "wall": 1792274773.141, "sim": 19.83, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5110307335853577}
+{"kind": "value", "wall": 1792274773.192, "sim": 19.876, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5140644907951355}
+{"kind": "pose", "wall": 1792274773.192, "sim": 19.877, "model": "ugv1", "x": 9.995, "y": 2.3442, "z": 0.11, "yaw": -1.5569}
+{"kind": "value", "wall": 1792274773.231, "sim": 19.918, "topic": "/cmd_vel", "field": "linear.x", "value": 0.517642617225647}
+{"kind": "value", "wall": 1792274773.291, "sim": 19.972, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5213271975517273}
+{"kind": "pose", "wall": 1792274773.293, "sim": 19.974, "model": "ugv1", "x": 9.9958, "y": 2.2941, "z": 0.11, "yaw": -1.5524}
+{"kind": "rate", "wall": 1792274773.318, "sim": 20.0, "topic": "/scan", "hz": 9.6, "window_s": 5.0, "total": 157}
+{"kind": "clock", "wall": 1792274773.319, "sim": 20.0, "rtf": 0.965}
+{"kind": "value", "wall": 1792274773.341, "sim": 20.011, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5244814157485962}
+{"kind": "value", "wall": 1792274773.381, "sim": 20.051, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5245513916015625}
+{"kind": "pose", "wall": 1792274773.398, "sim": 20.068, "model": "ugv1", "x": 9.9968, "y": 2.2449, "z": 0.11, "yaw": -1.55}
+{"kind": "value", "wall": 1792274773.431, "sim": 20.099, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5263932943344116}
+{"kind": "value", "wall": 1792274773.491, "sim": 20.159, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5269620418548584}
+{"kind": "pose", "wall": 1792274773.502, "sim": 20.169, "model": "ugv1", "x": 9.9979, "y": 2.1918, "z": 0.11, "yaw": -1.5482}
+{"kind": "value", "wall": 1792274773.531, "sim": 20.199, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5281832218170166}
+{"kind": "value", "wall": 1792274773.581, "sim": 20.237, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5312451720237732}
+{"kind": "pose", "wall": 1792274773.613, "sim": 20.268, "model": "ugv1", "x": 9.9991, "y": 2.1395, "z": 0.11, "yaw": -1.5471}
+{"kind": "value", "wall": 1792274773.641, "sim": 20.296, "topic": "/cmd_vel", "field": "linear.x", "value": 0.530881404876709}
+{"kind": "value", "wall": 1792274773.681, "sim": 20.333, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5321817994117737}
+{"kind": "pose", "wall": 1792274773.717, "sim": 20.367, "model": "ugv1", "x": 10.0004, "y": 2.0869, "z": 0.11, "yaw": -1.5461}
+{"kind": "value", "wall": 1792274773.741, "sim": 20.392, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5316573977470398}
+{"kind": "value", "wall": 1792274773.791, "sim": 20.433, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5303604602813721}
+{"kind": "pose", "wall": 1792274773.829, "sim": 20.469, "model": "ugv1", "x": 10.0018, "y": 2.0327, "z": 0.11, "yaw": -1.5443}
+{"kind": "value", "wall": 1792274773.831, "sim": 20.472, "topic": "/cmd_vel", "field": "linear.x", "value": 0.529801070690155}
+{"kind": "value", "wall": 1792274773.891, "sim": 20.532, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5330029129981995}
+{"kind": "pose", "wall": 1792274773.931, "sim": 20.571, "model": "ugv1", "x": 10.0033, "y": 1.9786, "z": 0.11, "yaw": -1.5415}
+{"kind": "value", "wall": 1792274773.931, "sim": 20.572, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5302894711494446}
+{"kind": "value", "wall": 1792274773.981, "sim": 20.615, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5383158922195435}
+{"kind": "pose", "wall": 1792274774.037, "sim": 20.667, "model": "ugv1", "x": 10.0049, "y": 1.9273, "z": 0.11, "yaw": -1.5384}
+{"kind": "value", "wall": 1792274774.041, "sim": 20.673, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5399570465087891}
+{"kind": "value", "wall": 1792274774.081, "sim": 20.713, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5413649678230286}
+{"kind": "pose", "wall": 1792274774.137, "sim": 20.769, "model": "ugv1", "x": 10.0068, "y": 1.8722, "z": 0.11, "yaw": -1.5351}
+{"kind": "value", "wall": 1792274774.141, "sim": 20.773, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5440263748168945}
+{"kind": "value", "wall": 1792274774.192, "sim": 20.816, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5498092174530029}
+{"kind": "value", "wall": 1792274774.231, "sim": 20.856, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5502499341964722}
+{"kind": "pose", "wall": 1792274774.244, "sim": 20.866, "model": "ugv1", "x": 10.0087, "y": 1.8192, "z": 0.11, "yaw": -1.5328}
+{"kind": "value", "wall": 1792274774.291, "sim": 20.912, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5507533550262451}
+{"kind": "value", "wall": 1792274774.341, "sim": 20.959, "topic": "/cmd_vel", "field": "linear.x", "value": 0.550029456615448}
+{"kind": "pose", "wall": 1792274774.347, "sim": 20.964, "model": "ugv1", "x": 10.0108, "y": 1.7653, "z": 0.11, "yaw": -1.5326}
+{"kind": "value", "wall": 1792274774.381, "sim": 20.999, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5419850945472717}
+{"kind": "rate", "wall": 1792274774.382, "sim": 21.0, "topic": "/scan", "hz": 9.4, "window_s": 5.0, "total": 167}
+{"kind": "clock", "wall": 1792274774.383, "sim": 21.0, "rtf": 0.94}
+{"kind": "value", "wall": 1792274774.441, "sim": 21.056, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5461957454681396}
+{"kind": "pose", "wall": 1792274774.449, "sim": 21.064, "model": "ugv1", "x": 10.0128, "y": 1.7108, "z": 0.11, "yaw": -1.533}
+{"kind": "value", "wall": 1792274774.481, "sim": 21.096, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5425799489021301}
+{"kind": "value", "wall": 1792274774.541, "sim": 21.156, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5447869896888733}
+{"kind": "pose", "wall": 1792274774.552, "sim": 21.167, "model": "ugv1", "x": 10.0149, "y": 1.6548, "z": 0.11, "yaw": -1.5342}
+{"kind": "value", "wall": 1792274774.581, "sim": 21.196, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5442173480987549}
+{"kind": "value", "wall": 1792274774.641, "sim": 21.255, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5446599125862122}
+{"kind": "pose", "wall": 1792274774.655, "sim": 21.265, "model": "ugv1", "x": 10.0168, "y": 1.6015, "z": 0.11, "yaw": -1.536}
+{"kind": "value", "wall": 1792274774.681, "sim": 21.292, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5460765361785889}
+{"kind": "value", "wall": 1792274774.731, "sim": 21.342, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5442695021629333}
+{"kind": "pose", "wall": 1792274774.757, "sim": 21.368, "model": "ugv1", "x": 10.0187, "y": 1.5454, "z": 0.11, "yaw": -1.538}
+{"kind": "value", "wall": 1792274774.781, "sim": 21.391, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5439522862434387}
+{"kind": "value", "wall": 1792274774.831, "sim": 21.438, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5464944839477539}
+{"kind": "pose", "wall": 1792274774.86, "sim": 21.464, "model": "ugv1", "x": 10.0204, "y": 1.4931, "z": 0.11, "yaw": -1.5413}
+{"kind": "value", "wall": 1792274774.891, "sim": 21.496, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5478994846343994}
+{"kind": "value", "wall": 1792274774.932, "sim": 21.532, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5525201559066772}
+{"kind": "pose", "wall": 1792274774.963, "sim": 21.563, "model": "ugv1", "x": 10.0219, "y": 1.4388, "z": 0.11, "yaw": -1.5459}
+{"kind": "value", "wall": 1792274774.991, "sim": 21.591, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5483230352401733}
+{"kind": "value", "wall": 1792274775.031, "sim": 21.63, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5535138845443726}
+{"kind": "pose", "wall": 1792274775.066, "sim": 21.663, "model": "ugv1", "x": 10.0231, "y": 1.3837, "z": 0.11, "yaw": -1.5505}
+{"kind": "value", "wall": 1792274775.081, "sim": 21.679, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5470706820487976}
+{"kind": "value", "wall": 1792274775.141, "sim": 21.737, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5483111143112183}
+{"kind": "pose", "wall": 1792274775.167, "sim": 21.763, "model": "ugv1", "x": 10.0241, "y": 1.3289, "z": 0.11, "yaw": -1.5554}
+{"kind": "value", "wall": 1792274775.181, "sim": 21.777, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5458974838256836}
+{"kind": "value", "wall": 1792274775.243, "sim": 21.837, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5460785627365112}
+{"kind": "pose", "wall": 1792274775.271, "sim": 21.863, "model": "ugv1", "x": 10.0248, "y": 1.2742, "z": 0.11, "yaw": -1.5598}
+{"kind": "value", "wall": 1792274775.281, "sim": 21.874, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5512306094169617}
+{"kind": "value", "wall": 1792274775.341, "sim": 21.931, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5516412258148193}
+{"kind": "pose", "wall": 1792274775.373, "sim": 21.963, "model": "ugv1", "x": 10.0253, "y": 1.2192, "z": 0.11, "yaw": -1.5614}
+{"kind": "value", "wall": 1792274775.381, "sim": 21.972, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5525738596916199}
+{"kind": "rate", "wall": 1792274775.409, "sim": 22.0, "topic": "/scan", "hz": 9.6, "window_s": 5.0, "total": 177}
+{"kind": "clock", "wall": 1792274775.409, "sim": 22.0, "rtf": 0.974}
+{"kind": "value", "wall": 1792274775.442, "sim": 22.032, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5531057119369507}
+{"kind": "pose", "wall": 1792274775.476, "sim": 22.063, "model": "ugv1", "x": 10.0259, "y": 1.1639, "z": 0.11, "yaw": -1.5612}
+{"kind": "value", "wall": 1792274775.491, "sim": 22.079, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5541378259658813}
+{"kind": "value", "wall": 1792274775.531, "sim": 22.117, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5483683347702026}
+{"kind": "pose", "wall": 1792274775.578, "sim": 22.16, "model": "ugv1", "x": 10.0264, "y": 1.1104, "z": 0.11, "yaw": -1.5597}
+{"kind": "value", "wall": 1792274775.591, "sim": 22.174, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5521359443664551}
+{"kind": "value", "wall": 1792274775.631, "sim": 22.211, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5514048933982849}
+{"kind": "pose", "wall": 1792274775.681, "sim": 22.258, "model": "ugv1", "x": 10.0271, "y": 1.0564, "z": 0.11, "yaw": -1.5581}
+{"kind": "value", "wall": 1792274775.701, "sim": 22.279, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5552749037742615}
+{"kind": "value", "wall": 1792274775.741, "sim": 22.317, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5538507103919983}
+{"kind": "value", "wall": 1792274775.781, "sim": 22.354, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5575912594795227}
+{"kind": "pose", "wall": 1792274775.783, "sim": 22.356, "model": "ugv1", "x": 10.0278, "y": 1.0021, "z": 0.11, "yaw": -1.5569}
+{"kind": "value", "wall": 1792274775.841, "sim": 22.413, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5564508438110352}
+{"kind": "value", "wall": 1792274775.881, "sim": 22.452, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5563080906867981}
+{"kind": "pose", "wall": 1792274775.885, "sim": 22.457, "model": "ugv1", "x": 10.0286, "y": 0.9459, "z": 0.11, "yaw": -1.5558}
+{"kind": "value", "wall": 1792274775.941, "sim": 22.513, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5541813969612122}
+{"kind": "value", "wall": 1792274775.981, "sim": 22.551, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5547295212745667}
+{"kind": "pose", "wall": 1792274775.988, "sim": 22.557, "model": "ugv1", "x": 10.0295, "y": 0.8903, "z": 0.11, "yaw": -1.5545}
+{"kind": "value", "wall": 1792274776.041, "sim": 22.611, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5506165623664856}
+{"kind": "pose", "wall": 1792274776.09, "sim": 22.658, "model": "ugv1", "x": 10.0304, "y": 0.8345, "z": 0.11, "yaw": -1.5535}
+{"kind": "value", "wall": 1792274776.091, "sim": 22.66, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5541804432868958}
+{"kind": "value", "wall": 1792274776.131, "sim": 22.7, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5515466928482056}
+{"kind": "value", "wall": 1792274776.191, "sim": 22.759, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5530215501785278}
+{"kind": "pose", "wall": 1792274776.192, "sim": 22.759, "model": "ugv1", "x": 10.0314, "y": 0.7787, "z": 0.11, "yaw": -1.5524}
+{"kind": "value", "wall": 1792274776.231, "sim": 22.795, "topic": "/cmd_vel", "field": "linear.x", "value": 0.552943229675293}
+{"kind": "value", "wall": 1792274776.291, "sim": 22.85, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5548396706581116}
+{"kind": "pose", "wall": 1792274776.295, "sim": 22.854, "model": "ugv1", "x": 10.0324, "y": 0.7262, "z": 0.11, "yaw": -1.5522}
+{"kind": "value", "wall": 1792274776.331, "sim": 22.891, "topic": "/cmd_vel", "field": "linear.x", "value": 0.555443525314331}
+{"kind": "value", "wall": 1792274776.381, "sim": 22.935, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5499712228775024}
+{"kind": "pose", "wall": 1792274776.399, "sim": 22.952, "model": "ugv1", "x": 10.0334, "y": 0.6719, "z": 0.11, "yaw": -1.5525}
+{"kind": "value", "wall": 1792274776.441, "sim": 22.995, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5480513572692871}
+{"kind": "rate", "wall": 1792274776.446, "sim": 23.0, "topic": "/scan", "hz": 9.6, "window_s": 5.0, "total": 187}
+{"kind": "clock", "wall": 1792274776.446, "sim": 23.0, "rtf": 0.965}
+{"kind": "value", "wall": 1792274776.481, "sim": 23.035, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5487114191055298}
+{"kind": "pose", "wall": 1792274776.501, "sim": 23.053, "model": "ugv1", "x": 10.0344, "y": 0.6164, "z": 0.11, "yaw": -1.553}
+{"kind": "value", "wall": 1792274776.541, "sim": 23.094, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5476403832435608}
+{"kind": "value", "wall": 1792274776.581, "sim": 23.132, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5448363423347473}
+{"kind": "pose", "wall": 1792274776.603, "sim": 23.154, "model": "ugv1", "x": 10.0353, "y": 0.5611, "z": 0.11, "yaw": -1.5538}
+{"kind": "value", "wall": 1792274776.641, "sim": 23.192, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5437805652618408}
+{"kind": "value", "wall": 1792274776.681, "sim": 23.232, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5403714179992676}
+{"kind": "pose", "wall": 1792274776.706, "sim": 23.256, "model": "ugv1", "x": 10.0363, "y": 0.5057, "z": 0.11, "yaw": -1.5547}
+{"kind": "value", "wall": 1792274776.741, "sim": 23.293, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5358951091766357}
+{"kind": "value", "wall": 1792274776.781, "sim": 23.318, "topic": "/cmd_vel", "field": "linear.x", "value": 0.532807469367981}
+{"kind": "pose", "wall": 1792274776.815, "sim": 23.352, "model": "ugv1", "x": 10.0371, "y": 0.4542, "z": 0.11, "yaw": -1.5556}
+{"kind": "value", "wall": 1792274776.842, "sim": 23.376, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5309560298919678}
+{"kind": "value", "wall": 1792274776.881, "sim": 23.418, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5251026153564453}
+{"kind": "pose", "wall": 1792274776.92, "sim": 23.454, "model": "ugv1", "x": 10.0379, "y": 0.4002, "z": 0.11, "yaw": -1.5571}
+{"kind": "value", "wall": 1792274776.941, "sim": 23.477, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5172989368438721}
+{"kind": "value", "wall": 1792274776.991, "sim": 23.515, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5135775804519653}
+{"kind": "pose", "wall": 1792274777.027, "sim": 23.551, "model": "ugv1", "x": 10.0385, "y": 0.35, "z": 0.11, "yaw": -1.5584}
+{"kind": "value", "wall": 1792274777.031, "sim": 23.555, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5165941119194031}
+{"kind": "value", "wall": 1792274777.091, "sim": 23.615, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5143681764602661}
+{"kind": "pose", "wall": 1792274777.13, "sim": 23.651, "model": "ugv1", "x": 10.0391, "y": 0.2984, "z": 0.11, "yaw": -1.5592}
+{"kind": "value", "wall": 1792274777.131, "sim": 23.653, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5159397125244141}
+{"kind": "value", "wall": 1792274777.201, "sim": 23.714, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5190855860710144}
+{"kind": "pose", "wall": 1792274777.238, "sim": 23.751, "model": "ugv1", "x": 10.0397, "y": 0.2467, "z": 0.11, "yaw": -1.5607}
+{"kind": "value", "wall": 1792274777.241, "sim": 23.754, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5207564234733582}
+{"kind": "value", "wall": 1792274777.281, "sim": 23.792, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5198312401771545}
+{"kind": "pose", "wall": 1792274777.341, "sim": 23.849, "model": "ugv1", "x": 10.0402, "y": 0.1957, "z": 0.11, "yaw": -1.5624}
+{"kind": "value", "wall": 1792274777.342, "sim": 23.85, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5208956599235535}
+{"kind": "value", "wall": 1792274777.381, "sim": 23.89, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5189464092254639}
+{"kind": "value", "wall": 1792274777.431, "sim": 23.934, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5204391479492188}
+{"kind": "pose", "wall": 1792274777.443, "sim": 23.946, "model": "ugv1", "x": 10.0406, "y": 0.1453, "z": 0.11, "yaw": -1.5612}
+{"kind": "value", "wall": 1792274777.492, "sim": 23.993, "topic": "/cmd_vel", "field": "linear.x", "value": 0.518322765827179}
+{"kind": "rate", "wall": 1792274777.498, "sim": 24.0, "topic": "/scan", "hz": 9.4, "window_s": 5.0, "total": 197}
+{"kind": "clock", "wall": 1792274777.498, "sim": 24.0, "rtf": 0.95}
+{"kind": "value", "wall": 1792274777.531, "sim": 24.032, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5203372240066528}
+{"kind": "pose", "wall": 1792274777.546, "sim": 24.044, "model": "ugv1", "x": 10.0411, "y": 0.0944, "z": 0.11, "yaw": -1.5589}
+{"kind": "value", "wall": 1792274777.581, "sim": 24.079, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5224251747131348}
+{"kind": "value", "wall": 1792274777.641, "sim": 24.136, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5203980207443237}
+{"kind": "pose", "wall": 1792274777.649, "sim": 24.143, "model": "ugv1", "x": 10.0418, "y": 0.0428, "z": 0.11, "yaw": -1.5563}
+{"kind": "value", "wall": 1792274777.681, "sim": 24.173, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5204211473464966}
+{"kind": "value", "wall": 1792274777.742, "sim": 24.231, "topic": "/cmd_vel", "field": "linear.x", "value": 0.515721321105957}
+{"kind": "pose", "wall": 1792274777.752, "sim": 24.241, "model": "ugv1", "x": 10.0426, "y": -0.0082, "z": 0.11, "yaw": -1.5535}
+{"kind": "value", "wall": 1792274777.781, "sim": 24.271, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5128845572471619}
+{"kind": "value", "wall": 1792274777.831, "sim": 24.317, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5126643180847168}
+{"kind": "pose", "wall": 1792274777.855, "sim": 24.341, "model": "ugv1", "x": 10.0436, "y": -0.0596, "z": 0.11, "yaw": -1.5508}
+{"kind": "value", "wall": 1792274777.891, "sim": 24.374, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5046752691268921}
+{"kind": "value", "wall": 1792274777.932, "sim": 24.414, "topic": "/cmd_vel", "field": "linear.x", "value": 0.5051848292350769}
+{"kind": "pose", "wall": 1792274777.958, "sim": 24.439, "model": "ugv1", "x": 10.0446, "y": -0.1093, "z": 0.11, "yaw": -1.5491}
+{"kind": "value", "wall": 1792274777.991, "sim": 24.473, "topic": "/cmd_vel", "field": "linear.x", "value": 0.49882832169532776}
+{"kind": "value", "wall": 1792274778.031, "sim": 24.513, "topic": "/cmd_vel", "field": "linear.x", "value": 0.49700284004211426}
+{"kind": "pose", "wall": 1792274778.061, "sim": 24.542, "model": "ugv1", "x": 10.0458, "y": -0.1608, "z": 0.11, "yaw": -1.549}
+{"kind": "value", "wall": 1792274778.091, "sim": 24.572, "topic": "/cmd_vel", "field": "linear.x", "value": 0.49173247814178467}
+{"kind": "value", "wall": 1792274778.131, "sim": 24.612, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4872179627418518}
+{"kind": "pose", "wall": 1792274778.164, "sim": 24.642, "model": "ugv1", "x": 10.0468, "y": -0.21, "z": 0.11, "yaw": -1.5494}
+{"kind": "value", "wall": 1792274778.181, "sim": 24.659, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4819439649581909}
+{"kind": "value", "wall": 1792274778.241, "sim": 24.715, "topic": "/cmd_vel", "field": "linear.x", "value": 0.47747427225112915}
+{"kind": "pose", "wall": 1792274778.268, "sim": 24.741, "model": "ugv1", "x": 10.0478, "y": -0.2577, "z": 0.11, "yaw": -1.5499}
+{"kind": "value", "wall": 1792274778.281, "sim": 24.754, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4675135910511017}
+{"kind": "value", "wall": 1792274778.341, "sim": 24.812, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4625414311885834}
+{"kind": "pose", "wall": 1792274778.372, "sim": 24.837, "model": "ugv1", "x": 10.0488, "y": -0.3026, "z": 0.11, "yaw": -1.5506}
+{"kind": "value", "wall": 1792274778.391, "sim": 24.856, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4562227725982666}
+{"kind": "value", "wall": 1792274778.431, "sim": 24.893, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4501032829284668}
+{"kind": "pose", "wall": 1792274778.475, "sim": 24.936, "model": "ugv1", "x": 10.0496, "y": -0.3477, "z": 0.11, "yaw": -1.5518}
+{"kind": "value", "wall": 1792274778.491, "sim": 24.953, "topic": "/cmd_vel", "field": "linear.x", "value": 0.443167120218277}
+{"kind": "value", "wall": 1792274778.531, "sim": 24.992, "topic": "/cmd_vel", "field": "linear.x", "value": 0.43467554450035095}
+{"kind": "rate", "wall": 1792274778.538, "sim": 25.0, "topic": "/scan", "hz": 9.6, "window_s": 5.0, "total": 207}
+{"kind": "clock", "wall": 1792274778.538, "sim": 25.0, "rtf": 0.961}
+{"kind": "pose", "wall": 1792274778.578, "sim": 25.037, "model": "ugv1", "x": 10.0504, "y": -0.3922, "z": 0.11, "yaw": -1.5541}
+{"kind": "value", "wall": 1792274778.591, "sim": 25.05, "topic": "/cmd_vel", "field": "linear.x", "value": 0.42669448256492615}
+{"kind": "value", "wall": 1792274778.641, "sim": 25.098, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4215214252471924}
+{"kind": "pose", "wall": 1792274778.68, "sim": 25.137, "model": "ugv1", "x": 10.0511, "y": -0.4348, "z": 0.11, "yaw": -1.5566}
+{"kind": "value", "wall": 1792274778.681, "sim": 25.138, "topic": "/cmd_vel", "field": "linear.x", "value": 0.41396257281303406}
+{"kind": "value", "wall": 1792274778.741, "sim": 25.198, "topic": "/cmd_vel", "field": "linear.x", "value": 0.4083322286605835}
+{"kind": "value", "wall": 1792274778.781, "sim": 25.237, "topic": "/cmd_vel", "field": "linear.x", "value": 0.40352004766464233}
+{"kind": "pose", "wall": 1792274778.783, "sim": 25.239, "model": "ugv1", "x": 10.0516, "y": -0.4769, "z": 0.11, "yaw": -1.5593}
+{"kind": "value", "wall": 1792274778.841, "sim": 25.294, "topic": "/cmd_vel", "field": "linear.x", "value": 0.39502543210983276}
+{"kind": "value", "wall": 1792274778.881, "sim": 25.334, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3867775499820709}
+{"kind": "pose", "wall": 1792274778.887, "sim": 25.339, "model": "ugv1", "x": 10.052, "y": -0.5168, "z": 0.11, "yaw": -1.5621}
+{"kind": "value", "wall": 1792274778.941, "sim": 25.393, "topic": "/cmd_vel", "field": "linear.x", "value": 0.38761740922927856}
+{"kind": "pose", "wall": 1792274778.989, "sim": 25.432, "model": "ugv1", "x": 10.0523, "y": -0.5528, "z": 0.11, "yaw": -1.5647}
+{"kind": "value", "wall": 1792274778.992, "sim": 25.435, "topic": "/cmd_vel", "field": "linear.x", "value": 0.38211628794670105}
+{"kind": "value", "wall": 1792274779.031, "sim": 25.474, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3791515529155731}
+{"kind": "value", "wall": 1792274779.091, "sim": 25.534, "topic": "/cmd_vel", "field": "linear.x", "value": 0.37232643365859985}
+{"kind": "pose", "wall": 1792274779.092, "sim": 25.535, "model": "ugv1", "x": 10.0525, "y": -0.5921, "z": 0.11, "yaw": -1.568}
+{"kind": "value", "wall": 1792274779.131, "sim": 25.574, "topic": "/cmd_vel", "field": "linear.x", "value": 0.36313968896865845}
+{"kind": "value", "wall": 1792274779.191, "sim": 25.634, "topic": "/cmd_vel", "field": "linear.x", "value": 0.36067110300064087}
+{"kind": "pose", "wall": 1792274779.195, "sim": 25.638, "model": "ugv1", "x": 10.0525, "y": -0.6299, "z": 0.11, "yaw": -1.5706}
+{"kind": "value", "wall": 1792274779.231, "sim": 25.674, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3519897162914276}
+{"kind": "value", "wall": 1792274779.291, "sim": 25.733, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3435145914554596}
+{"kind": "pose", "wall": 1792274779.298, "sim": 25.74, "model": "ugv1", "x": 10.0525, "y": -0.6661, "z": 0.11, "yaw": -1.5726}
+{"kind": "value", "wall": 1792274779.331, "sim": 25.771, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3335683345794678}
+{"kind": "value", "wall": 1792274779.391, "sim": 25.831, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3271764814853668}
+{"kind": "pose", "wall": 1792274779.401, "sim": 25.84, "model": "ugv1", "x": 10.0524, "y": -0.6997, "z": 0.11, "yaw": -1.5747}
+{"kind": "value", "wall": 1792274779.431, "sim": 25.871, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3194800615310669}
+{"kind": "value", "wall": 1792274779.491, "sim": 25.93, "topic": "/cmd_vel", "field": "linear.x", "value": 0.31090041995048523}
+{"kind": "pose", "wall": 1792274779.503, "sim": 25.941, "model": "ugv1", "x": 10.0523, "y": -0.7322, "z": 0.11, "yaw": -1.5759}
+{"kind": "value", "wall": 1792274779.531, "sim": 25.97, "topic": "/cmd_vel", "field": "linear.x", "value": 0.3011925518512726}
+{"kind": "rate", "wall": 1792274779.561, "sim": 26.0, "topic": "/scan", "hz": 9.6, "window_s": 5.0, "total": 217}
+{"kind": "clock", "wall": 1792274779.561, "sim": 26.0, "rtf": 0.978}
+{"kind": "value", "wall": 1792274779.581, "sim": 26.016, "topic": "/cmd_vel", "field": "linear.x", "value": 0.2948019802570343}
+{"kind": "pose", "wall": 1792274779.605, "sim": 26.039, "model": "ugv1", "x": 10.0521, "y": -0.7619, "z": 0.11, "yaw": -1.5772}
+{"kind": "value", "wall": 1792274779.642, "sim": 26.07, "topic": "/cmd_vel", "field": "linear.x", "value": 0.2198019802570343}
+{"kind": "value", "wall": 1792274779.692, "sim": 26.116, "topic": "/cmd_vel", "field": "linear.x", "value": 0.14480198025703428}
+{"kind": "pose", "wall": 1792274779.708, "sim": 26.132, "model": "ugv1", "x": 10.0519, "y": -0.7857, "z": 0.11, "yaw": -1.5777}
+{"kind": "value", "wall": 1792274779.731, "sim": 26.151, "topic": "/cmd_vel", "field": "linear.x", "value": 0.06980198025703428}
+{"kind": "value", "wall": 1792274779.801, "sim": 26.22, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "pose", "wall": 1792274779.812, "sim": 26.23, "model": "ugv1", "x": 10.0519, "y": -0.7959, "z": 0.11, "yaw": -1.5777}
+{"kind": "value", "wall": 1792274779.831, "sim": 26.25, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "value", "wall": 1792274779.881, "sim": 26.298, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "pose", "wall": 1792274779.914, "sim": 26.331, "model": "ugv1", "x": 10.0519, "y": -0.7965, "z": 0.11, "yaw": -1.5777}
+{"kind": "value", "wall": 1792274779.941, "sim": 26.358, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "value", "wall": 1792274779.981, "sim": 26.398, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "pose", "wall": 1792274780.017, "sim": 26.432, "model": "ugv1", "x": 10.0519, "y": -0.7965, "z": 0.11, "yaw": -1.5777}
+{"kind": "value", "wall": 1792274780.041, "sim": 26.457, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "value", "wall": 1792274780.081, "sim": 26.496, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "pose", "wall": 1792274780.12, "sim": 26.534, "model": "ugv1", "x": 10.0519, "y": -0.7965, "z": 0.11, "yaw": -1.5777}
+{"kind": "value", "wall": 1792274780.141, "sim": 26.554, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "value", "wall": 1792274780.181, "sim": 26.593, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "pose", "wall": 1792274780.223, "sim": 26.622, "model": "ugv1", "x": 10.0519, "y": -0.7965, "z": 0.11, "yaw": -1.5777}
+{"kind": "value", "wall": 1792274780.231, "sim": 26.63, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "value", "wall": 1792274780.282, "sim": 26.678, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "pose", "wall": 1792274780.324, "sim": 26.72, "model": "ugv1", "x": 10.0519, "y": -0.7965, "z": 0.11, "yaw": -1.5777}
+{"kind": "value", "wall": 1792274780.341, "sim": 26.736, "topic": "/cmd_vel", "field": "linear.x", "value": 0.0}
+{"kind": "pose", "wall": 1792274780.439, "sim": 26.816, "model": "ugv1", "x": 10.0519, "y": -0.7965, "z": 0.11, "yaw": -1.5777}
+{"kind": "pose", "wall": 1792274780.541, "sim": 26.915, "model": "ugv1", "x": 10.0519, "y": -0.7965, "z": 0.11, "yaw": -1.5777}
+{"kind": "pose", "wall": 1792274780.643, "sim": 27.01, "model": "ugv1", "x": 10.0519, "y": -0.7965, "z": 0.11, "yaw": -1.5777}
+{"kind": "recorder.stopped", "wall": 1792274780.702, "sim": null, "exit_code": 0}
+{"kind": "stopped", "wall": 1792274780.702, "sim": null, "samples": 466, "errors": 0}

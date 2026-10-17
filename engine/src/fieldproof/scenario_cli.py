@@ -1,9 +1,10 @@
-"""``fieldproof validate``, ``fieldproof run`` and ``fieldproof schema`` (task P1-T05).
+"""``fieldproof validate``, ``run``, ``schema`` (task P1-T05) and ``report`` (task P1-T06).
 
 ``validate`` reads scenarios against schema v0 and resolves them against the workspace (the
-world file and its frames, every vehicle's manifest, the timeline's goals) without touching
-Docker; ``run`` does the same and then executes the plan with the Docker backend, writing
-``runs/<run_id>/``; ``schema`` prints the JSON Schema of a scenario file.
+world file and its frames, every vehicle's manifest, the timeline's goals, the assertions)
+without touching Docker; ``run`` does the same and then executes the plan with the Docker
+backend, writing ``runs/<run_id>/`` with its report; ``schema`` prints the JSON Schema of a
+scenario file; ``report`` renders the report of a run directory again.
 """
 
 from __future__ import annotations
@@ -21,6 +22,15 @@ from rich.markup import escape
 
 from fieldproof.backend import BackendError
 from fieldproof.config import ConfigError, load_config
+from fieldproof.report import (
+    REPORT_JSON,
+    REPORT_MD,
+    ReportError,
+    build_report,
+    load_record,
+    render_markdown,
+    write_reports,
+)
 from fieldproof.runner import (
     EXIT_CODES,
     LOG_FILE,
@@ -244,12 +254,27 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             signal.signal(signum, handler)
     status = Status(record.status or Status.ERROR)
     colour = {Status.PASSED: "green", Status.INTERRUPTED: "yellow"}.get(status, "red")
+    verdicts = {Status.PASSED: "PASS", Status.FAILED: "FAIL"}
     console.print(
-        f"[{colour}]{status}[/{colour}] {scenario.name} ({record.run_id}): "
-        f"{escape(record.reason or 'the timeline completed')}; run directory {record.run_dir}",
+        f"[{colour}]{verdicts.get(status, str(status).upper())}[/{colour}] {scenario.name} "
+        f"({record.run_id}): "
+        f"{escape(record.reason or 'the timeline completed and every assertion passed')}; "
+        f"run directory {record.run_dir}",
         highlight=False,
         soft_wrap=True,
     )
+    for assertion in record.assertions:
+        mark = {"passed": "[green]PASS[/green]", "failed": "[red]FAIL[/red]"}.get(
+            str(assertion["status"]), f"[yellow]{str(assertion['status']).upper()}[/yellow]"
+        )
+        console.print(
+            f"  {mark} {escape(str(assertion['name']))} ({assertion['type']}): "
+            f"{escape(str(assertion.get('reason') or ''))}",
+            highlight=False,
+            soft_wrap=True,
+        )
+    if (resolved.run_dir / REPORT_MD).is_file():
+        console.print(f"  report: {resolved.run_dir / REPORT_MD}", highlight=False, soft_wrap=True)
     remaining = leftovers(backend, record.run_id) if not keep else []
     if remaining:
         errors.print(
@@ -257,6 +282,50 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             highlight=False,
         )
     raise typer.Exit(code=EXIT_CODES[status])
+
+
+def report(
+    run: Annotated[
+        Path,
+        typer.Argument(
+            help="A run directory, its run.json, or a run id under the workspace's runs directory.",
+            show_default=False,
+        ),
+    ],
+    config_path: ConfigOption = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help="md (Markdown) or json.")
+    ] = "md",
+    write: Annotated[
+        bool,
+        typer.Option("--write", help="Rewrite report.md and report.json in the run dir."),
+    ] = False,
+) -> None:
+    """Render the report of a run from its run.json (Markdown by default)."""
+    if output_format not in ("md", "json"):
+        raise fail(ValueError(f"--format {output_format!r}: expected md or json"))
+    run_dir = run
+    if not run.exists():
+        try:
+            config = load_config(config_path)
+        except ConfigError as error:
+            raise fail(error) from error
+        run_dir = config.resolve(config.runs.directory) / run.name
+        if not run_dir.is_dir():
+            raise fail(ValueError(f"{run}: no such run directory or run id (looked in {run_dir})"))
+    if run_dir.is_file():
+        run_dir = run_dir.parent
+    try:
+        record = load_record(run_dir)
+        rendered = write_reports(record, run_dir) if write else build_report(record, run_dir)
+    except ReportError as error:
+        raise fail(error) from error
+    if output_format == "json":
+        typer.echo(json.dumps(rendered, indent=2))
+    else:
+        typer.echo(render_markdown(rendered), nl=False)
+    if write:
+        errors.print(f"written: {run_dir / REPORT_MD}, {run_dir / REPORT_JSON}", highlight=False)
 
 
 def print_plan(resolved: Plan) -> None:
