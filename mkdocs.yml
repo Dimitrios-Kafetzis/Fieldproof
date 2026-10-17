@@ -114,4 +114,5 @@ nav:
       - CLI: reference/cli.md
       - Reference vehicles: reference/robots.md
       - Bridge contract: reference/bridge.md
+      - Vehicle manifest: reference/manifest.md
       - Worlds: reference/worlds.md
