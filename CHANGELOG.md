@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.3.0...v0.4.0) (2026-10-17)
+
+
+### Features
+
+* **robots:** add the reference UGV model with sensors, manifest and spawn launch ([#21](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/21)) ([e07a071](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/e07a071f4fdc4345e7c191ffb2e9e2f27c103c9d))
+* **sim:** add the depot reference world and the Fuel asset pipeline ([#23](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/23)) ([013ed84](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/013ed84517917256ae298a37c55fc4e3bfeda62c))
+
 ## [0.3.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.2.0...v0.3.0) (2026-10-16)
 
 

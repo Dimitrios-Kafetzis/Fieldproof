@@ -4,7 +4,7 @@ package_name = "fieldproof_bridge"
 
 setup(
     name=package_name,
-    version="0.3.0",  # x-release-please-version
+    version="0.4.0",  # x-release-please-version
     packages=find_packages(exclude=["test"]),
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
