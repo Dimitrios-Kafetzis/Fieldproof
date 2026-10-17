@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.4.0...v0.5.0) (2026-10-17)
+
+
+### Features
+
+* **bridge:** generate the ros_gz bridge bundle and contract tests from the vehicle manifest ([#25](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/25)) ([09f5f77](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/09f5f779b686f166aeb8cf5cb136563ffe92413b))
+
 ## [0.4.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.3.0...v0.4.0) (2026-10-17)
 
 
