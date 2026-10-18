@@ -40,8 +40,11 @@ runtime: {...}          # what runs on the vehicle (P1-T04)
 ```
 
 Unknown keys are errors in every section, so a typo never passes silently. Topic names are
-relative to the vehicle namespace unless they start with a slash (`/tf` is global and shared by
-every vehicle, which tell their frames apart with `frame_prefix`).
+relative to the vehicle namespace unless they start with a slash. The TF topics follow the
+drive's `tf` interface: relative, as in the reference vehicles, every vehicle of a fleet has its
+own `/<namespace>/tf` and `/<namespace>/tf_static` with the usual frame names (Nav2's
+multi-robot convention, task P2-T01); `/tf` keeps one tree shared by every vehicle, which then
+tell their frames apart with a `frame_prefix` ([scenarios.md](scenarios.md#fleets)).
 
 ### `extends`
 
@@ -79,12 +82,13 @@ empty. ROS topics are unique across the manifest; sensor names are unique.
 | `tier` | `T1` (default), `T2`, `T3` | fidelity tier of [ADR-0007](../adr/0007-fidelity-tiers.md); images are generated for T1 (SIL, the stack rebuilt for x86) until Phase 6 |
 | `image` | string | image reference to build (`fieldproof vehicle build`) or to run as supplied |
 | `build` | mapping, optional | how the image is built from the vehicle's sources (below); absent when `image` is prebuilt |
-| `entrypoint` | `launch` or `command` | `launch: {package, file, args}` becomes `ros2 launch <package> <file> key:=value ...` (booleans as `true`/`false`), the default command of the image; `command: [...]` runs as given |
+| `entrypoint` | `launch` or `command` | `launch: {package, file, args, namespace_arg, frame_prefix_arg}` becomes `ros2 launch <package> <file> key:=value ...` (booleans as `true`/`false`), the default command of the image; `namespace_arg` and `frame_prefix_arg` name the launch arguments that take the vehicle's namespace and frame prefix in a fleet (the orchestrator appends `<namespace_arg>:=ugv1`; a namespaced vehicle whose launch names none is refused at validation); `command: [...]` runs as given and reads `FIELDPROOF_NAMESPACE` and `FIELDPROOF_FRAME_PREFIX` from the environment |
 | `params` | list of paths | parameter files the launch reads unchanged from the field, relative to the manifest; checked to exist, recorded for reports |
 | `drivers` | list | the driver-swap map (below) |
-| `ready` | mapping, optional | `timeout_s` (default 120) and `conditions[]`: `{lifecycle: <node>, state: active}` (default state), `{topic, type}`, `{service, type}`, `{action, type}`, `{node}`; evaluated inside the container by the readiness probe (below), which is the image's `HEALTHCHECK` and what `fieldproof vehicle wait` runs; the orchestrator starts the scenario clock once every condition holds |
-| `resources` | mapping, optional | the container budget in Docker's units: `cpus`, `memory` (`2g`, `512m`), `pids` |
-| `env` | mapping | extra environment of the container (`ROS_DOMAIN_ID` is set per run by the orchestrator) |
+| `ready` | mapping, optional | `timeout_s` (default 120) and `conditions[]`: `{lifecycle: <node>, state: active}` (default state), `{topic, type}`, `{service, type}`, `{action, type}`, `{node}`, `{tf, child}`; evaluated inside the container by the readiness probe (below), which is the image's `HEALTHCHECK` and what `fieldproof vehicle wait` runs; the orchestrator starts the scenario clock once every condition holds. Relative names (`bt_navigator`, `map`) resolve under the vehicle's namespace, so one manifest serves every vehicle of a fleet |
+| `resources` | mapping, optional | the container budget in Docker's units, applied as cgroup limits: `cpus` (the CPU quota, `--cpus`), `cpuset` (the cores it may run on, `--cpuset-cpus`: `0-1`, `0,2`), `memory` (`2g`, `512m`), `pids`; a scenario may replace any field per vehicle (`vehicles[].resources`) |
+| `dds_profile` | path, optional | the vehicle's own DDS XML profile, as deployed in the field, relative to and inside the manifest's directory (the example's `src/ugv_nav2_bringup/config/fastdds.xml`); bind-mounted read-only at `/opt/fieldproof/dds/profile.xml` by `fieldproof run` and `fieldproof vehicle run` and named to the RMW of `env` through `FASTRTPS_DEFAULT_PROFILES_FILE` (Fast DDS, the default), `CYCLONEDDS_URI` (`file://...`) or `NDDS_QOS_PROFILES`; another RMW is refused |
+| `env` | mapping | extra environment of the container (`ROS_DOMAIN_ID`, `FIELDPROOF_NAMESPACE`, `FIELDPROOF_FRAME_PREFIX` and, with a discovery server, `ROS_DISCOVERY_SERVER` are set per run by the orchestrator) |
 
 #### `runtime.build`
 
@@ -139,7 +143,7 @@ uv run --project engine fieldproof vehicle wait examples/vehicles/ugv_nav2/robot
 | --- | --- |
 | `vehicle dockerfile MANIFEST [-o DIR]` | write the build context: `Dockerfile`, `entrypoint.sh`, the resolved `robot.yaml` the image carries at `/opt/fieldproof/robot.yaml`, and `vehicle.repos` when there are repositories (default directory `./<name>_image`) |
 | `vehicle build MANIFEST [--context DIR] [-t TAG] [--base-image REF] [--no-cache] [--progress plain] [--builder NAME] [--docker-arg ARG] [--dry-run]` | write the context (a temporary directory by default) and run `docker buildx build --load` on the daemon's own builder (`default`, which sees a locally built base image; a `docker-container` builder does not) with the labels' build arguments (`GIT_SHA`, `BUILD_DATE`, `VERSION`) and the manifest's directory as the `vehicle-source` build context when there are local sources; the command line is printed first |
-| `vehicle run MANIFEST [--name N] [--network fieldproof] [--domain-id N] [-d] [--keep] [--image REF] [-e K=V] [--docker-arg ARG] [--dry-run] [-- CMD...]` | `docker run --rm` of the image with the manifest's `resources` and `env`, on the `fieldproof` network of the compose stack by default; extra arguments replace the entrypoint |
+| `vehicle run MANIFEST [--name N] [--network fieldproof] [--domain-id N] [--namespace NS] [--frame-prefix P] [-d] [--keep] [--image REF] [-e K=V] [--docker-arg ARG] [--dry-run] [-- CMD...]` | `docker run --rm` of the image with the manifest's `resources` (`--cpus`, `--cpuset-cpus`, `--memory`, `--pids-limit`), its `env` and its `dds_profile` mounted, on the `fieldproof` network of the compose stack by default; `--namespace` and `--frame-prefix` go into the environment and, through the launch's `namespace_arg` and `frame_prefix_arg`, onto its command line; extra arguments replace the entrypoint |
 | `vehicle wait MANIFEST [--name N] [--timeout S] [--interval S] [--quiet] [--dry-run]` | `docker exec` of the readiness probe in the running container (named after the vehicle by default): exit code 0 once every `runtime.ready` condition holds, 1 when the timeout (the manifest's `ready.timeout_s` by default) passes first, with the pending conditions listed |
 
 ### The generated Dockerfile
@@ -192,7 +196,10 @@ ready: 10 conditions hold after 42.3 s
 | `node: <name>` | the node is in the graph | `absent` |
 | `tf: <parent>` with `child: <frame>` | a chain of transforms seen on `/tf` or `/tf_static` (0.5 s of listening per evaluation) links the two frames, in either direction; `tf: map`, `child: base_link` holds once SLAM publishes `map` → `odom` on top of the bridge's `odom` → `base_link`, which is when Nav2 can plan (a goal sent before it is aborted) | `no frames yet`, or `no transform (N frames seen)` |
 
-Relative names resolve against the probe's namespace. With `runtime.ready` the generated
+Relative names resolve against the probe's namespace: `--namespace`, or `FIELDPROOF_NAMESPACE`,
+which the orchestrator sets to the vehicle's namespace in a fleet, so `lifecycle: bt_navigator`
+means `/ugv2/bt_navigator` inside `ugv2`; the `tf` condition listens on the namespace's `tf`
+and `tf_static` and on the global ones. With `runtime.ready` the generated
 Dockerfile also declares the probe as the image's `HEALTHCHECK` (`--interval=15s --timeout=30s
 --start-period=60s --retries=3`, each check a 10 s wait), so `docker inspect` reports `starting`,
 then `healthy` as soon as one check passes or `unhealthy` after three failed ones past the start
@@ -209,12 +216,13 @@ snapshot, driven by the bringup package `src/ugv_nav2_bringup`:
 
 | File | Contents |
 | --- | --- |
-| `robot.yaml` | extends the reference UGV's manifest; `runtime`: T1, image `fieldproof-vehicle-ugv-nav2:local` built from `src`, entrypoint `bringup.launch.py use_sim_time:=true drivers:=false`, the two parameter files, six drivers in the swap map (base through ros2_control, description, lidar, IMU, camera, GNSS), readiness on Nav2's and SLAM Toolbox's lifecycle nodes, the `/map` topic, the `map` → `base_link` transform and the `navigate_to_pose` action, a budget of 2 CPUs and 2 GiB |
-| `launch/bringup.launch.py` | the field bringup: `drivers.launch.py` when `drivers:=true` (the field default), SLAM Toolbox's `online_async_launch.py` with `config/slam.yaml`, the package's `navigation.launch.py` with `config/nav2.yaml`; `use_sim_time` defaults to `false` and is passed to every node; nothing else differs between the vehicle and the simulation |
-| `launch/navigation.launch.py` | the Nav2 servers (controller, smoother, planner, behaviors, bt_navigator, waypoint follower, velocity smoother, collision monitor) under `nav2_lifecycle_manager`, one process each, with Nav2's `cmd_vel_nav` → `cmd_vel_smoothed` → `cmd_vel` remaps; the vehicle's own launch rather than `nav2_bringup`'s, whose package pulls Gazebo, the TurtleBot models and the rviz plugins into the image |
+| `robot.yaml` | extends the reference UGV's manifest; `runtime`: T1, image `fieldproof-vehicle-ugv-nav2:local` built from `src`, entrypoint `bringup.launch.py use_sim_time:=true drivers:=false` with `namespace_arg: namespace`, the two parameter files, six drivers in the swap map (base through ros2_control, description, lidar, IMU, camera, GNSS), readiness on Nav2's and SLAM Toolbox's lifecycle nodes, the `map` topic, the `map` → `base_link` transform and the `navigate_to_pose` action (relative names, resolved under the vehicle's namespace), the Fast DDS profile `config/fastdds.xml`, a budget of 2 CPUs and 2 GiB |
+| `launch/bringup.launch.py` | the field bringup: `drivers.launch.py` when `drivers:=true` (the field default), SLAM Toolbox's `online_async_launch.py` with `config/slam.yaml`, the package's `navigation.launch.py` with `config/nav2.yaml`; `use_sim_time` defaults to `false` and is passed to every node; `namespace` puts every node under it and remaps `/tf` and `/tf_static` to the namespace's (Nav2's multi-robot bringup does the same; SLAM Toolbox's own launch knows no namespace, so this file wraps it); nothing else differs between the vehicle and the simulation |
+| `config/fastdds.xml` | the vehicle's DDS profile as deployed: one UDPv4 transport with 8 MB socket buffers for the camera's images and no shared-memory transport; mounted into the container unchanged (`runtime.dds_profile`) |
+| `launch/navigation.launch.py` | the Nav2 servers (controller, smoother, planner, behaviors, bt_navigator, waypoint follower, velocity smoother, collision monitor) under `nav2_lifecycle_manager`, one process each, with Nav2's `cmd_vel_nav` → `cmd_vel_smoothed` → `cmd_vel` remaps and, under a namespace, `config/nav2.yaml` rewritten with the namespace as its root key (`nav2_common`'s `RewrittenYaml`, what `nav2_bringup` does: a parameter file names its nodes, and `controller_server:` reaches `/controller_server` only); the vehicle's own launch rather than `nav2_bringup`'s, whose package pulls Gazebo, the TurtleBot models and the rviz plugins into the image |
 | `launch/drivers.launch.py` | the hardware drivers: `robot_state_publisher`, ros2_control (`controller_manager` with `diff_drive_controller` and `joint_state_broadcaster`), `rplidar_ros`, `microstrain_inertial_driver`, `nmea_navsat_driver`, `realsense2_camera`; `config/drivers.yaml` holds their ports and frames; not started and not installed in the simulation image |
-| `config/nav2.yaml`, `config/slam.yaml` | the vehicle's parameters, from the Jazzy defaults of `nav2_bringup` (without the route and docking servers) and `slam_toolbox` adapted to the platform: 0.70 m × 0.44 m footprint with `base_link` at the axle, `scan` from the 25 m lidar, `odom` from the drive, MPPI controller limited to 0.8 m/s and 1.5 rad/s, NavFn planner, SLAM Toolbox mapping with `base_link` and 0.2 m / 0.2 rad travel thresholds; both costmaps wait 0.5 s for a transform, SLAM stamps `map` → `odom` 0.5 s ahead and the behaviour tree waits 1 s for a server to acknowledge a goal, so a CPU-starved simulation (software rendering in CI) does not make Nav2 abort a goal on a stale `map` → `odom` or a slow `follow_path` acknowledgement |
-| `package.xml` | `exec_depend` on the Nav2 servers it launches, `nav2_mppi_controller`, `nav2_navfn_planner`, `nav2_msgs` and `slam_toolbox`; the driver packages under `condition="$UGV_TARGET == field"` |
+| `config/nav2.yaml`, `config/slam.yaml` | the vehicle's parameters, from the Jazzy defaults of `nav2_bringup` (without the route and docking servers) and `slam_toolbox` adapted to the platform: 0.70 m × 0.44 m footprint with `base_link` at the axle, `scan` from the 25 m lidar, `odom` from the drive, MPPI controller limited to 0.8 m/s and 1.5 rad/s, NavFn planner, SLAM Toolbox mapping with `base_link` and 0.2 m / 0.2 rad travel thresholds, its map on the relative `map` (`/ugv1/map` in a fleet, `/map` alone; slam_toolbox's default is the absolute `/map`); both costmaps wait 0.5 s for a transform, SLAM stamps `map` → `odom` 0.5 s ahead and the behaviour tree waits 1 s for a server to acknowledge a goal, so a CPU-starved simulation (software rendering in CI) does not make Nav2 abort a goal on a stale `map` → `odom` or a slow `follow_path` acknowledgement |
+| `package.xml` | `exec_depend` on the Nav2 servers it launches, `nav2_mppi_controller`, `nav2_navfn_planner`, `nav2_msgs`, `nav2_common` and `slam_toolbox`; the driver packages under `condition="$UGV_TARGET == field"` |
 
 `make test-vehicles` runs `tests/vehicles/test_vehicles.sh`: every `robot.yaml` validates
 (engine and `check-jsonschema`), the committed schema is current, the generated Dockerfile and
@@ -260,6 +268,9 @@ checks that it does.
 - `rosdep` keys that resolve to pip are refused rather than installed, so the image stays
   reproducible from the apt snapshots.
 - `extends` rewrites the relative paths of `description` only; other relative paths (`sources`,
-  `params`) are the extending manifest's own.
-- One manifest describes one vehicle; fleets, namespaces per vehicle and the shared `/clock` are
-  P2-T01's.
+  `params`, `dds_profile`) are the extending manifest's own.
+- One manifest describes one kind of vehicle; a fleet runs it several times under different
+  namespaces from a scenario ([scenarios.md](scenarios.md#fleets)). A launch without a
+  `namespace_arg` can only run at the root, hence alone.
+- `dds_profile` knows the profile variable of Fast DDS, Cyclone DDS and Connext; another RMW
+  needs its variable in `env` and the file mounted by hand (`--docker-arg`).

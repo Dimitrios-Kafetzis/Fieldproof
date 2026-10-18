@@ -53,8 +53,12 @@ Applied to every interface of the manifest (`drive.command`, `drive.odometry`,
 `drive.joint_states`, `drive.tf` and each `sensors[].outputs[]`):
 
 - **Names** are fully qualified with the namespace on both sides. A ROS topic the manifest writes
-  with a leading slash (`/tf`) is global: every vehicle shares one TF tree and tells its frames
-  apart with `frame_prefix` (REP 105).
+  with a leading slash is global. The TF topics follow the drive's `tf` interface (task P2-T01):
+  relative, as the reference vehicles write it, the bridge publishes `/<namespace>/tf` and
+  `robot_state_publisher` is remapped to `/<namespace>/tf` and `/<namespace>/tf_static`, so each
+  vehicle of a fleet has its own tree with the usual frame names (Nav2's multi-robot
+  convention); `/tf` keeps one tree shared by every vehicle, which tell their frames apart with
+  `frame_prefix` (REP 105). The bundle's `bridge.yaml` records the two topics under `tf`.
 - **QoS** is the output's `qos` block (`reliability`, `durability`, `depth`; defaults reliable,
   volatile, 10, what the ros_gz bridge publishes with). Direct bridge topics get it through
   rclcpp's `qos_overrides.<topic>.publisher.*` parameters, adapter outputs through the adapter's
@@ -103,9 +107,10 @@ ros2 launch /tmp/ugv_ref_bridge/bridge.launch.py
 
 | Argument | Default | Effect |
 | --- | --- | --- |
-| `manifest` | | generate the bundle at launch time (into a temporary directory) from this manifest |
+| `manifest` | | generate the bundle at launch time (into a temporary directory, or `bundle_out`) from this manifest |
 | `bundle` | | start this bundle as written; the other arguments are then taken from it |
-| `namespace`, `frame_prefix`, `clock`, `robot_state_publisher`, `without` | as the generator | generator options for `manifest:=` (`without` takes a comma-separated list) |
+| `bundle_out` | | write the bundle generated from `manifest` here, where a contract check can find it (`fieldproof run` passes `/tmp/fieldproof-bridge`) |
+| `namespace`, `frame_prefix`, `clock`, `robot_state_publisher`, `without` | as the generator | generator options for `manifest:=` (`without` takes a comma-separated list; `fieldproof run` passes `clock:=false` to every bridge of a fleet but the first, so `/clock` has one publisher) |
 | `use_sim_time` | `true` | clock of the adapters and `robot_state_publisher` |
 
 The launch reads `bridge.yaml` and starts one `parameter_bridge` per configuration file (each with
@@ -141,15 +146,15 @@ through the Docker API ([scenarios.md](scenarios.md#running-a-scenario)).
 ## The contract of the reference UGV
 
 `fieldproof bridge gen` on `ugv_ref/robot.yaml` with the default (empty) namespace yields this
-contract; with `--namespace ugv1` every name except `/tf`, `/tf_static` and `/clock` gains the
-`/ugv1` prefix.
+contract; with `--namespace ugv1` every name except `/clock` gains the `/ugv1` prefix (`/tf`
+and `/tf_static` included, since the reference manifest's `tf` interface is relative).
 
 | Topic | Type | Role | Frame | Rate | QoS | Provided by |
 | --- | --- | --- | --- | --- | --- | --- |
 | `/cmd_vel` | `geometry_msgs/msg/Twist` | subscriber | | | reliable, 10 | `ros_gz_bridge` |
 | `/odom` | `nav_msgs/msg/Odometry` | publisher | `odom` → `base_link` | 50 Hz | reliable, 10 | `ros_gz_bridge` |
 | `/joint_states` | `sensor_msgs/msg/JointState` | publisher | | 50 Hz | reliable, 10 | `joint_states_throttle` |
-| `/tf` | `tf2_msgs/msg/TFMessage` | publisher | `odom` → `base_link` | 50 Hz | reliable, 100 | `ros_gz_bridge`, `robot_state_publisher` |
+| `/tf` (`/ugv1/tf` under a namespace) | `tf2_msgs/msg/TFMessage` | publisher | `odom` → `base_link` | 50 Hz | reliable, 100 | `ros_gz_bridge`, `robot_state_publisher` |
 | `/scan` | `sensor_msgs/msg/LaserScan` | publisher | `lidar_link` | 10 Hz | reliable, 10 | `ros_gz_bridge` |
 | `/imu/data` | `sensor_msgs/msg/Imu` | publisher | `imu_link` | 100 Hz | reliable, 10 | `imu_adapter` |
 | `/camera/image` | `sensor_msgs/msg/Image` | publisher | `camera_optical_link` | 15 Hz | reliable, 5 | `ros_gz_bridge_camera_optical_link` |
@@ -158,7 +163,7 @@ contract; with `--namespace ugv1` every name except `/tf`, `/tf_static` and `/cl
 | `/camera/points` | `sensor_msgs/msg/PointCloud2` | publisher | `camera_link` | 15 Hz | reliable, 5 | `ros_gz_bridge` |
 | `/gps/fix` | `sensor_msgs/msg/NavSatFix` | publisher | `gps_link` | 5 Hz | reliable, 10 | `gps_adapter` |
 | `/clock` | `rosgraph_msgs/msg/Clock` | publisher | | | reliable, 10 | `ros_gz_bridge` |
-| `/tf_static` | `tf2_msgs/msg/TFMessage` | publisher | children `base_footprint`, `lidar_link`, `imu_link`, `camera_link`, `camera_optical_link`, `gps_link` | | reliable, transient local, 1 | `robot_state_publisher` |
+| `/tf_static` (`/ugv1/tf_static` under a namespace) | `tf2_msgs/msg/TFMessage` | publisher | children `base_footprint`, `lidar_link`, `imu_link`, `camera_link`, `camera_optical_link`, `gps_link` | | reliable, transient local, 1 | `robot_state_publisher` |
 | `/robot_description` | `std_msgs/msg/String` | publisher | | | reliable, transient local, 1 | `robot_state_publisher` |
 
 The hidden topics `/_bridge/joint_states`, `/_bridge/imu/data` and `/_bridge/gps/fix` carry the
@@ -177,7 +182,9 @@ ros2 run fieldproof_bridge contract_check /tmp/ugv_ref_bridge [--timeout 300] [-
 
 `fieldproof_bridge.contract.ContractChecker` subscribes to every published topic of
 `contract.yaml` and reports one finding per check; the command prints them and exits 1 on a
-failure:
+failure. `fieldproof run --check-contracts` runs it inside every bridge container of a run on
+the bundle the bridge wrote (`bundle_out`), once the bridge is up and before the recorder
+starts, and records the counts in `run.json` ([scenarios.md](scenarios.md#fleets)):
 
 | Check | Passes when |
 | --- | --- |
@@ -221,5 +228,6 @@ on the host.
 - `override_frame_id` applies to a whole bridge instance, hence one instance per relabelled frame.
 - The `qos` block covers reliability, durability and depth; deadline, lifespan and liveliness stay
   at the ROS defaults.
-- The bridge is one ros_gz bridge per vehicle; sharing `/clock` between several vehicles and
-  the per-run topology are P2-T01's.
+- The bridge is one ros_gz bridge per vehicle; in a fleet the first vehicle's bridge publishes
+  `/clock` and the others are started with `clock:=false`, so a run whose first vehicle's bridge
+  dies loses the clock (the run fails at the next liveness check).

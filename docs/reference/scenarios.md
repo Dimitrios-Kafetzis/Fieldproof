@@ -10,7 +10,9 @@ pre-commit hook on `examples/scenarios/`, [tooling.md](../setup/tooling.md)), an
 v0**, `fieldproof run`, which brings the stack up from a scenario through the Docker API, runs
 the timeline and tears everything down again. Task P1-T06 added the five assertion primitives,
 the recorder (MCAP and the `/fieldproof/*` side channels) and the report
-([assertions.md](assertions.md)).
+([assertions.md](assertions.md)); task P2-T01 made the vehicles a fleet: namespaces end to end,
+a ROS domain per run, an optional discovery server, the vehicle's DDS profile, cgroup budgets,
+a parallel start with dependencies and concurrent actions ([Fleets](#fleets)).
 
 ```bash
 uv run --project engine fieldproof validate examples/scenarios/ugv_nav_to_goal.yaml
@@ -92,9 +94,9 @@ such as `90s`, `1m30s` or `2h`.
 | --- | --- |
 | `metadata` | `name`, `description`, `tags` |
 | `world` | `file`: a world file of the workspace's worlds directory (`depot.sdf`, [worlds.md](worlds.md)); its `<frame name="...">` elements are the named poses vehicles spawn at and goals refer to; the `<world name>` is what the runner waits for |
-| `vehicles[]` | `name` (unique), `manifest` (a `robot.yaml` with a `runtime` section, relative to the scenario, inside the workspace), `namespace` (unique; empty by default, since the example stack's topics are at the root), `spawn` (a placement), `image` (overrides the manifest's `runtime.image`), `env` (extra environment of the vehicle container) |
+| `vehicles[]` | `name` (unique), `manifest` (a `robot.yaml` with a `runtime` section, relative to the scenario, inside the workspace), `namespace` (unique; empty by default, the root; in a fleet one per vehicle, see [Fleets](#fleets)), `frame_prefix` (for a stack that keeps one shared TF tree; empty by default), `spawn` (a placement), `image` (overrides the manifest's `runtime.image`), `env` (extra environment of the vehicle container), `resources` (fields that replace the manifest's `runtime.resources`: `cpus`, `cpuset`, `memory`, `pids`), `depends_on` (vehicles that must be ready before this one's container starts) |
 | `time` | [ADR-0006](../adr/0006-sim-time-default-realtime-locked-mode.md): `mode` (`sim` by default; `realtime` validates but is refused by the runner until task P2-T04), `rtf` (target real-time factor, applied to the world's physics after it loads; absent: the world's own setting), `tolerance` (allowed deviation, recorded, enforced in the real-time-locked mode), `timeout_s` (the wall-clock budget of the run from the moment every vehicle is ready; 600 s by default) |
-| `timeline[]` | the actions of the run, in order of `at` (seconds after every vehicle is ready, wall clock in v0). One action in v0: `navigate_to_pose` with `vehicle`, `goal` (a placement in the world), `timeout_s` (300 s) and an optional `name` for the record; the event injection framework of task P2-T03 adds the rest |
+| `timeline[]` | the actions of the run, each started at its `at` (seconds after every vehicle is ready, wall clock in v0) whether or not an earlier one has finished, so several vehicles drive at once. One action in v0: `navigate_to_pose` with `vehicle`, `goal` (a placement in the world), `timeout_s` (300 s) and an optional `name` for the record; the event injection framework of task P2-T03 adds the rest |
 | `assertions[]` | `name` (unique) and `type` (`reach_pose`, `within_time`, `topic_rate`, `no_collision`, `topic_value`) with the parameters of the type ([assertions.md](assertions.md#the-primitives)); a `vehicle` must be one of the scenario's, a `within_time.action` the `name` of a timeline entry, a `topic_value.condition` a valid expression |
 | `outputs` | `directory` (where `runs/<run_id>` goes; the workspace's `runs` by default), `record` (record to MCAP, `false` by default) and `topics` (the allow-list; every topic when empty; the `/fieldproof/*` side channels always, [assertions.md](assertions.md#recording)), `logs` (keep the containers' logs in the run directory, `true` by default), `video` (a video of the run from a camera of the world: `true` for the world's `spectator` camera, or `camera: <sensor name>` and `format: mp4`; `false` by default, see [Video](#video)) |
 
@@ -108,10 +110,87 @@ world and sent in the vehicle's `map` frame, which starts at the spawn pose: the
 the goal relative to the spawn pose, so a goal 4 m south of a vehicle spawned facing south is
 `(4, 0)` in `map`.
 
+## Fleets
+
+A scenario with several vehicles is a fleet (task P2-T01; `examples/scenarios/ugv_fleet.yaml`
+runs three example UGVs at once). Each vehicle is isolated from the others and from every other
+run on the host:
+
+- **Namespaces end to end.** Every vehicle of a fleet has its own `namespace` (`ugv1`, `ugv2`,
+  ...; the schema refuses two vehicles with the same one). It reaches the spawn launch (the
+  model's Gazebo topics are `/ugv1/scan`, `/ugv1/cmd_vel`, ...), the bridge (the ROS topics
+  of the contract, `/ugv1/scan`, `/ugv1/odom`, and its nodes), the readiness probe (the
+  manifest's `ready` conditions are written relative, `lifecycle: bt_navigator`, and resolve
+  under the namespace; `FIELDPROOF_NAMESPACE` carries it into the container for the
+  `HEALTHCHECK` too), the recorder (an assertion's `topic` under the vehicle's namespace), the
+  timeline (`/ugv1/navigate_to_pose`) and the vehicle's own launch: the manifest names the
+  launch argument that takes it (`runtime.entrypoint.launch.namespace_arg`, `namespace` for
+  the example) and the orchestrator appends `namespace:=ugv1` to the container's command.
+  `fieldproof validate` refuses a namespaced vehicle whose launch declares no such argument,
+  since its stack would run at the root while its bridge would not.
+- **One TF tree per vehicle.** The reference vehicles' `drive.tf` interface is relative, so the
+  bridge publishes `/ugv1/tf` and `/ugv1/tf_static` and the vehicle's stack reads them, Nav2's
+  multi-robot convention: the frame names stay what the stack expects (`map`, `odom`,
+  `base_link`), nothing is prefixed, and the goal of a `navigate_to_pose` is sent in the
+  vehicle's own `map` frame as before. A stack that keeps one shared `/tf` instead writes the
+  manifest's `tf` interface as `/tf` and tells its vehicles apart with `frame_prefix`
+  (`ugv1/`), which the scenario passes to the spawn (link names), the bridge (frames in the
+  contract) and the launch (`frame_prefix_arg`); `FIELDPROOF_FRAME_PREFIX` carries it into
+  the container ([bridge.md](bridge.md#the-rules)).
+- **One ROS domain per run.** Every container of a run carries the run's `ROS_DOMAIN_ID`
+  (label `io.fieldproof.domain`): with `ros_domain_id = "auto"` (the default) it is derived
+  from the run id, between 1 and 100, so two runs on one host never share a domain and never
+  disturb a `make up` stack on domain 0; `fieldproof run --domain-id N`, `ROS_DOMAIN_ID=N`
+  or a number in `fieldproof.toml` pin it. The simulator's `GZ_PARTITION` stays `fieldproof`,
+  so the vehicles' Gazebo topics are told apart by their namespaces and model names.
+- **Discovery.** By default DDS discovery is multicast on the Docker network. With
+  `discovery = "server"` in `fieldproof.toml`, `FIELDPROOF_DISCOVERY=server` or
+  `fieldproof run --discovery server`, the run starts a Fast DDS discovery server first (a
+  container of the bridge image running `fastdds discovery` on port 11811, role `discovery`,
+  waited for until it listens) and every ROS container points at it (`ROS_DISCOVERY_SERVER`,
+  with `ROS_SUPER_CLIENT=TRUE` so the readiness probe, the observer and `ros2 topic list` still
+  see the whole graph), which keeps discovery traffic off multicast for large fleets.
+- **The vehicle's DDS profile.** A manifest's `runtime.dds_profile` (the vehicle's own XML, as
+  deployed in the field) is bind-mounted read-only at `/opt/fieldproof/dds/profile.xml` and
+  named to the container's RMW (`FASTRTPS_DEFAULT_PROFILES_FILE` for Fast DDS,
+  `CYCLONEDDS_URI` for Cyclone DDS; [manifest.md](manifest.md#runtime)).
+- **Budgets.** The vehicle container runs under the cgroup limits of `runtime.resources`
+  (`cpus`, the CPU quota; `cpuset`, the cores it may run on; `memory`; `pids`), with the
+  scenario's `vehicles[].resources` replacing any field per vehicle; the budget applied is in
+  `run.json` (`vehicles[].resources`), the `budget` event of `engine.log` sums the fleet
+  against the host's cores and memory and warns when it asks for more, and `docker inspect`
+  or `docker stats` show the limits on the running containers.
+- **Start order.** The spawns run at once, then the bridges (each waited for until its
+  vehicle's odometry topic appears, one of them bridging `/clock` for the run), then the
+  recorder, then the vehicles in parallel: a vehicle with `depends_on` starts once the named
+  vehicles are ready (the `vehicle.dependency` event), the others as soon as the recorder is;
+  a cycle or an unknown name is a validation error. A vehicle that fails its readiness gate
+  fails the run and the vehicles depending on it are never started.
+- **Concurrent actions.** Every timeline entry starts at its `at` on its own worker, so three
+  goals at `0s` are sent at once; the run observes the stream and the containers between
+  polls. The first entry that does not end `ok` fails the run at once and the entries still
+  running are recorded `cancelled`; the budget ends whatever is running.
+- **Contract checks.** `fieldproof run --check-contracts` runs each vehicle's bridge contract
+  check inside its bridge container once the bridge is up and before the recorder starts
+  (`ros2 run fieldproof_bridge contract_check` on the bundle the bridge wrote,
+  [bridge.md](bridge.md#checking-a-running-stack)); the counts land in `run.json`
+  (`vehicles[].contract`) and a failed check ends the run with status `error`, since the
+  bridge is Fieldproof's promise, not the stack under test. It costs the bridges phase a
+  minute or so (`timeouts.contract_s`), which is why it is opt-in.
+
+The fleet example drives `ugv1` from the loading dock into the yard, `ugv2` along the hall and
+`ugv3` across the yard, all at `0s`, with a `reach_pose`, a `within_time`, a `no_collision` and
+a `topic_value` assertion per vehicle; nothing of one vehicle reaches another, which
+`tests/integration/test_fleet.py` checks from inside `ugv1` (no node of `/ugv2` or `/ugv3`
+subscribes to its scan or odometry). Three Nav2 stacks and a simulator rendering three lidars
+want a workstation: the manifest's quotas alone ask for six cores, and on a two-core CI runner
+with software rendering the readiness gates would time out.
+
 ## The workspace
 
 `fieldproof.toml` at the root of a workspace tells the engine where runs go, how the stack's
-containers are started and where the simulator's worlds, models and assets live. The engine finds
+containers are started, how a run is isolated from other runs and where the simulator's worlds,
+models and assets live. The engine finds
 it by walking up from the scenario's directory, then from the current directory, the way git
 finds its repository; the directory holding it is the workspace root that relative paths resolve
 against, and the bridge containers mount it read-only at `/workspace` (so a vehicle manifest and
@@ -127,7 +206,8 @@ network = "fieldproof"
 image_prefix = "ghcr.io/dimitrios-kafetzis/fieldproof-"
 image_tag = "local"
 render = "auto"            # gpu when the host has a /dev/dri render node, software otherwise
-ros_domain_id = 0
+ros_domain_id = "auto"     # a number, or one derived from the run id (1..100) per run
+discovery = "multicast"    # or "server": a Fast DDS discovery server container per run
 
 [stack]
 worlds = "sim/fieldproof_worlds/worlds"
@@ -141,15 +221,18 @@ world_s = 300.0            # the world's services answering
 spawn_s = 300.0            # a vehicle model spawned
 bridge_s = 120.0           # a bridge publishing the vehicle's odometry
 recorder_s = 60.0          # the recorder's observer reporting ready
+discovery_s = 60.0         # the discovery server listening (discovery = "server")
+contract_s = 180.0         # a vehicle's bridge contract check (--check-contracts)
 teardown_s = 10.0          # grace period of a container stop
 ```
 
 Precedence, highest first ([01-architecture.md](../plan/01-architecture.md#cross-cutting)): the
 scenario file (`outputs.directory`), the command line (`--runs-dir`, `--render`, `--domain-id`,
-`--network`, `--config` for a file elsewhere), the environment variables the compose stack also
-reads (`FIELDPROOF_IMAGE_PREFIX`, `FIELDPROOF_IMAGE_TAG`, `FIELDPROOF_RENDER`, `ROS_DOMAIN_ID`),
-`fieldproof.toml`, the defaults. `FIELDPROOF_IMAGE_TAG=main fieldproof run ...` therefore runs
-the published images, as `FIELDPROOF_IMAGE_TAG=main make up` does.
+`--network`, `--discovery`, `--config` for a file elsewhere), the environment variables the
+compose stack also reads (`FIELDPROOF_IMAGE_PREFIX`, `FIELDPROOF_IMAGE_TAG`, `FIELDPROOF_RENDER`,
+`ROS_DOMAIN_ID`, `FIELDPROOF_DISCOVERY`), `fieldproof.toml`, the defaults.
+`FIELDPROOF_IMAGE_TAG=main fieldproof run ...` therefore runs the published images, as
+`FIELDPROOF_IMAGE_TAG=main make up` does.
 
 ## Running a scenario
 
@@ -161,27 +244,30 @@ machine of phases, each a gate the next one waits for:
 
 | Phase | What happens | Gate |
 | --- | --- | --- |
-| `preparing` | `time.mode: realtime` is refused (P2-T04); every image is present locally (the stack's `sim` and `bridge` at the configured prefix and tag, each vehicle's image); every Fuel model the world uses is fetched (`make assets`); the Docker network exists or is created | |
-| `sim` | the simulator container: `gz sim -s -r --headless-rendering <world>` with the four read-only mounts of the compose stack, `GZ_PARTITION=fieldproof`, `ROS_DOMAIN_ID`, software rendering or `/dev/dri` with the render node's group; then `time.rtf`, if set, through the world's `set_physics` service | `gz service -l` lists `/world/<name>/create` (`timeouts.world_s`) |
-| `spawn` | per vehicle, a one-shot container of the bridge image runs the manifest's spawn launch (`description.launch`: a file next to the manifest, or a launch file of `fieldproof_robots`) with `name`, `namespace`, `world`, the pose, `use_sim_time:=true` and `robot_state_publisher:=false` | the container exits 0 (`timeouts.spawn_s`) |
-| `bridges` | per vehicle, the bridge container: `fieldproof-bridge` on the manifest at `/workspace/...` (`namespace:=` when set) | `ros2 topic list` inside it shows the vehicle's odometry topic (`timeouts.bridge_s`) |
+| `preparing` | `time.mode: realtime` is refused (P2-T04); every image is present locally (the stack's `sim` and `bridge` at the configured prefix and tag, each vehicle's image); every Fuel model the world uses is fetched (`make assets`); the vehicles' budgets are summed against the host's cores and memory (`budget`, a `budget.oversubscribed` warning); the Docker network exists or is created; the run's `ROS_DOMAIN_ID` and discovery mode are logged | |
+| `sim` | with `discovery: server`, first the discovery server container (`fastdds discovery` on port 11811, waited for until it listens, `timeouts.discovery_s`); then the simulator container: `gz sim -s -r --headless-rendering <world>` with the four read-only mounts of the compose stack, `GZ_PARTITION=fieldproof`, `ROS_DOMAIN_ID`, software rendering or `/dev/dri` with the render node's group; then `time.rtf`, if set, through the world's `set_physics` service | `gz service -l` lists `/world/<name>/create` (`timeouts.world_s`) |
+| `spawn` | every vehicle at once: a one-shot container of the bridge image runs the manifest's spawn launch (`description.launch`: a file next to the manifest, or a launch file of `fieldproof_robots`) with `name`, `namespace`, `frame_prefix`, `world`, the pose, `use_sim_time:=true` and `robot_state_publisher:=false` | each container exits 0 (`timeouts.spawn_s`) |
+| `bridges` | every vehicle at once: the bridge container, `fieldproof-bridge` on the manifest at `/workspace/...` (`namespace:=` and `frame_prefix:=` when set, `clock:=false` for every bridge but the first, the bundle written to `/tmp/fieldproof-bridge`); with `--check-contracts`, the contract check follows | `ros2 topic list` inside it shows the vehicle's odometry topic (`timeouts.bridge_s`); the contract check exits 0 (`timeouts.contract_s`) |
 | `recorder` | the recorder container (the bridge image as the engine's user, the run directory mounted read-write at `/fieldproof/run`, the observer script read-only): the observer on `observe.json`, `ros2 bag record` to `recording/` when `outputs.record` is on, the Gazebo and ROS subscriptions the assertions need, the `/fieldproof/*` side channels ([assertions.md](assertions.md#how-a-run-is-observed)) | the observer's `ready` line in `samples.jsonl` (`timeouts.recorder_s`) |
-| `vehicles` | per vehicle, the vehicle container: the manifest's image, environment and budget (`runtime.resources`), hostname the vehicle's name | the image's readiness probe, run through `docker exec` with the manifest's `ready.timeout_s`, reports every `runtime.ready` condition ([manifest.md](manifest.md#the-readiness-probe)); its progress lines are shown |
-| `running` | the timeline in order: each entry waits for its `at`, then `navigate_to_pose` runs `ros2 action send_goal` inside the vehicle container (in a thread) and reads the result; every half second meanwhile the observer's new samples feed the assertion evaluator, deadlines are checked and, every two seconds, the containers; each assertion resolves as soon as the stream decides it and the rest are settled when the timeline completes | the timeline completes within `time.timeout_s` and every assertion passed |
-| `teardown` | vehicles, the recorder (SIGINT to `ros2 bag record`, so the MCAP is finalised), bridges and the simulator are stopped (grace `timeouts.teardown_s`) and removed in reverse order, their logs saved first; then every container labelled with the run id is removed, whatever the in-memory list says | |
+| `vehicles` | every vehicle in parallel, each once the vehicles it `depends_on` are ready: the vehicle container with the manifest's image, its command with `namespace_arg`/`frame_prefix_arg` when the vehicle has a namespace or prefix, the environment (`ROS_DOMAIN_ID`, `FIELDPROOF_NAMESPACE`, `FIELDPROOF_FRAME_PREFIX`, the DDS profile's variable, `runtime.env`, the scenario's `env`), the DDS profile mounted, the budget applied (`vehicle.budget`), hostname the vehicle's name | the image's readiness probe, run through `docker exec` with the manifest's `ready.timeout_s`, reports every `runtime.ready` condition ([manifest.md](manifest.md#the-readiness-probe)); its progress lines are shown |
+| `running` | the timeline: each entry starts at its `at` on a worker, `navigate_to_pose` running `ros2 action send_goal` inside the vehicle container and reading the result, several at once; every half second meanwhile the observer's new samples feed the assertion evaluator, deadlines are checked and, every two seconds, the containers; each assertion resolves as soon as the stream decides it and the rest are settled when the timeline completes | every entry ends `ok` within `time.timeout_s` and every assertion passed |
+| `teardown` | vehicles, the recorder (SIGINT to `ros2 bag record`, so the MCAP is finalised), bridges, the simulator and the discovery server are stopped (grace `timeouts.teardown_s`) and removed in reverse order, their logs saved first; then every container labelled with the run id is removed, whatever the in-memory list says | |
 | `finished` | the record and the report (`report.json`, `report.md`) are written | |
 
-Every container carries the labels `io.fieldproof.run=<run_id>`, `io.fieldproof.role` (`sim`,
-`spawn`, `bridge`, `recorder`, `vehicle`) and, for a vehicle's containers,
-`io.fieldproof.vehicle=<name>`, and is named `fieldproof-<short>-sim`,
-`fieldproof-<short>-spawn-<vehicle>`, `fieldproof-<short>-bridge-<vehicle>`,
-`fieldproof-<short>-recorder` or `fieldproof-<short>-<vehicle>` after the run id's last part,
+Every container carries the labels `io.fieldproof.run=<run_id>`, `io.fieldproof.domain=<id>`,
+`io.fieldproof.role` (`discovery`, `sim`, `spawn`, `bridge`, `recorder`, `vehicle`) and, for a
+vehicle's containers, `io.fieldproof.vehicle=<name>`, and is named `fieldproof-<short>-sim`,
+`fieldproof-<short>-discovery`, `fieldproof-<short>-spawn-<vehicle>`,
+`fieldproof-<short>-bridge-<vehicle>`, `fieldproof-<short>-recorder` or
+`fieldproof-<short>-<vehicle>` after the run id's last part,
 so `docker ps --filter label=io.fieldproof.run` shows what a run started. The teardown runs
 whatever happens: a failed gate, the budget, an error of the daemon, Ctrl-C or SIGTERM (a second
 signal during the teardown is ignored so it completes). `--keep` leaves the containers running
 for a look (`docker rm -f $(docker ps -aq --filter label=io.fieldproof.run)` removes them),
-`--dry-run` prints the resolved plan (containers, commands, mounts, poses) as JSON without
-touching Docker, `--quiet` hides the output of the commands run in the containers.
+`--dry-run` prints the resolved plan (containers, commands, mounts, poses, the domain, the
+discovery mode, each vehicle's budget) as JSON without touching Docker, `--quiet` hides the
+output of the commands run in the containers, `--check-contracts` and `--discovery` are
+described under [Fleets](#fleets).
 
 ### Video
 
@@ -222,11 +308,11 @@ or `outputs.directory`; `runs/` is git-ignored):
 | File | Contents |
 | --- | --- |
 | `scenario.yaml` | the scenario file as it was run |
-| `run.json` | the record: `run_id`, the scenario's name, path and hash, the engine version, `started_at`, `finished_at`, the current `phase`, the `status` and `reason`, every phase with its start, end and duration, the `vehicles` (name, manifest, namespace, image), the containers with their images, the timeline entries with their status, duration and detail (`goal SUCCEEDED`, `goal ABORTED`, `no result within 300 s`), the `assertions` with their verdict, reason, time and evidence, the `observation` (samples, simulation time covered, problems), the `time` settings and the `stack` (network, render mode, domain id, world, images); rewritten at every phase change and verdict, so a run that died still has a record |
+| `run.json` | the record: `run_id`, the scenario's name, path and hash, the engine version, `started_at`, `finished_at`, the current `phase`, the `status` and `reason`, every phase with its start, end and duration, the `vehicles` (name, manifest, namespace, frame prefix, image, the budget applied, `depends_on`, the DDS profile, the contract check's counts when one ran), the containers with their images, the timeline entries with their status (`ok`, `failed`, `timeout`, `cancelled`), duration and detail (`goal SUCCEEDED`, `goal ABORTED`, `no result within 300 s`), the `assertions` with their verdict, reason, time and evidence, the `observation` (samples, simulation time covered, problems), the `time` settings and the `stack` (network, render mode, domain id and where it came from, discovery mode, world, images); rewritten at every phase change and verdict, so a run that died still has a record |
 | `engine.log` | one JSON object per line (`ts`, `t` seconds since the start, `run_id`, `level`, `event`, `message` and the event's fields): the phases, every container started and stopped, the readiness probe's lines, the actions and their results, the verdicts (`assertion.passed`, `assertion.failed`), the teardown, the recording and report written; what the console shows, with the same events |
 | `observe.json`, `samples.jsonl`, `assertions.jsonl`, `recording/`, `report.json`, `report.md`, `junit.xml` | the observer's plan and stream, the verdicts, the MCAP recording and the reports ([assertions.md](assertions.md#the-run-directory)) |
 | `video/<camera>.mp4` | the video of the run from the world's camera, when `outputs.video` is set ([Video](#video)) |
-| `logs/sim.log`, `logs/bridge-<vehicle>.log`, `logs/recorder.log`, `logs/vehicle-<vehicle>.log` | the containers' output, saved during the teardown when `outputs.logs` is true |
+| `logs/sim.log`, `logs/bridge-<vehicle>.log`, `logs/recorder.log`, `logs/vehicle-<vehicle>.log`, `logs/discovery.log` | the containers' output, saved during the teardown when `outputs.logs` is true |
 
 ### Status and exit codes
 
@@ -235,7 +321,7 @@ or `outputs.directory`; `runs/` is git-ignored):
 | `passed` | every gate held, the timeline completed and every assertion passed | 0 |
 | `failed` | the stack under test misbehaved: an assertion failed (the reason names the first: `assertion arrived_in_time failed: ...`), a vehicle did not reach its ready conditions in time, an action failed (`goal ABORTED`, no result within the action's timeout) or a vehicle container exited | 1 |
 | `timeout` | `time.timeout_s` passed before or during an action | 1 |
-| `error` | the run could not proceed: an image or Fuel model missing, the simulator, a bridge or the recorder not coming up or exiting, a spawn failing, `set_physics` refused, the Docker daemon unreachable | 1 (2 when the scenario or the configuration does not even validate) |
+| `error` | the run could not proceed: an image or Fuel model missing, the simulator, a bridge, the discovery server or the recorder not coming up or exiting, a spawn failing, `set_physics` refused, a bridge contract check failing, the Docker daemon unreachable | 1 (2 when the scenario or the configuration does not even validate) |
 | `interrupted` | Ctrl-C or SIGTERM | 130 |
 
 The console ends with the verdict (`PASS`, `FAIL`, `TIMEOUT`, `ERROR`, `INTERRUPTED`), the
@@ -253,15 +339,33 @@ still present afterwards.
   the real-time factor, every failing gate, a goal aborted or without result, the budget before
   and during an action, a vehicle dying, Ctrl-C and daemon errors during start, an unexpected
   exception, `--keep`, a teardown that continues past errors and sweeps by label;
-  `test_scenario_cli.py`: the three commands, the dry run, a run on the fake backend with its
-  exit codes; `test_docker_backend.py`: the Docker backend against a stub of the SDK's client.
-  `make test-engine` runs them with coverage.
+  `test_fleet_runner.py` (task P2-T01): the plan of the fleet example (namespaces on every
+  container and topic, one clock bridge, the budgets and the scenario's override, the
+  automatic domain, the discovery server's container and environment, a frame prefix, the
+  refusals: a launch without `namespace_arg`, a missing DDS profile, dependency cycles) and
+  its runs on the fake backend (three vehicles started in parallel and torn down in reverse, a
+  dependency that fails, the discovery server up or never listening, the contract checks
+  passing or failing, three actions truly concurrent on a thread pool, one failing and
+  cancelling the others, the budget during actions, the oversubscription warning);
+  `test_scenario_cli.py`: the three commands, the dry run (with `--discovery server`), a run
+  on the fake backend with its exit codes, the fleet with `--check-contracts`;
+  `test_docker_backend.py`: the Docker backend against a stub of the SDK's client (the budget
+  mapped, the host's capacity, one connection per thread). `make test-engine` runs them with
+  coverage.
 - `tests/integration/test_run.py` (`make test-integration`, after the vertical-slice test):
   `fieldproof run` of the example scenario passes against the real stack with its five
   assertions, the MCAP recording and the reports, the run directory is complete and no container
   of the run is left; a second run is interrupted with SIGINT while the stack starts and exits
   130 with nothing left behind; the failing example exits 1 naming its assertion
-  ([assertions.md](assertions.md#tests)).
+  ([assertions.md](assertions.md#tests)). `tests/integration/test_fleet.py` (task P2-T01) runs
+  the fleet example with `--check-contracts` on a host with eight cores or more
+  (`FIELDPROOF_IT_FLEET=1` insists): while the three vehicles run it reads their cgroup limits
+  from `docker inspect` and `docker stats` (the CPU quotas, the memory limits with `ugv2`'s
+  override), the run's domain, namespace and DDS profile on every container, and the graph
+  from inside `ugv1` (no node of another vehicle subscribes to its scan or odometry, one TF
+  topic per vehicle); afterwards exit code 0, every vehicle at its own goal, the twelve
+  assertions and the three contract checks passed, the MCAP with the namespaced topics, and
+  nothing left behind.
 - `.github/workflows/scenario-tests.yml` (task P1-T07): the example against the published
   images on every push to `main`, nightly and on demand, with software rendering and the
   flaky-run policy of `tools/ci/scenario-run.sh`; the run is uploaded as an artefact
@@ -270,16 +374,20 @@ still present afterwards.
 
 ## Known limits
 
-- The timeline knows one action and runs it sequentially on the wall clock after readiness;
+- The timeline knows one action, started at its `at` on the wall clock after readiness;
   conditional triggers, sim-time scheduling and the other actions are task P2-T03's (the clock
   manager, P2-T04's).
 - The assertions' deadlines are on the wall clock like the timeline; the recorder does not
   sample container resources yet ([assertions.md](assertions.md#known-limits)).
-- The schema allows several vehicles and the runner starts them in sequence, but the example
-  stack's launch files expect the root namespace, so one vehicle per run until task P2-T01
-  (which also decides the shared `/clock` and per-run networks).
-- The runs of one workspace share the configured Docker network; two runs at once on the same
-  network and `ROS_DOMAIN_ID` would see each other's topics.
+- The runs of one workspace share the configured Docker network and their containers can reach
+  each other's ports; the per-vehicle network namespaces and the emulated links between them
+  are task P2-T02's. With `ros_domain_id = "auto"` two runs started at once collide on a domain
+  with odds of one in a hundred; `--domain-id` settles it where that matters.
+- A vehicle whose launch takes no namespace argument (`runtime.entrypoint.launch.namespace_arg`)
+  can only run at the root namespace, hence alone; a `command` entrypoint gets the namespace from
+  `FIELDPROOF_NAMESPACE` and is trusted to use it.
+- The discovery server is one container per run, not replicated; a run with it needs the bridge
+  image (which carries `fastdds`) as every run does.
 - `fieldproof run` needs the images built locally (`make images`, `make vehicle-image`) or
   published (`FIELDPROOF_IMAGE_TAG=main`) and the Fuel models fetched (`make assets`); it does
   not build or fetch.

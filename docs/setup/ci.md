@@ -94,6 +94,12 @@ registry rather than from a build:
    `scenario-junit-<run number>-<attempt>`, uploaded whatever the outcome and kept 14 days;
    then a check that no container with the `io.fieldproof.run` label is left on the runner.
 
+The fleet example (`examples/scenarios/ugv_fleet.yaml`, task P2-T01) is not run here: three
+Nav2 stacks and a simulator rendering three lidars exceed the runner's cores and its readiness
+gates would time out, so the fleet is verified by `tests/integration/test_fleet.py` on a
+workstation (eight cores or more; CI's image job runs the test too and it skips itself on the
+runner). A manual dispatch may still name it as the scenario input on a larger runner.
+
 **Flaky-run policy.** `tools/ci/scenario-run.sh` runs the scenario once and, when the attempt
 exits with anything but 0, 130 (interrupted) or 2 (usage error), prints a `::warning::`
 annotation and runs it once more (`--retries N` changes the count, `0` disables it); the

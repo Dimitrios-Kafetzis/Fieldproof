@@ -173,7 +173,11 @@ way to run the simulator alone or to work from the dev container.
 The services share the `fieldproof` bridge network; Gazebo
 transport and DDS discovery use multicast on it, and `GZ_PARTITION=fieldproof` is set in every
 container so Gazebo topics are visible across containers regardless of hostname. `ROS_DOMAIN_ID`
-defaults to 0 and can be overridden from the environment.
+defaults to 0 for the compose stack and can be overridden from the environment; `fieldproof run`
+gives every run a domain of its own (derived from the run id, between 1 and 100, unless
+`ROS_DOMAIN_ID` or `fieldproof.toml` pins one) and can start a Fast DDS discovery server per run
+instead of multicast ([scenarios.md](../reference/scenarios.md#fleets)), so a run never sees the
+compose stack's graph and two runs never see each other's.
 
 Inside the dev container the ROS environment is sourced for interactive shells (`.bashrc`) and for
 login shells (`/etc/profile.d/10-ros2.sh`), so both of these work:
@@ -194,9 +198,10 @@ dependencies, the install space and the manifest, as the `fieldproof` user) and 
 `docker buildx build`. `make vehicle-image` builds the example vehicle
 `examples/vehicles/ugv_nav2` (Nav2 and SLAM Toolbox on the reference UGV) on the same base image
 prefix and tag as the stack, `fieldproof vehicle run robot.yaml` starts it on the `fieldproof`
-network with the manifest's CPU and memory budget, where it discovers the other containers over
-DDS, and `fieldproof vehicle wait robot.yaml` runs the image's readiness probe (also its
-`HEALTHCHECK`) until the manifest's `runtime.ready` conditions hold. The generated Dockerfile,
+network with the manifest's CPU, cpuset and memory budget (cgroup limits, what `docker stats`
+shows) and its DDS profile mounted, where it discovers the other containers over DDS, and
+`fieldproof vehicle wait robot.yaml` runs the image's readiness probe (also its `HEALTHCHECK`)
+until the manifest's `runtime.ready` conditions hold. The generated Dockerfile,
 the commands and the example are described in
 [manifest.md](../reference/manifest.md#vehicle-images); `make test-vehicles` is their test and
 `make test-integration` brings sim, bridge and vehicle up together in the depot

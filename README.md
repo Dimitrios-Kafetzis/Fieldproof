@@ -15,7 +15,8 @@ scenario engine, and observed through a browser-based 3D cockpit. Every scenario
 test with pass/fail assertions, so field testing becomes verification of what already passed.
 
 > Status: milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2
-> (the scenario engine) is next. See [docs/plan/STATUS.md](docs/plan/STATUS.md).
+> (the scenario engine) is under way with fleets of vehicles (P2-T01). See
+> [docs/plan/STATUS.md](docs/plan/STATUS.md).
 
 ## See it run
 
@@ -58,7 +59,10 @@ workflow ([docs/setup/ci.md](docs/setup/ci.md#scenario-tests)).
 ([docs/setup/containers.md](docs/setup/containers.md)), `FIELDPROOF_RENDER=software` forces
 software rendering on a host without a GPU render node, and `--help` lists the rest. Then read
 [docs/reference/scenarios.md](docs/reference/scenarios.md) to write a scenario of your own and
-[docs/reference/manifest.md](docs/reference/manifest.md) to bring your own vehicle.
+[docs/reference/manifest.md](docs/reference/manifest.md) to bring your own vehicle. On a
+workstation, `make run SCENARIO=examples/scenarios/ugv_fleet.yaml` runs three of the example
+UGVs at once, each in its own container, namespace and budget
+([docs/reference/scenarios.md#fleets](docs/reference/scenarios.md#fleets)).
 
 ## Documentation map
 
