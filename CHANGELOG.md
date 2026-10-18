@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.8.0...v0.9.0) (2026-10-18)
+
+
+### Features
+
+* **engine:** add assertions v0, MCAP recording and run reports ([#39](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/39)) ([ed03651](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/ed03651fba81237c9a1c0802e3fa0edcb27d2b1b))
+
 ## [0.8.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.7.0...v0.8.0) (2026-10-17)
 
 
