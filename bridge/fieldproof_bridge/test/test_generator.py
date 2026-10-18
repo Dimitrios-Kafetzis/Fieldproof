@@ -31,7 +31,7 @@ UGV_ROS_TOPICS = {
     "cmd_vel",
     "odom",
     "joint_states",
-    "/tf",
+    "tf",
     "scan",
     "imu/data",
     "camera/image",
@@ -128,7 +128,7 @@ def test_ugv_manifest_relabels_and_throttles(ugv: Manifest) -> None:
     assert by_topic["joint_states"].throttled
     assert by_topic["joint_states"].rate_hz == 50
     assert by_topic["camera/image"].qos == Qos("reliable", "volatile", 5)
-    assert by_topic["/tf"].qos.depth == 100
+    assert by_topic["tf"].qos.depth == 100
     assert by_topic["scan"].qos == Qos()
 
 
@@ -373,13 +373,18 @@ def test_plan_namespace_and_frame_prefix(ugv: Manifest) -> None:
     assert bundle.fully_qualified("imu_adapter") == "/ugv1/imu_adapter"
     entries = {e.ros_topic: e for e in bundle.node("ros_gz_bridge").entries}
     assert entries["/ugv1/scan"].gz_topic == "/ugv1/scan"
-    assert entries["/tf"].gz_topic == "/ugv1/tf", "the manifest's /tf stays global"
+    assert entries["/ugv1/tf"].gz_topic == "/ugv1/tf", "the reference TF follows the namespace"
+    assert "/tf" not in entries
     assert entries["/clock"].gz_topic == "/clock"
     assert entries["/ugv1/_bridge/imu/data"].gz_topic == "/ugv1/imu"
     topics = {t.name: t for t in bundle.topics}
     assert topics["/ugv1/scan"].frame_id == "ugv1_lidar_link"
     assert topics["/ugv1/odom"].child_frame_id == "ugv1_base_link"
-    assert topics["/tf"].frames == [{"parent": "ugv1_odom", "child": "ugv1_base_link"}]
+    assert topics["/ugv1/tf"].frames == [{"parent": "ugv1_odom", "child": "ugv1_base_link"}]
+    assert "robot_state_publisher" in topics["/ugv1/tf"].via
+    assert topics["/ugv1/tf_static"].qos.durability == "transient_local"
+    assert {"/tf", "/tf_static"}.isdisjoint(topics)
+    assert bundle.tf == {"tf": "/ugv1/tf", "tf_static": "/ugv1/tf_static"}
     assert bundle.node("ros_gz_bridge_ugv1_camera_optical_link").params["override_frame_id"] == (
         "ugv1_camera_optical_link"
     )
@@ -388,6 +393,20 @@ def test_plan_namespace_and_frame_prefix(ugv: Manifest) -> None:
     assert bundle.description["args"]["namespace"] == "ugv1"
     assert bundle.description["args"]["frame_prefix"] == "ugv1_"
     assert topics["/ugv1/robot_description"].role == "publisher"
+
+
+def test_plan_global_tf_convention(minimal: dict[str, Any], tmp_path: Path) -> None:
+    """A manifest writing `/tf` keeps one shared tree: the TF topics stay global under a
+    namespace, for a stack that tells its vehicles apart by frame prefix."""
+    path = tmp_path / "robot.yaml"
+    path.write_text(yaml.safe_dump(minimal))
+    bundle = plan(Manifest.load(path), namespace="ugv1", frame_prefix="ugv1/")
+    topics = {t.name: t for t in bundle.topics}
+    assert bundle.tf == {"tf": "/tf", "tf_static": "/tf_static"}
+    assert topics["/tf"].frames == [{"parent": "ugv1/odom", "child": "ugv1/base_link"}]
+    assert "robot_state_publisher" in topics["/tf"].via
+    assert topics["/tf_static"].via == "robot_state_publisher"
+    assert "/ugv1/tf" not in topics
 
 
 def test_plan_without_optional_sensor(ugv: Manifest) -> None:
@@ -467,7 +486,8 @@ def test_write_bundle_files(ugv: Manifest, tmp_path: Path) -> None:
     assert bridge["description"]["xacro"] == str(ugv.xacro_path())
     contract = yaml.safe_load((out / "contract.yaml").read_text())
     assert contract["kind"] == "BridgeContract"
-    assert {t["name"] for t in contract["topics"]} >= {"/ugv1/scan", "/tf", "/clock"}
+    assert {t["name"] for t in contract["topics"]} >= {"/ugv1/scan", "/ugv1/tf", "/clock"}
+    assert bridge["tf"] == {"tf": "/ugv1/tf", "tf_static": "/ugv1/tf_static"}
     launch = (out / "bridge.launch.py").read_text()
     assert "fieldproof_bridge" in launch
     assert str(out) in launch

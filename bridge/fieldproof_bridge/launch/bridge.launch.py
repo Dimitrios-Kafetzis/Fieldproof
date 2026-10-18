@@ -2,15 +2,18 @@
 
     ros2 launch fieldproof_bridge bridge.launch.py manifest:=/path/to/robot.yaml \\
         [namespace:=ugv1] [frame_prefix:=] [clock:=true] [robot_state_publisher:=true] \\
-        [without:=gps] [use_sim_time:=true]
+        [without:=gps] [use_sim_time:=true] [bundle_out:=/tmp/fieldproof-bridge]
     ros2 launch fieldproof_bridge bridge.launch.py bundle:=/path/to/<robot>_bridge
 
-With `manifest`, the bundle is generated at launch time into a temporary directory (the same
-output as `fieldproof bridge gen`); with `bundle`, a directory written by the generator is used as
-it is and the other arguments are ignored (they are recorded in it). The nodes started are those
-of the bundle's bridge.yaml: one `parameter_bridge` per configuration file (QoS overrides and
+With `manifest`, the bundle is generated at launch time into a temporary directory, or into
+`bundle_out` when given (the same output as `fieldproof bridge gen`, where a contract check can
+find it); with `bundle`, a directory written by the generator is used as it is and the other
+arguments are ignored (they are recorded in it). The nodes started are those of the bundle's
+bridge.yaml: one `parameter_bridge` per configuration file (QoS overrides and
 `override_frame_id` from params.yaml), one adapter node per hidden bridge topic, and
-`robot_state_publisher` on the manifest's xacro rendered with the bundle's arguments.
+`robot_state_publisher` on the manifest's xacro rendered with the bundle's arguments, its `/tf`
+and `/tf_static` remapped to the vehicle's TF topics (under the namespace when the manifest's
+`tf` interface is relative, task P2-T01).
 """
 
 from __future__ import annotations
@@ -46,7 +49,12 @@ def launch_setup(context: Any) -> list[Any]:
     if bundle:
         bundle_dir = Path(bundle).resolve()
     elif manifest:
-        bundle_dir = Path(tempfile.mkdtemp(prefix="fieldproof_bridge_"))
+        bundle_out = LaunchConfiguration("bundle_out").perform(context)
+        bundle_dir = (
+            Path(bundle_out).resolve()
+            if bundle_out
+            else Path(tempfile.mkdtemp(prefix="fieldproof_bridge_"))
+        )
         without = LaunchConfiguration("without").perform(context)
         generate(
             manifest,
@@ -66,6 +74,7 @@ def launch_setup(context: Any) -> list[Any]:
     data = yaml.safe_load((bundle_dir / "bridge.yaml").read_text())
     namespace = str(data.get("namespace") or "") or "/"
     params_file = str(bundle_dir / "params.yaml")
+    tf_topics = data.get("tf") or {"tf": "/tf", "tf_static": "/tf_static"}
     actions: list[Any] = []
     for node in data["nodes"]:
         name, kind = str(node["name"]), str(node["kind"])
@@ -109,6 +118,10 @@ def launch_setup(context: Any) -> list[Any]:
                     name=name,
                     namespace=namespace,
                     output="screen",
+                    remappings=[
+                        ("/tf", str(tf_topics["tf"])),
+                        ("/tf_static", str(tf_topics["tf_static"])),
+                    ],
                     parameters=[
                         {
                             "robot_description": ParameterValue(Command(command), value_type=str),
@@ -153,6 +166,12 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "use_sim_time", default_value="true", choices=["true", "false"], description="clock"
+            ),
+            DeclareLaunchArgument(
+                "bundle_out",
+                default_value="",
+                description="write the bundle generated from manifest here (a temporary "
+                "directory otherwise)",
             ),
             OpaqueFunction(function=launch_setup),
         ]

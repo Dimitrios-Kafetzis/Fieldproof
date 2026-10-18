@@ -12,7 +12,10 @@ A bundle is a directory the bridge launch file (``launch/bridge.launch.py``) sta
 The rules, applied to every interface of the manifest (:mod:`fieldproof_bridge.manifest`):
 
 - Names are fully qualified with the vehicle namespace on both sides; a ROS topic written with a
-  leading slash in the manifest (``/tf``) stays global.
+  leading slash in the manifest stays global. The TF topics follow the drive's ``tf`` interface:
+  relative (``tf``, the reference vehicles) puts ``/<namespace>/tf`` and ``/<namespace>/tf_static``
+  under the namespace, one TF tree per vehicle (Nav2's multi-robot convention, task P2-T01);
+  absolute (``/tf``) keeps one shared tree, where a ``frame_prefix`` tells the vehicles apart.
 - A plain output goes through the main ``parameter_bridge`` instance with the declared QoS set
   through rclcpp's ``qos_overrides`` parameters.
 - An output whose ROS frame differs from the frame Gazebo sets goes through one more
@@ -142,6 +145,8 @@ class Bundle:
     nodes: list[NodePlan]
     topics: list[TopicContract]
     internal_topics: list[str]
+    tf: dict[str, str] = field(default_factory=lambda: {"tf": "/tf", "tf_static": "/tf_static"})
+    """The vehicle's TF topics, which robot_state_publisher is remapped to."""
 
     def node(self, name: str) -> NodePlan:
         """Return the node plan called ``name``."""
@@ -327,6 +332,13 @@ class _Planner:
         )
         self.topics.append(TopicContract("/clock", CLOCK_ROS_TYPE, "publisher", MAIN_BRIDGE))
 
+    def tf_topics(self) -> dict[str, str]:
+        """The vehicle's `tf` (as the drive names it) and `tf_static` (next to it) topics."""
+        drive_tf = next((i for i in self.manifest.interfaces if i.ros_type == TF_TYPE), None)
+        tf_topic = drive_tf.ros_topic if drive_tf is not None else "tf"
+        static = "/tf_static" if tf_topic.startswith("/") else "tf_static"
+        return {"tf": qualify(self.ns, tf_topic), "tf_static": qualify(self.ns, static)}
+
     def add_tf_assembly(self) -> dict[str, Any]:
         """robot_state_publisher on the manifest's description; returns the description entry."""
         args = dict(self.manifest.xacro_args)
@@ -345,9 +357,10 @@ class _Planner:
                 if frame and f"{self.prefix}{frame}" not in children:
                     children.append(f"{self.prefix}{frame}")
         latched = Qos("reliable", "transient_local", 1)
+        tf = self.tf_topics()
         self.topics.append(
             TopicContract(
-                "/tf_static",
+                tf["tf_static"],
                 TF_TYPE,
                 "publisher",
                 "robot_state_publisher",
@@ -365,7 +378,7 @@ class _Planner:
             )
         )
         for topic in self.topics:
-            if topic.name == "/tf":
+            if topic.name == tf["tf"]:
                 topic.via = f"{topic.via}, robot_state_publisher"
         return {"xacro": str(self.manifest.xacro_path()), "args": args}
 
@@ -405,6 +418,7 @@ def plan(
         nodes=nodes,
         topics=planner.topics,
         internal_topics=planner.internal,
+        tf=planner.tf_topics(),
     )
 
 
@@ -470,6 +484,7 @@ def write_bundle(bundle: Bundle, out_dir: Path) -> list[Path]:
         "frame_prefix": bundle.frame_prefix,
         "clock": bundle.clock,
         "description": bundle.description,
+        "tf": dict(bundle.tf),
         "nodes": [
             {"name": n.name, "kind": n.kind, **({"config": n.config} if n.config else {})}
             for n in bundle.nodes

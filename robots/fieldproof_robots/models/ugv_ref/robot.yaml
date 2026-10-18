@@ -10,7 +10,10 @@
 #
 # Topic names are relative to the vehicle namespace: with the default empty namespace the Gazebo
 # topic `scan` is `/scan`; spawned with namespace `ugv1` it is `/ugv1/scan`. A ROS topic written
-# with a leading slash (`/tf`) is absolute and stays outside the namespace.
+# with a leading slash is absolute and stays outside the namespace. The TF topics follow the
+# drive's `tf` interface: relative, as here, each vehicle of a fleet has its own `/<ns>/tf` and
+# `/<ns>/tf_static` (Nav2's multi-robot convention, task P2-T01); `/tf` would keep one shared
+# tree, where a frame_prefix tells the vehicles apart.
 #
 # Every ROS output may carry a `qos` block (`reliability`: reliable | best_effort, `durability`:
 # volatile | transient_local, `depth`); the defaults are reliable, volatile, 10, the QoS the
@@ -83,11 +86,12 @@ drive:
     gz_rate: physics # the JointStatePublisher system publishes every physics step (1 kHz)
     rate_hz: 50 # what a wheel-encoder driver publishes; the bridge throttles to it
   tf:
-    # odom -> base_link from the DiffDrive system. `/tf` is absolute: every vehicle shares the
-    # one TF tree and tells its frames apart with frame_prefix (REP 105).
+    # odom -> base_link from the DiffDrive system. Relative: `/tf` at the root, `/ugv1/tf` under
+    # the namespace `ugv1`, so every vehicle of a fleet has its own TF tree and keeps the frame
+    # names its stack expects (`odom`, `base_link`).
     gz_topic: tf
     gz_type: gz.msgs.Pose_V
-    ros_topic: /tf
+    ros_topic: tf
     ros_type: tf2_msgs/msg/TFMessage
     rate_hz: 50
     qos:
