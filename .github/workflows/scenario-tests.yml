@@ -1,0 +1,116 @@
+# Fieldproof scenario tests (task P1-T07): the first scenario away from the maintainer's machine.
+# The UGV scenario runs headless with software rendering on a GitHub-hosted runner against the
+# *published* stack images (`ghcr.io/dimitrios-kafetzis/fieldproof-{sim,bridge,base-ros2}:main`,
+# or the tag a manual run names), the way a fresh clone runs it: the example vehicle image is
+# built on the published base, the Fuel models fetched, then `fieldproof run` through
+# tools/ci/scenario-run.sh, which applies the flaky-run policy (one retry, flagged in the job
+# summary and the step outputs). The MCAP recording, the reports, the JUnit document and the
+# containers' logs are uploaded as artefacts whatever the outcome.
+#
+# ci.yml's image job covers a change to the images themselves (it builds them and runs the
+# integration tests against the result); this workflow proves the chain is reproducible from the
+# registry. It is not a required status check: a flaky run never blocks a merge, and the
+# definition of done asks for three consecutive green runs on main instead.
+name: Scenario tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - .github/workflows/scenario-tests.yml
+      - tools/ci/scenario-run.sh
+      - examples/**
+      - engine/**
+      - fieldproof.toml
+      - Makefile
+  schedule:
+    # Nightly, so main keeps proving itself between pushes.
+    - cron: "20 4 * * *"
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        description: Tag of the published stack images (main, vX.Y.Z or sha-<short>)
+        type: string
+        required: false
+        default: main
+      scenario:
+        description: Scenario file to run
+        type: string
+        required: false
+        default: examples/scenarios/ugv_nav_to_goal.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scenario-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.13.1"
+  FORCE_COLOR: "1"
+  # The Makefile builds the vehicle image on `base-ros2:$FIELDPROOF_IMAGE_TAG`; the engine runs
+  # `sim` and `bridge` at the same tag (fieldproof.toml, overridden by the environment).
+  FIELDPROOF_IMAGE_TAG: ${{ inputs.image-tag || 'main' }}
+  SCENARIO: ${{ inputs.scenario || 'examples/scenarios/ugv_nav_to_goal.yaml' }}
+
+jobs:
+  scenario:
+    name: UGV scenario (published images, software rendering)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Free disk space for the images
+        run: tools/ci/free-disk.sh
+      - name: Cache the Fuel archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: assets/fuel/archives
+          key: fuel-${{ hashFiles('assets/fuel.lock') }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+      - name: Pull the published stack images (base-ros2, sim, bridge at ${{ env.FIELDPROOF_IMAGE_TAG }})
+        run: |
+          for image in base-ros2 sim bridge; do
+            docker pull --quiet "ghcr.io/dimitrios-kafetzis/fieldproof-${image}:${FIELDPROOF_IMAGE_TAG}"
+          done
+          docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep fieldproof-
+      - name: Fetch the Fuel models pinned in assets/fuel.lock
+        run: make assets
+      - name: Build the example vehicle image on the published base image
+        run: make vehicle-image
+      - name: Validate the scenario against the workspace
+        run: uv run --locked --project engine fieldproof validate "$SCENARIO"
+      - name: Run the scenario (software rendering; one retry, flagged)
+        id: run
+        run: tools/ci/scenario-run.sh --runs-dir runs --render software "$SCENARIO"
+      - name: Upload the run (MCAP recording, reports, JUnit, logs of every attempt)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scenario-run-${{ github.run_number }}-${{ github.run_attempt }}
+          path: runs
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload the JUnit document of the final attempt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scenario-junit-${{ github.run_number }}-${{ github.run_attempt }}
+          path: runs/junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Nothing of the run is left on the runner
+        if: always()
+        run: |
+          left="$(docker ps -a --filter label=io.fieldproof.run --format '{{.Names}}')"
+          if [ -n "$left" ]; then
+            echo "::error::containers left behind: $left"
+            exit 1
+          fi
+          echo "no container carries the io.fieldproof.run label"
