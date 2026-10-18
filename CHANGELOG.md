@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.10.0...v0.11.0) (2026-10-18)
+
+
+### Features
+
+* **engine:** record a demo video of every run from the world's spectator camera ([#47](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/47)) ([54ed7ac](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/54ed7acb7ebf4bb59a70e550a27eba25e7b5fba8))
+
 ## [0.10.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.9.0...v0.10.0) (2026-10-18)
 
 
