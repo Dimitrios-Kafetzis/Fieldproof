@@ -5,7 +5,7 @@ built from. The manifest format is schema v0 ([manifest.md](../../docs/reference
 
 | Directory | Vehicle | Arrives with |
 | --- | --- | --- |
-| `ugv_nav2/` | the reference UGV running Nav2 and SLAM Toolbox unmodified as the stand-in for a real vehicle codebase: `robot.yaml` extends the reference model's manifest and adds the runtime (image built from `src/ugv_nav2_bringup`, the field bringup launch with `use_sim_time:=true drivers:=false`, the driver-swap map, Nav2 readiness, a 2 CPU / 2 GiB budget) | P1-T04 |
+| `ugv_nav2/` | the reference UGV running Nav2 and SLAM Toolbox unmodified as the stand-in for a real vehicle codebase: `robot.yaml` extends the reference model's manifest and adds the runtime (image built from `src/ugv_nav2_bringup`, the field bringup launch with `use_sim_time:=true drivers:=false` and `namespace_arg: namespace` so a fleet can run several, the driver-swap map, Nav2 readiness with relative names, the vehicle's Fast DDS profile `config/fastdds.xml`, a 2 CPU / 2 GiB budget) | P1-T04, P2-T01 |
 
 ```bash
 uv run --project engine fieldproof manifest validate examples/vehicles/ugv_nav2/robot.yaml
