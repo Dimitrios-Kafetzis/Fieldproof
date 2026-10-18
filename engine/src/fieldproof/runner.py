@@ -1,32 +1,40 @@
-"""The scenario runner v0 (task P1-T05, ADR-0004, ADR-0005, ADR-0006).
+"""The scenario runner (tasks P1-T05 and P1-T06; ADR-0004, ADR-0005, ADR-0006).
 
 :func:`plan` turns a validated scenario and the workspace configuration into a :class:`Plan`:
 the world file and its named frames, every vehicle's manifest, spawn pose and the three
 containers it needs (the one-shot spawn, its bridge, the vehicle itself), the simulator
-container, the resolved timeline, the run id and the run directory. Nothing in it touches
-Docker, so ``fieldproof validate`` and ``fieldproof run --dry-run`` stop here.
+container, the recorder container, the resolved timeline and assertions, the run id and the
+run directory. Nothing in it touches Docker, so ``fieldproof validate`` and ``fieldproof run
+--dry-run`` stop here.
 
 :class:`Run` executes a plan against a :class:`~fieldproof.backend.Backend` as a state machine
 of phases (01-architecture.md, "Data flow for one run"): preparing (images, assets, network),
 sim (started, the world's services answer), spawn (one one-shot container per vehicle), bridges
-(started, the vehicle's odometry topic appears), vehicles (started, the image's readiness probe
-reports every ``runtime.ready`` condition), running (the timeline, within the scenario's
-budget), teardown (vehicles, bridges, simulator in reverse order, logs kept, then a sweep by
-label), finished. A failure in any phase, the scenario's budget, a Ctrl-C or an error of the
-runtime all end in the teardown: a run never leaves containers behind unless asked to with
-``keep``. Everything the run did is in ``runs/<run_id>/``: the scenario as run, ``run.json``
-(the record, rewritten at every phase), ``engine.log`` (one JSON object per line) and the
-containers' logs.
+(started, the vehicle's odometry topic appears), recorder (the observer of
+:mod:`fieldproof.observer` started on the run directory, recording to MCAP when asked, its
+``ready`` sample seen), vehicles (started, the image's readiness probe reports every
+``runtime.ready`` condition), running (the timeline within the scenario's budget while the
+:class:`~fieldproof.assertions.Evaluator` consumes the observer's stream), teardown (vehicles,
+recorder, bridges, simulator in reverse order, logs kept, then a sweep by label), finished (the
+report written). A failure in any phase, a failed assertion, the scenario's budget, a Ctrl-C
+or an error of the runtime all end in the teardown: a run never leaves containers behind unless
+asked to with ``keep``. Everything the run did is in ``runs/<run_id>/``: the scenario as run,
+``run.json`` (the record, rewritten at every phase), ``engine.log`` (one JSON object per line),
+``samples.jsonl`` and ``assertions.jsonl`` (the stream and the verdicts), ``recording/`` (the
+MCAP), ``report.json`` and ``report.md``, and the containers' logs.
 """
 
 from __future__ import annotations
 
 import json
 import math
+import os
 import shlex
+import threading
 import time
 import uuid
 from collections.abc import Callable
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -36,17 +44,37 @@ from typing import IO, Any
 import yaml
 from rich.console import Console
 
-from fieldproof import __version__
+from fieldproof import __version__, observer
+from fieldproof.assertions import (
+    ASSERTIONS_FILE,
+    DEFAULT_CONTACTS_TOPIC,
+    FAILED,
+    OBSERVE_FILE,
+    SAMPLES_FILE,
+    Evaluator,
+    PlannedAssertion,
+    Result,
+    Sample,
+    observe_plan,
+)
 from fieldproof.backend import Backend, BackendError, ContainerSpec, ExecResult, Mount
 from fieldproof.config import Config
 from fieldproof.manifest import RobotManifest
+from fieldproof.observer import FileTail
+from fieldproof.report import REPORT_JSON, REPORT_MD, write_reports
 from fieldproof.scenario import (
+    Assertion,
     NavigateToPose,
+    NoCollision,
     Pose,
+    ReachPose,
     Scenario,
     ScenarioError,
+    TopicRate,
+    TopicValue,
     Vehicle,
     WorldInfo,
+    entry_label,
     place,
     read_world,
 )
@@ -76,6 +104,12 @@ NAV2_ACTION = "navigate_to_pose"
 NAV2_ACTION_TYPE = "nav2_msgs/action/NavigateToPose"
 RENDER_DIR = Path("/dev/dri")
 POLL_S = 2.0
+# How often the running phase reads the observer's stream and ticks the assertions.
+EVAL_POLL_S = 0.5
+# The recorder container: the observer mounted from the engine, the run directory read-write.
+OBSERVER_FILE = Path(observer.__file__).resolve()
+OBSERVER_IN_CONTAINER = "/opt/fieldproof/observer.py"
+RUN_DIR_IN_CONTAINER = "/fieldproof/run"
 # In-container limit of a polling command, so a hung `gz service -l` cannot hang the runner.
 PROBE_LIMIT_S = 20
 RECORD_FILE = "run.json"
@@ -92,6 +126,7 @@ class Phase(StrEnum):
     SIM = "sim"
     SPAWN = "spawn"
     BRIDGES = "bridges"
+    RECORDER = "recorder"
     VEHICLES = "vehicles"
     RUNNING = "running"
     TEARDOWN = "teardown"
@@ -122,7 +157,7 @@ class RunError(RuntimeError):
 
 
 class RunFailedError(RuntimeError):
-    """The scenario failed (a vehicle not ready, an action failed, a container died)."""
+    """The scenario failed: an assertion, a vehicle not ready, an action, a container died."""
 
 
 class RunTimeoutError(RunFailedError):
@@ -141,7 +176,7 @@ class PlannedAction:
     @property
     def name(self) -> str:
         """The entry's label."""
-        return self.entry.name or f"{self.entry.action}@{self.entry.at:g}s"
+        return entry_label(self.entry)
 
 
 @dataclass(frozen=True)
@@ -182,13 +217,18 @@ class Plan:
     render: str
     domain_id: int
     sim: ContainerSpec
+    recorder: ContainerSpec
     vehicles: tuple[PlannedVehicle, ...]
     actions: tuple[PlannedAction, ...]
+    assertions: tuple[PlannedAssertion, ...]
+    observe: dict[str, Any]
+    """What the recorder's observer watches and records (`observe.json`)."""
 
     def containers(self) -> list[ContainerSpec]:
         """The long-running containers in start order (the teardown reverses it)."""
         specs = [self.sim]
         specs += [v.bridge for v in self.vehicles]
+        specs.append(self.recorder)
         specs += [v.container for v in self.vehicles]
         return specs
 
@@ -213,6 +253,8 @@ class Plan:
                 "devices": list(s.devices),
                 "cpus": s.cpus,
                 "memory": s.memory,
+                "user": s.user,
+                "working_dir": s.working_dir,
             }
 
         return {
@@ -253,7 +295,8 @@ class Plan:
                 }
                 for a in self.actions
             ],
-            "assertions": [a.model_dump() for a in self.scenario.assertions],
+            "assertions": [a.to_dict() for a in self.assertions],
+            "observe": self.observe,
         }
 
 
@@ -336,19 +379,81 @@ def plan(
         actions.append(
             PlannedAction(entry, goal_world, by_name[entry.vehicle].spawn.relative(goal_world))
         )
+    assertions = tuple(
+        _plan_assertion(world, by_name, a, index) for index, a in enumerate(scenario.assertions)
+    )
+    run_dir = base / identity
+    observe = observe_plan(
+        assertions,
+        world=world.name,
+        models=[v.name for v in vehicles],
+        record=scenario.outputs.record,
+        topics=scenario.outputs.topics,
+        run_dir=RUN_DIR_IN_CONTAINER,
+    )
+    recorder = ContainerSpec(
+        name=f"fieldproof-{short}-recorder",
+        image=config.image("bridge"),
+        role="recorder",
+        command=(
+            "python3",
+            OBSERVER_IN_CONTAINER,
+            "--config",
+            f"{RUN_DIR_IN_CONTAINER}/{OBSERVE_FILE}",
+        ),
+        # Runs as the engine's user so what it writes into the run directory belongs to the
+        # user who started the run; HOME, the ROS log directory and the working directory point
+        # at places that user can reach (the image's home is not, when the uids differ: rosbag2
+        # then fails to open its file with "Permission denied").
+        env={**env, "HOME": "/tmp", "ROS_LOG_DIR": "/tmp/ros-log"},  # noqa: S108  (in-container)
+        working_dir=RUN_DIR_IN_CONTAINER,
+        labels={**labels, ROLE_LABEL: "recorder"},
+        network=net,
+        hostname=f"fieldproof-{short}-recorder",
+        mounts=(
+            Mount(OBSERVER_FILE, OBSERVER_IN_CONTAINER),
+            Mount(run_dir, RUN_DIR_IN_CONTAINER, read_only=False),
+        ),
+        user=f"{os.getuid()}:{os.getgid()}",
+    )
     return Plan(
         scenario=scenario,
         config=config,
         world=world,
         run_id=identity,
-        run_dir=base / identity,
+        run_dir=run_dir,
         network=net,
         render=render_mode,
         domain_id=domain,
         sim=sim,
+        recorder=recorder,
         vehicles=vehicles,
         actions=tuple(actions),
+        assertions=assertions,
+        observe=observe,
     )
+
+
+def _plan_assertion(
+    world: WorldInfo, by_name: dict[str, PlannedVehicle], assertion: Assertion, index: int
+) -> PlannedAssertion:
+    """Resolve an assertion's target, topic and model against the plan."""
+    where = f"assertions[{index}] ({assertion.name})"
+    if isinstance(assertion, ReachPose):
+        vehicle = by_name[assertion.vehicle]
+        target = place(assertion.target, world, f"{where}.target")
+        return PlannedAssertion(assertion, target=target, model=vehicle.name)
+    if isinstance(assertion, NoCollision):
+        vehicle = by_name[assertion.vehicle]
+        topic = assertion.topic or DEFAULT_CONTACTS_TOPIC
+        return PlannedAssertion(assertion, topic=vehicle.topic(topic), model=vehicle.name)
+    if isinstance(assertion, TopicRate | TopicValue):
+        if assertion.vehicle is not None:
+            topic = by_name[assertion.vehicle].topic(assertion.topic)
+        else:
+            topic = assertion.topic if assertion.topic.startswith("/") else f"/{assertion.topic}"
+        return PlannedAssertion(assertion, topic=topic)
+    return PlannedAssertion(assertion)
 
 
 def _plan_vehicle(  # noqa: PLR0917
@@ -476,6 +581,8 @@ class RunLog:
         self.started = clock()
         self.events: list[dict[str, Any]] = []
         self._file: IO[str] | None = None
+        # Events arrive from the thread that streams an action's output as well.
+        self._lock = threading.Lock()
         if file is not None:
             file.parent.mkdir(parents=True, exist_ok=True)
             self._file = file.open("a")
@@ -491,21 +598,23 @@ class RunLog:
             "message": message,
             **fields,
         }
-        self.events.append(record)
-        if self._file is not None:
-            self._file.write(json.dumps(record, sort_keys=False) + "\n")
-            self._file.flush()
-        if self.console is not None and (level != "debug" or self.verbose):
-            style = {"debug": "dim", "warning": "yellow", "error": "bold red"}.get(level, "")
-            text = message if message else " ".join(f"{k}={v}" for k, v in fields.items())
-            line = f"{record['t']:8.1f}s  {event:<18} {text}"
-            self.console.print(line, style=style, highlight=False, soft_wrap=True, markup=False)
+        with self._lock:
+            self.events.append(record)
+            if self._file is not None:
+                self._file.write(json.dumps(record, sort_keys=False) + "\n")
+                self._file.flush()
+            if self.console is not None and (level != "debug" or self.verbose):
+                style = {"debug": "dim", "warning": "yellow", "error": "bold red"}.get(level, "")
+                text = message if message else " ".join(f"{k}={v}" for k, v in fields.items())
+                line = f"{record['t']:8.1f}s  {event:<18} {text}"
+                self.console.print(line, style=style, highlight=False, soft_wrap=True, markup=False)
 
     def close(self) -> None:
         """Close the file."""
-        if self._file is not None:
-            self._file.close()
-            self._file = None
+        with self._lock:
+            if self._file is not None:
+                self._file.close()
+                self._file = None
 
 
 # ------------------------------------------------------------------------------- the record
@@ -537,9 +646,12 @@ class RunRecord:
     reason: str | None = None
     finished_at: str | None = None
     phases: list[dict[str, Any]] = field(default_factory=list)
+    vehicles: list[dict[str, Any]] = field(default_factory=list)
     containers: list[dict[str, Any]] = field(default_factory=list)
     timeline: list[ActionRecord] = field(default_factory=list)
     assertions: list[dict[str, Any]] = field(default_factory=list)
+    observation: dict[str, Any] = field(default_factory=dict)
+    """The observer's stream: samples, simulation time covered, problems."""
     time: dict[str, Any] = field(default_factory=dict)
     stack: dict[str, Any] = field(default_factory=dict)
 
@@ -566,6 +678,8 @@ class Run:
         keep: bool = False,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        wall: Callable[[], float] = time.time,
+        executor: Executor | None = None,
     ) -> None:
         self.plan = plan
         self.backend = backend
@@ -573,7 +687,14 @@ class Run:
         self.keep = keep
         self.sleep = sleep
         self.clock = clock
+        self.wall = wall
+        """The wall clock the observer's samples are stamped with (epoch seconds)."""
+        self._executor = executor or ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="fieldproof-action"
+        )
+        """Runs an action's command while the main thread keeps observing the run."""
         self.tearing_down = False
+        self.evaluator = Evaluator(plan.assertions)
         self.record = RunRecord(
             run_id=plan.run_id,
             run_dir=str(plan.run_dir),
@@ -584,6 +705,16 @@ class Run:
             },
             engine_version=__version__,
             started_at=utc_now(),
+            vehicles=[
+                {
+                    "name": v.name,
+                    "manifest": v.manifest.name,
+                    "namespace": v.vehicle.namespace,
+                    "image": v.container.image,
+                }
+                for v in plan.vehicles
+            ],
+            assertions=[r.to_dict() for r in self.evaluator.results],
             time=plan.scenario.time.model_dump(),
             stack={
                 "network": plan.network,
@@ -594,6 +725,9 @@ class Run:
             },
         )
         self._phase_started: float | None = None
+        self._samples = FileTail(plan.run_dir / SAMPLES_FILE)
+        self._observer_errors = 0
+        self._last_alive_check = -math.inf
 
     # ------------------------------------------------------------------------- the machine
     def execute(self) -> RunRecord:
@@ -619,6 +753,8 @@ class Run:
             self._phase(Phase.BRIDGES)
             for vehicle in self.plan.vehicles:
                 self.start_bridge(vehicle)
+            self._phase(Phase.RECORDER)
+            self.start_recorder()
             self._phase(Phase.VEHICLES)
             for vehicle in self.plan.vehicles:
                 self.start_vehicle(vehicle)
@@ -640,9 +776,11 @@ class Run:
         finally:
             self._phase(Phase.TEARDOWN)
             self.teardown()
+            self._executor.shutdown(wait=False, cancel_futures=True)
             self._phase(Phase.FINISHED)
             self.record.finished_at = utc_now()
             self._write()
+            self.write_report()
             self.log.event(
                 "run.end",
                 f"{self.record.status}: {self.record.reason or scenario.name}",
@@ -671,6 +809,13 @@ class Run:
         self.record.reason = reason
         level = "info" if status is Status.PASSED else "error"
         self.log.event("run.status", reason or str(status), level=level, status=str(status))
+        self._resolve(self.evaluator.skip_pending(f"the run ended {status}: {reason}"))
+        self.record.observation = {
+            "samples": self.evaluator.samples,
+            "sim_elapsed_s": self.evaluator.sim_elapsed(),
+            "unparsed_lines": self.evaluator.bad_lines,
+            "observer_errors": self._observer_errors,
+        }
 
     def _write(self) -> None:
         self.record.write(self.plan.run_dir / RECORD_FILE)
@@ -714,12 +859,8 @@ class Run:
         scenario = self.plan.scenario
         if scenario.time.mode == "realtime":
             raise RunError("time.mode realtime: the real-time-locked mode arrives with task P2-T04")
-        if scenario.outputs.record:
-            self.log.event(
-                "outputs.record",
-                "recording to MCAP arrives with task P1-T06; nothing is recorded",
-                level="warning",
-            )
+        if not OBSERVER_FILE.is_file():
+            raise RunError(f"the observer {OBSERVER_FILE} is missing from the engine")
         images = sorted(
             {s.image for s in self.plan.containers()}
             | {v.spawn_job.image for v in self.plan.vehicles}
@@ -825,6 +966,98 @@ class Run:
         )
         self.log.event("bridge.ready", f"{vehicle.name}: {odom} is published", vehicle=vehicle.name)
 
+    def start_recorder(self) -> None:
+        """Start the recorder container on the run directory and wait for the observer's `ready`."""
+        recorder = self.plan.recorder
+        run_dir = self.plan.run_dir
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / OBSERVE_FILE).write_text(json.dumps(self.plan.observe, indent=2) + "\n")
+        # The files exist, owned by the engine's user, before the container mounts the directory.
+        (run_dir / SAMPLES_FILE).touch()
+        (run_dir / ASSERTIONS_FILE).touch()
+        self.backend.start(recorder)
+        self._started(recorder)
+        record = self.plan.observe["record"]
+        self.log.event(
+            "observer.start",
+            f"recording {len(record['topics']) or 'all'} topic(s) to MCAP"
+            if record["enabled"]
+            else "observing only (outputs.record is off)",
+            recording=record["enabled"],
+        )
+        seen: dict[str, Any] = {}
+
+        def observer_ready() -> bool:
+            self._running(recorder)
+            for sample in self._poll_samples():
+                if sample.kind == "ready":
+                    seen.update(sample.data)
+            return bool(seen)
+
+        self.wait_for(
+            observer_ready, self.plan.config.timeouts.recorder_s, "the run's observer to be ready"
+        )
+        waiting = seen.get("waiting") or []
+        self.log.event(
+            "recorder.ready",
+            "observer ready"
+            + (", recording" if seen.get("recording") else "")
+            + (f"; waiting for topic(s) {', '.join(waiting)}" if waiting else ""),
+            subscribed=seen.get("subscribed"),
+            waiting=waiting,
+        )
+
+    def _poll_samples(self) -> list[Sample]:
+        """Read the observer's new lines, feed the evaluator, report its errors."""
+        lines = self._samples.lines()
+        samples: list[Sample] = []
+        for line in lines:
+            try:
+                sample = Sample.from_line(line)
+            except ValueError:
+                self.evaluator.bad_lines += 1
+                continue
+            samples.append(sample)
+            if sample.kind == "error":
+                self._observer_errors += 1
+                self.log.event(
+                    "observer.error", str(sample.data.get("message", "")), level="warning"
+                )
+            self._resolve(self.evaluator.feed(sample))
+        return samples
+
+    def _resolve(self, results: list[Result]) -> None:
+        """Record the assertions that just resolved."""
+        if not results:
+            return
+        by_name = {a["name"]: index for index, a in enumerate(self.record.assertions)}
+        with (self.plan.run_dir / ASSERTIONS_FILE).open("a") as verdicts:
+            for result in results:
+                data = result.to_dict()
+                if result.name in by_name:
+                    self.record.assertions[by_name[result.name]] = data
+                else:
+                    self.record.assertions.append(data)
+                verdicts.write(json.dumps({"run_id": self.plan.run_id, **data}) + "\n")
+                level = {FAILED: "error", "passed": "info"}.get(result.status, "warning")
+                self.log.event(
+                    f"assertion.{result.status}",
+                    f"{result.name}: {result.reason}",
+                    level=level,
+                    assertion=result.name,
+                    type=result.type,
+                    t_s=result.t_s,
+                )
+        self._write()
+
+    def _observe(self) -> None:
+        """One poll of the running phase: the stream, the deadlines, the containers."""
+        self._poll_samples()
+        self._resolve(self.evaluator.tick(self.wall()))
+        if self.clock() - self._last_alive_check >= POLL_S:
+            self._last_alive_check = self.clock()
+            self.check_alive()
+
     def start_vehicle(self, vehicle: PlannedVehicle) -> None:
         """Start the vehicle container and run its readiness probe until `runtime.ready` holds."""
         container = vehicle.container
@@ -859,28 +1092,16 @@ class Run:
         self.log.event("vehicle.ready", f"{vehicle.name}: {last}", vehicle=vehicle.name)
 
     def run_timeline(self) -> None:
-        """Run the timeline in order within the budget; record the assertions as skipped."""
+        """Run the timeline in order within the budget while the assertions evaluate."""
         scenario = self.plan.scenario
         budget = scenario.time.timeout_s
         started = self.clock()
-        for assertion in scenario.assertions:
-            self.record.assertions.append(
-                {
-                    "name": assertion.name,
-                    "type": assertion.type,
-                    "status": "skipped",
-                    "reason": "assertions are evaluated from task P1-T06",
-                }
-            )
-        if scenario.assertions:
-            self.log.event(
-                "assertions.skipped",
-                f"{len(scenario.assertions)} assertion(s) declared; evaluation arrives with P1-T06",
-                level="warning",
-            )
+        self._poll_samples()
+        self.evaluator.start(self.wall())
         self.log.event(
             "timeline.start",
-            f"{len(self.plan.actions)} action(s), budget {budget:g} s",
+            f"{len(self.plan.actions)} action(s), {len(self.plan.assertions)} assertion(s), "
+            f"budget {budget:g} s",
             budget_s=budget,
         )
         for action in self.plan.actions:
@@ -891,24 +1112,50 @@ class Run:
             while self.clock() - started < action.entry.at:
                 if self.clock() - started >= budget:
                     raise RunTimeoutError(f"budget of {budget:g} s passed before {action.name}")
-                self.check_alive()
-                self.sleep(min(POLL_S, action.entry.at - (self.clock() - started)))
+                self._observe()
+                self.sleep(min(EVAL_POLL_S, action.entry.at - (self.clock() - started)))
             remaining = budget - (self.clock() - started)
             if remaining <= 0:
                 raise RunTimeoutError(f"budget of {budget:g} s passed before {action.name}")
             limit = min(action.entry.timeout_s, remaining)
             record.started_at = utc_now()
             began = self.clock()
+            self._resolve(self.evaluator.action(action.name, "started", self.wall()))
             try:
                 self.navigate_to_pose(action, limit, record)
             finally:
                 record.duration_s = round(self.clock() - began, 3)
+                self._resolve(
+                    self.evaluator.action(action.name, "finished", self.wall(), record.status)
+                )
                 self._write()
             if record.status != "ok":
                 if record.status == "timeout" and limit < action.entry.timeout_s:
                     raise RunTimeoutError(f"budget of {budget:g} s passed during {action.name}")
                 raise RunFailedError(f"{action.name}: {record.detail}")
         self.log.event("timeline.done", f"after {self.clock() - started:.1f} s")
+        self._observe()
+        self._resolve(self.evaluator.finish(self.wall()))
+        failed = self.evaluator.failed
+        if failed:
+            first = failed[0]
+            more = f" (and {len(failed) - 1} more)" if len(failed) > 1 else ""
+            raise RunFailedError(f"assertion {first.name} failed: {first.reason}{more}")
+        if self.plan.assertions:
+            self.log.event(
+                "assertions.passed", f"all {len(self.plan.assertions)} assertion(s) passed"
+            )
+
+    def _exec_while_observing(
+        self, name: str, argv: tuple[str, ...], on_line: Callable[[str], None]
+    ) -> ExecResult:
+        """Run a command in a container in a thread, observing the run until it returns."""
+        future: Future[ExecResult] = self._executor.submit(self.backend.exec, name, argv, on_line)
+        while True:
+            self._observe()
+            if future.done():
+                return future.result()
+            self.sleep(EVAL_POLL_S)
 
     def navigate_to_pose(self, action: PlannedAction, limit_s: float, record: ActionRecord) -> None:
         """Send the goal with `ros2 action send_goal` inside the vehicle and read the result."""
@@ -933,7 +1180,7 @@ class Run:
             action=action.name,
             vehicle=vehicle.name,
         )
-        result = self.backend.exec(
+        result = self._exec_while_observing(
             vehicle.container.name,
             (
                 ENTRYPOINT_IN_IMAGE,
@@ -1011,6 +1258,28 @@ class Run:
             self.log.event("teardown.error", str(error), level="warning")
         self.log.event("teardown.done", f"{removed} container(s) removed", removed=removed)
 
+    def write_report(self) -> None:
+        """`report.json` and `report.md` from the record and the run directory."""
+        try:
+            report = write_reports(self.record.to_dict(), self.plan.run_dir)
+        except OSError as error:
+            self.log.event("report.error", str(error), level="warning")
+            return
+        recording = report.get("recording")
+        if self.plan.scenario.outputs.record and not (recording and recording["mcap"]):
+            self.log.event(
+                "recording.missing",
+                "outputs.record was on but no MCAP file is in the run directory",
+                level="warning",
+            )
+        elif recording:
+            self.log.event(
+                "recording.saved",
+                ", ".join(recording["mcap"]) + f" ({recording['bytes']} bytes)",
+                files=recording["mcap"],
+            )
+        self.log.event("report.written", f"{REPORT_MD}, {REPORT_JSON}", verdict=report["verdict"])
+
 
 def goal_status(result: ExecResult) -> str | None:
     """The status `ros2 action send_goal` printed (`Goal finished with status: SUCCEEDED`)."""
@@ -1025,6 +1294,6 @@ def leftovers(backend: Backend, run_id: str | None = None) -> list[str]:
     if run_id is not None:
         return backend.find(RUN_LABEL, run_id)
     names: list[str] = []
-    for role in ("sim", "bridge", "vehicle", "spawn"):
+    for role in ("sim", "bridge", "recorder", "vehicle", "spawn"):
         names += backend.find(ROLE_LABEL, role)
     return names

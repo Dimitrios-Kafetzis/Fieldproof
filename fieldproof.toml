@@ -26,4 +26,5 @@ robots = "robots/fieldproof_robots/models"
 world_s = 300.0
 spawn_s = 300.0
 bridge_s = 120.0
+recorder_s = 60.0
 teardown_s = 10.0

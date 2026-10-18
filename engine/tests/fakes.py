@@ -1,9 +1,12 @@
-"""A fake container runtime and clock for the runner's tests (task P1-T05)."""
+"""A fake container runtime and clock for the runner's tests (tasks P1-T05, P1-T06)."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import json
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from fieldproof.backend import BackendError, ContainerSpec, ContainerState, ExecResult, LineSink
 
@@ -62,6 +65,16 @@ class FakeBackend:
     fail_stop: set[str] = field(default_factory=set)
     exit_on_poll: dict[str, int] = field(default_factory=dict)
     polls: dict[str, int] = field(default_factory=dict)
+    # The observer of the recorder container, scripted: the samples written into the run
+    # directory's samples.jsonl when the recorder starts (a `ready` line by default) and when
+    # the goal is sent (what the vehicle "did"); `wall` stamps them unless a sample has one.
+    wall: Callable[[], float] = field(default=lambda: 1000.0)
+    clock: FakeClock | None = None
+    """When set, sending a goal takes `goal_duration_s` of this clock before the samples."""
+    goal_duration_s: float = 10.0
+    samples_on_start: list[dict[str, Any] | str] | None = None
+    samples_on_goal: list[dict[str, Any] | str] = field(default_factory=list)
+    samples_file: Path | None = None
 
     def image_exists(self, image: str) -> bool:
         return image in self.images
@@ -76,6 +89,26 @@ class FakeBackend:
             raise BackendError(f"{spec.name}: name in use")
         self.containers[spec.name] = FakeContainer(spec, logs=f"log of {spec.name}\n")
         self.started.append(spec.name)
+        if spec.role == "recorder":
+            run_dir = next(m.source for m in spec.mounts if not m.read_only)
+            self.samples_file = Path(run_dir) / "samples.jsonl"
+            samples = self.samples_on_start
+            if samples is None:
+                samples = [{"kind": "ready", "recording": True, "subscribed": [], "waiting": []}]
+            self.write_samples(samples)
+
+    def write_samples(self, samples: Sequence[dict[str, Any] | str]) -> None:
+        """Append samples to the run's samples.jsonl as the observer would (strings verbatim)."""
+        if self.samples_file is None:
+            return
+        self.samples_file.parent.mkdir(parents=True, exist_ok=True)
+        with self.samples_file.open("a") as file:
+            for sample in samples:
+                if isinstance(sample, str):
+                    file.write(sample + "\n")
+                    continue
+                record = {"wall": self.wall(), "sim": None, **sample}
+                file.write(json.dumps(record) + "\n")
 
     def run_to_completion(self, spec: ContainerSpec, timeout_s: float) -> ExecResult:
         self.jobs.append(spec)
@@ -107,6 +140,9 @@ class FakeBackend:
             ready = self.polls[container.spec.name] >= self.bridge_polls_needed
             return ExecResult(0, TOPIC_LIST if ready else "/clock\n")
         if "send_goal" in command:
+            if self.clock is not None:
+                self.clock.sleep(self.goal_duration_s)
+            self.write_samples(self.samples_on_goal)
             return self.goal_result
         return self.probe_result
 

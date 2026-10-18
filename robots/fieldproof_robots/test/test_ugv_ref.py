@@ -2,7 +2,8 @@
 
 The files are installed, the generated SDF and URDF agree with the manifest (frames, drive
 parameters, sensors, topics, rates), every sensor declares a noise model, the mesh URIs resolve,
-the xacro defaults equal the manifest, and the GNSS receiver is optional.
+the xacro defaults equal the manifest, the GNSS receiver is optional, and the chassis
+carries the ground-truth contact sensor the scenario runner reads (not an interface).
 """
 
 import subprocess
@@ -69,7 +70,12 @@ def plugin(sdf_model: ET.Element, name: str) -> ET.Element:
 
 
 def sensors(sdf_model: ET.Element) -> dict[str, ET.Element]:
-    return {s.get("name", ""): s for s in sdf_model.iter("sensor")}
+    """The interface sensors of the model: the ground-truth contact sensor is not one of them."""
+    return {s.get("name", ""): s for s in sdf_model.iter("sensor") if s.get("type") != "contact"}
+
+
+def contact_sensors(sdf_model: ET.Element) -> dict[str, ET.Element]:
+    return {s.get("name", ""): s for s in sdf_model.iter("sensor") if s.get("type") == "contact"}
 
 
 def link(sdf_model: ET.Element, name: str) -> ET.Element:
@@ -234,6 +240,20 @@ def test_every_sensor_declares_noise(sdf_model: ET.Element) -> None:
             assert float(text(n, "stddev")) > 0, name
 
 
+def test_chassis_contact_sensor_reports_ground_truth(sdf_model: ET.Element) -> None:
+    """The contact sensor (task P1-T06) watches the chassis collision only and is not bridged."""
+    ((name, element),) = contact_sensors(sdf_model).items()
+    assert name == "contact"
+    assert text(element, "topic") == "/contacts"
+    assert text(element, "always_on") in {"1", "true"}
+    collisions = [c.text.strip() for c in child(element, "contact").findall("collision") if c.text]
+    assert collisions == ["base_link_collision"], "the chassis collision only (not the casters)"
+    base = link(sdf_model, "base_link")
+    names = {c.get("name") for c in base.findall("collision")}
+    assert "base_link_collision" in names
+    assert len(names) > 1, "the casters are lumped into base_link and must stay out of the sensor"
+
+
 def test_camera_resolution_matches_the_manifest(manifest: Manifest, sdf_model: ET.Element) -> None:
     camera = next(s for s in manifest["sensors"] if s["type"] == "rgbd_camera")
     element = sensors(sdf_model)[camera["name"]]
@@ -286,5 +306,6 @@ def test_gps_is_optional_and_topics_take_the_namespace(tmp_path: Path) -> None:
     assert {"lidar", "imu", "camera"} <= set(sensors(model))
     assert text(plugin(model, "gz::sim::systems::DiffDrive"), "topic") == "/ugv1/cmd_vel"
     assert text(sensors(model)["lidar"], "topic") == "/ugv1/scan"
+    assert text(contact_sensors(model)["contact"], "topic") == "/ugv1/contacts"
     urdf_links = ET.parse(tmp_path / "ugv.urdf").getroot().findall("link")  # noqa: S314
     assert "gps_link" not in {x.get("name") for x in urdf_links}

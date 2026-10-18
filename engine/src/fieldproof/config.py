@@ -96,6 +96,9 @@ class Timeouts(Strict):
     world_s: PositiveFloat = Field(default=300.0, description="The world's services answering.")
     spawn_s: PositiveFloat = Field(default=300.0, description="A vehicle model spawned.")
     bridge_s: PositiveFloat = Field(default=120.0, description="A bridge publishing its topics.")
+    recorder_s: PositiveFloat = Field(
+        default=60.0, description="The recorder's observer reporting ready."
+    )
     teardown_s: PositiveFloat = Field(default=10.0, description="Grace period of a container stop.")
 
 

@@ -70,6 +70,8 @@ class DockerBackend:
                 nano_cpus=int(spec.cpus * 1e9) if spec.cpus is not None else None,
                 mem_limit=spec.memory,
                 pids_limit=spec.pids,
+                user=spec.user,
+                working_dir=spec.working_dir,
                 detach=True,
             )
         except (APIError, requests.RequestException) as error:

@@ -2,27 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/scenario.schema.json",
   "$defs": {
-    "Assertion": {
-      "additionalProperties": true,
-      "description": "An assertion of task P1-T06, declared by name and type; its parameters follow its type.",
-      "properties": {
-        "name": {
-          "maxLength": 63,
-          "minLength": 1,
-          "pattern": "^[a-z][a-z0-9_]*$",
-          "title": "Name",
-          "type": "string"
-        },
-        "type": {
-          "enum": ["reach_pose", "within_time", "topic_rate", "no_collision", "topic_value"],
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": ["name", "type"],
-      "title": "Assertion",
-      "type": "object"
-    },
     "Metadata": {
       "additionalProperties": false,
       "description": "What the scenario is.",
@@ -123,6 +102,57 @@
       "title": "NavigateToPose",
       "type": "object"
     },
+    "NoCollision": {
+      "additionalProperties": false,
+      "description": "The vehicle's chassis touches nothing during the timeline.\n\nRead from the model's ground-truth contact sensor in Gazebo (the reference vehicles carry\none on the chassis, `<namespace>/contacts`); fails at the first contact.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "no_collision",
+          "title": "Type",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose contact sensor is read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Gazebo topic of the `gz.msgs.Contacts` sensor (default: `<namespace>/contacts`).",
+          "title": "Topic"
+        },
+        "ignore": {
+          "description": "Entities whose contacts do not count (a model or collision name).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Ignore",
+          "type": "array"
+        }
+      },
+      "required": ["name", "type", "vehicle"],
+      "title": "NoCollision",
+      "type": "object"
+    },
     "Outputs": {
       "additionalProperties": false,
       "description": "What the run writes.",
@@ -142,12 +172,12 @@
         },
         "record": {
           "default": false,
-          "description": "Record the topics to MCAP (task P1-T06).",
+          "description": "Record the topics to MCAP with rosbag2 (`recording/` in the run directory).",
           "title": "Record",
           "type": "boolean"
         },
         "topics": {
-          "description": "Topics to record (all if empty).",
+          "description": "Topics to record (all if empty; the `/fieldproof/*` side channels always).",
           "items": {
             "type": "string"
           },
@@ -233,6 +263,84 @@
       "title": "Placement",
       "type": "object"
     },
+    "ReachPose": {
+      "additionalProperties": false,
+      "description": "The vehicle's ground-truth pose comes within a tolerance of a target.\n\nPasses at the first ground-truth sample within `tolerance_m` of the target (and within\n`yaw_tolerance_rad` of its heading when given); fails when `within_s` passes first, or at\nthe end of the timeline. The evidence is the closest sample and the final pose.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "reach_pose",
+          "title": "Type",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose ground-truth pose is read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/Placement",
+          "description": "The target, in the world (frame or coordinates)."
+        },
+        "tolerance_m": {
+          "default": 0.5,
+          "description": "Distance to the target, in metres.",
+          "exclusiveMinimum": 0,
+          "title": "Tolerance M",
+          "type": "number"
+        },
+        "yaw_tolerance_rad": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Heading tolerance (absent: the heading is not checked).",
+          "title": "Yaw Tolerance Rad"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deadline after the timeline starts (absent: the end of the timeline).",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle", "target"],
+      "title": "ReachPose",
+      "type": "object"
+    },
     "Time": {
       "additionalProperties": false,
       "description": "The clock of the run (ADR-0006).",
@@ -282,6 +390,222 @@
         }
       },
       "title": "Time",
+      "type": "object"
+    },
+    "TopicRate": {
+      "additionalProperties": false,
+      "description": "A ROS topic keeps publishing at a rate.\n\nMeasured over a sliding window once `after_s` has passed after the timeline starts; fails\nat the first window below `min_hz` (or above `max_hz`) and at the end of the timeline if\nnothing was received.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "topic_rate",
+          "title": "Type",
+          "type": "string"
+        },
+        "topic": {
+          "description": "The topic (relative to the vehicle's namespace when `vehicle` is given).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the topic belongs to.",
+          "title": "Vehicle"
+        },
+        "min_hz": {
+          "description": "Lowest acceptable rate over a window.",
+          "minimum": 0.0,
+          "title": "Min Hz",
+          "type": "number"
+        },
+        "max_hz": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Highest acceptable rate.",
+          "title": "Max Hz"
+        },
+        "window_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 5.0,
+          "description": "Length of the measurement window.",
+          "title": "Window S"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts before windows count.",
+          "title": "After S"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (`sensor_msgs/msg/LaserScan`; absent: discovered).",
+          "title": "Message Type"
+        }
+      },
+      "required": ["name", "type", "topic", "min_hz"],
+      "title": "TopicRate",
+      "type": "object"
+    },
+    "TopicValue": {
+      "additionalProperties": false,
+      "description": "A condition over a field of a ROS topic's messages.\n\n`condition` is an expression over `value`, the field of each message (`value < 1.5`,\n`abs(value) <= 0.2`, `0 < value and value < 2`); `mode` says whether every message after\n`after_s` must satisfy it (`always`, fails at the first that does not) or one must\n(`eventually`, passes at the first that does, fails at `within_s` or the end).",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "topic_value",
+          "title": "Type",
+          "type": "string"
+        },
+        "topic": {
+          "description": "The topic (relative to the vehicle's namespace when `vehicle` is given).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the topic belongs to.",
+          "title": "Vehicle"
+        },
+        "field": {
+          "description": "Field of the message (`twist.linear.x`, `ranges[0]`, `status.status`).",
+          "title": "Field",
+          "type": "string"
+        },
+        "condition": {
+          "description": "Expression over `value` (comparisons, arithmetic, abs).",
+          "title": "Condition",
+          "type": "string"
+        },
+        "mode": {
+          "default": "always",
+          "enum": ["always", "eventually"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts before messages count.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deadline for `eventually` (absent: the end of the timeline).",
+          "title": "Within S"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (`geometry_msgs/msg/Twist`; absent: discovered).",
+          "title": "Message Type"
+        }
+      },
+      "required": ["name", "type", "topic", "field", "condition"],
+      "title": "TopicValue",
       "type": "object"
     },
     "Vehicle": {
@@ -335,6 +659,47 @@
       },
       "required": ["name", "manifest", "spawn"],
       "title": "Vehicle",
+      "type": "object"
+    },
+    "WithinTime": {
+      "additionalProperties": false,
+      "description": "A timeline action completes successfully within a duration of its start.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "within_time",
+          "title": "Type",
+          "type": "string"
+        },
+        "action": {
+          "description": "The `name` of a timeline entry.",
+          "title": "Action",
+          "type": "string"
+        },
+        "max_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "description": "The action's result must arrive within this long.",
+          "title": "Max S"
+        }
+      },
+      "required": ["name", "type", "action", "max_s"],
+      "title": "WithinTime",
       "type": "object"
     },
     "World": {
@@ -397,7 +762,33 @@
     },
     "assertions": {
       "items": {
-        "$ref": "#/$defs/Assertion"
+        "discriminator": {
+          "mapping": {
+            "no_collision": "#/$defs/NoCollision",
+            "reach_pose": "#/$defs/ReachPose",
+            "topic_rate": "#/$defs/TopicRate",
+            "topic_value": "#/$defs/TopicValue",
+            "within_time": "#/$defs/WithinTime"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ReachPose"
+          },
+          {
+            "$ref": "#/$defs/WithinTime"
+          },
+          {
+            "$ref": "#/$defs/TopicRate"
+          },
+          {
+            "$ref": "#/$defs/NoCollision"
+          },
+          {
+            "$ref": "#/$defs/TopicValue"
+          }
+        ]
       },
       "title": "Assertions",
       "type": "array"

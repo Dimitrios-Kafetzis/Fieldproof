@@ -160,4 +160,26 @@
       </sensor>
     </gazebo>
   </xacro:macro>
+
+  <!--
+    Ground-truth contact sensor on the chassis collision (task P1-T06): not an interface of the
+    vehicle (nothing bridges it to ROS, the manifest's sensors list leaves it out) but the
+    simulator's report of what the body hit, which the scenario runner's no_collision assertion
+    reads from the Gazebo topic. The casters and wheels sit on their own links, so any contact of
+    the chassis collision is a collision with the world. Needs the Contact system in the world.
+  -->
+  <xacro:macro name="contact_sensor" params="link collision topic">
+    <gazebo reference="${link}">
+      <sensor name="contact" type="contact">
+        <topic>${topic}</topic>
+        <always_on>true</always_on>
+        <update_rate>50</update_rate>
+        <visualize>false</visualize>
+        <contact>
+          <collision>${collision}</collision>
+          <topic>${topic}</topic>
+        </contact>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
 </robot>
