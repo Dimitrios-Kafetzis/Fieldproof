@@ -114,7 +114,10 @@ The workflow is not a required status check: a flaky run never blocks a merge, t
 workflow's image job covers a change to the images themselves (it builds them and runs
 `make test-integration` against the result), and the milestone's definition of done asks for
 three consecutive green runs on `main` instead; the nightly schedule (`20 4 * * *` UTC) adds
-one a day. On a workstation `examples/demo_m1.sh` (`make demo`) is the same chain with the GPU
+one a day, and `gh workflow run scenario-tests.yml --ref main` another on demand (one at a time:
+runs on `main` share a concurrency group that queues them without cancelling, and GitHub keeps a
+single pending run per group, so a second dispatch while one is still queued cancels the first).
+On a workstation `examples/demo_m1.sh` (`make demo`) is the same chain with the GPU
 when there is one, and `tools/ci/scenario-run.sh examples/scenarios/ugv_nav_to_goal.yaml` the
 same policy.
 
