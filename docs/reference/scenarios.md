@@ -232,6 +232,11 @@ still present afterwards.
   of the run is left; a second run is interrupted with SIGINT while the stack starts and exits
   130 with nothing left behind; the failing example exits 1 naming its assertion
   ([assertions.md](assertions.md#tests)).
+- `.github/workflows/scenario-tests.yml` (task P1-T07): the example against the published
+  images on every push to `main`, nightly and on demand, with software rendering and the
+  flaky-run policy of `tools/ci/scenario-run.sh`; the run is uploaded as an artefact
+  ([ci.md](../setup/ci.md#scenario-tests)). `examples/demo_m1.sh` (`make demo`) is the same
+  chain on a workstation.
 
 ## Known limits
 

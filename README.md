@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/ci.yml)
 [![Images](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/images.yml)
+[![Scenario tests](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/scenario-tests.yml/badge.svg?branch=main)](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/scenario-tests.yml)
 [![Docs](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/docs.yml/badge.svg?branch=main)](https://dimitrios-kafetzis.github.io/Fieldproof/)
 [![Licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
@@ -13,7 +14,36 @@ isolated containers, fed by simulated sensors from a physics engine, orchestrate
 scenario engine, and observed through a browser-based 3D cockpit. Every scenario is an automated
 test with pass/fail assertions, so field testing becomes verification of what already passed.
 
-> Status: Phase 0 (Foundations) in progress. See [docs/plan/STATUS.md](docs/plan/STATUS.md).
+> Status: Phase 1 (Vertical slice) in progress, towards milestone M1 (the first scenario passes,
+> in CI too). See [docs/plan/STATUS.md](docs/plan/STATUS.md).
+
+## Quick start
+
+The first scenario on an Ubuntu 24.04 workstation with Docker: the example UGV (a differential-drive
+robot running Nav2 and SLAM Toolbox, unmodified, in its own container) drives to a goal in the depot
+world while five assertions check the run and its topics are recorded to MCAP.
+
+```bash
+git clone https://github.com/Dimitrios-Kafetzis/Fieldproof.git
+cd Fieldproof
+tools/host-setup.sh      # once: Docker, Node, uv, pre-commit (asks for sudo); log out and back in
+examples/demo_m1.sh      # or: make demo
+```
+
+The demo pulls the published images (about 7 GB the first time), fetches the pinned Gazebo Fuel
+models, builds the example vehicle image on the published base (a few minutes) and runs
+`fieldproof run examples/scenarios/ugv_nav_to_goal.yaml`. It ends with `PASS`, one line per
+assertion, the report (`runs/<run_id>/report.md`, `report.json`, `junit.xml`) and the MCAP
+recording (`runs/<run_id>/recording/`), which opens in [Foxglove Studio](https://foxglove.dev/) to
+show the robot's path. The same chain runs on every push to `main` and nightly in the
+[Scenario tests](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/scenario-tests.yml)
+workflow ([docs/setup/ci.md](docs/setup/ci.md#scenario-tests)).
+
+`examples/demo_m1.sh --local` uses images built with `make images`
+([docs/setup/containers.md](docs/setup/containers.md)), `FIELDPROOF_RENDER=software` forces
+software rendering on a host without a GPU render node, and `--help` lists the rest. Then read
+[docs/reference/scenarios.md](docs/reference/scenarios.md) to write a scenario of your own and
+[docs/reference/manifest.md](docs/reference/manifest.md) to bring your own vehicle.
 
 ## Documentation map
 
@@ -38,6 +68,7 @@ on every merge to `main` ([docs/setup/docs.md](docs/setup/docs.md)).
 | [docs/setup/docs.md](docs/setup/docs.md) | The documentation site: `make docs`, `make docs-serve`, writing pages, the generated ADR index, deployment |
 | [docs/setup/workspaces.md](docs/setup/workspaces.md) | Repository layout and workspaces: `make test-engine`, `make test-cockpit`, `make test-ros`, `make tidy`, one version everywhere |
 | [docs/reference/](docs/reference/index.md) | Reference pages, starting with the [CLI](docs/reference/cli.md) |
+| [examples/](examples/README.md) | The example scenarios and vehicle, and `examples/demo_m1.sh`, the M1 demo of the quick start |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Which directory is which layer, and where its documentation lives |
 
 ## Core principle
