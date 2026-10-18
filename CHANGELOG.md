@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.9.0...v0.10.0) (2026-10-18)
+
+
+### Features
+
+* **ci:** run the first scenario in CI and add the M1 demo ([#42](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/42)) ([e57f32a](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/e57f32a3888d6a4941fffedd0164521474dd7796))
+
 ## [0.9.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.8.0...v0.9.0) (2026-10-18)
 
 
