@@ -10,9 +10,16 @@ automated test with pass/fail assertions, so field testing becomes verification 
 passed.
 
 !!! note "Status"
-    Phase 1 (Vertical slice) is in progress, towards milestone M1: the first scenario passes, in
-    CI too. The [status board](plan/STATUS.md) is updated at the end of every working session;
-    the [roadmap](plan/02-roadmap.md) lists the milestones.
+    Milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2, the
+    scenario engine, is next. The [status board](plan/STATUS.md) is updated at the end of every
+    working session; the [roadmap](plan/02-roadmap.md) lists the milestones.
+
+![The example UGV leaves the depot's loading bay through the roller door and reaches its goal in the yard, seen from the world's spectator camera](media/m1-demo.gif)
+
+The first scenario as Fieldproof records it ([the video output](reference/scenarios.md#video)):
+the example UGV, running an unmodified Nav2 and SLAM Toolbox stack in its own container, drives
+from the loading dock through the roller door to a goal in the yard while five assertions check
+the run.
 
 ## Quick start
 
@@ -29,7 +36,8 @@ The demo pulls the published images, fetches the pinned Gazebo Fuel models, buil
 vehicle image and runs `fieldproof run examples/scenarios/ugv_nav_to_goal.yaml`: the example UGV
 (Nav2 and SLAM Toolbox, unmodified, in its own container) drives to a goal in the depot world
 while five [assertions](reference/assertions.md) check the run and its topics are recorded to
-MCAP. It ends with `PASS`, the report and the recording, which opens in Foxglove Studio. The
+MCAP. It ends with `PASS`, the report, the video of the drive and the recording, which opens in
+Foxglove Studio. The
 same chain runs on every push to `main` in the [Scenario tests](setup/ci.md#scenario-tests)
 workflow. The [scenario reference](reference/scenarios.md) says how to write your own, the
 [vehicle manifest](reference/manifest.md) how to bring your own vehicle.

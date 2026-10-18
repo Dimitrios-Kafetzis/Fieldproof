@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The M1 demo (task P1-T07; docs/plan/02-roadmap.md, "Milestone demos"): from a fresh clone to
-# `fieldproof run examples/scenarios/ugv_nav_to_goal.yaml` ending with PASS, a report and an
-# MCAP recording to open in Foxglove Studio. The same steps run in CI
+# `fieldproof run examples/scenarios/ugv_nav_to_goal.yaml` ending with PASS, a report, a video
+# of the drive from the depot's spectator camera and an MCAP recording to open in Foxglove
+# Studio. The same steps run in CI
 # (.github/workflows/scenario-tests.yml) on a GitHub-hosted runner.
 #
 # Usage: examples/demo_m1.sh [OPTIONS]
@@ -142,6 +143,10 @@ for assertion in report["assertions"]:
     print(f"  {assertion['status']:>7}  {assertion['name']} ({assertion['type']}): {assertion['reason'] or '-'}")
 PY
   echo "report:  ${run_dir}/report.md (also report.json and junit.xml)"
+fi
+videos=("$run_dir"/video/*.mp4)
+if [[ -f "${videos[0]}" ]]; then
+  echo "video:   ${videos[*]} (the drive seen from the depot's spectator camera; any player opens it)"
 fi
 mcaps=("$run_dir"/recording/*.mcap)
 if [[ -f "${mcaps[0]}" ]]; then

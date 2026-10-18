@@ -220,6 +220,7 @@ In addition to the files of task P1-T05 ([scenarios.md](scenarios.md#the-run-dir
 | `assertions.jsonl` | the verdicts in the order they resolved |
 | `recording/` | the MCAP recording and rosbag2's `metadata.yaml`, when `outputs.record` is on |
 | `report.json`, `report.md`, `junit.xml` | the report, as data, as Markdown and as a JUnit document |
+| `video/<camera>.mp4` | the video of the run from the world's camera, when `outputs.video` is set ([scenarios.md](scenarios.md#video)) |
 | `logs/recorder.log` | the observer's and `ros2 bag record`'s output |
 
 ## Writing a failing scenario

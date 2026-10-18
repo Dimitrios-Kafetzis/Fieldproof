@@ -88,7 +88,8 @@ registry rather than from a build:
 4. `fieldproof validate`, then `tools/ci/scenario-run.sh --runs-dir runs --render software` on
    the scenario (a manual run can name another file);
 5. the run directory (`runs/`: every attempt's `run.json`, `engine.log`, the containers' logs,
-   `report.md`, `report.json`, `junit.xml` and `recording/*.mcap`) as the artefact
+   `report.md`, `report.json`, `junit.xml`, `recording/*.mcap` and the demo video
+   `video/spectator.mp4`) as the artefact
    `scenario-run-<run number>-<attempt>` and the final attempt's JUnit document as
    `scenario-junit-<run number>-<attempt>`, uploaded whatever the outcome and kept 14 days;
    then a check that no container with the `io.fieldproof.run` label is left on the runner.
