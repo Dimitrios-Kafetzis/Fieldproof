@@ -1,10 +1,12 @@
-"""Tests of `fieldproof validate`, `run`, `schema` (task P1-T05) and `report` (task P1-T06)."""
+"""Tests of `fieldproof validate`, `run`, `schema` (task P1-T05) and `report` (tasks P1-T06 and
+P1-T07, the JUnit form)."""
 
 from __future__ import annotations
 
 import json
 import re
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -319,10 +321,20 @@ def test_report_command(fake: ReadyFake, tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", str(run_dir / "run.json"), "--format", "json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["verdict"] == "PASS"
+    result = runner.invoke(app, ["report", str(run_dir), "--format", "junit"])
+    assert result.exit_code == 0, result.output
+    suite = ET.fromstring(result.output).find("testsuite")  # noqa: S314 (our own document)
+    assert suite is not None
+    assert suite.get("name") == "ugv_nav_to_goal"
+    assert suite.get("failures") == "0"
+    assert suite.get("errors") == "0"
+    assert (run_dir / "junit.xml").read_text() == result.output
     (run_dir / "report.md").unlink()
+    (run_dir / "junit.xml").unlink()
     result = runner.invoke(app, ["report", str(run_dir), "--write"])
     assert result.exit_code == 0, result.output
     assert (run_dir / "report.md").read_text().startswith(markdown)
+    assert (run_dir / "junit.xml").is_file()
     assert "written:" in plain(result.output)
     # A run id is looked up under the workspace's runs directory.
     (tmp_path / "fieldproof.toml").write_text('[runs]\ndirectory = "."\n')
@@ -334,7 +346,7 @@ def test_report_command(fake: ReadyFake, tmp_path: Path) -> None:
     assert "no such run directory or run id" in plain(result.output)
     result = runner.invoke(app, ["report", str(run_dir), "--format", "html"])
     assert result.exit_code == 2
-    assert "expected md or json" in plain(result.output)
+    assert "expected md, json or junit" in plain(result.output)
     (run_dir / "run.json").write_text("{bad")
     result = runner.invoke(app, ["report", str(run_dir)])
     assert result.exit_code == 2

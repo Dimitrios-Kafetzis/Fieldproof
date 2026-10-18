@@ -24,10 +24,12 @@ from fieldproof.backend import BackendError
 from fieldproof.config import ConfigError, load_config
 from fieldproof.report import (
     REPORT_JSON,
+    REPORT_JUNIT,
     REPORT_MD,
     ReportError,
     build_report,
     load_record,
+    render_junit,
     render_markdown,
     write_reports,
 )
@@ -294,16 +296,18 @@ def report(
     ],
     config_path: ConfigOption = None,
     output_format: Annotated[
-        str, typer.Option("--format", "-f", help="md (Markdown) or json.")
+        str, typer.Option("--format", "-f", help="md (Markdown), json or junit (JUnit XML).")
     ] = "md",
     write: Annotated[
         bool,
-        typer.Option("--write", help="Rewrite report.md and report.json in the run dir."),
+        typer.Option(
+            "--write", help="Rewrite report.md, report.json and junit.xml in the run dir."
+        ),
     ] = False,
 ) -> None:
     """Render the report of a run from its run.json (Markdown by default)."""
-    if output_format not in ("md", "json"):
-        raise fail(ValueError(f"--format {output_format!r}: expected md or json"))
+    if output_format not in ("md", "json", "junit"):
+        raise fail(ValueError(f"--format {output_format!r}: expected md, json or junit"))
     run_dir = run
     if not run.exists():
         try:
@@ -322,10 +326,15 @@ def report(
         raise fail(error) from error
     if output_format == "json":
         typer.echo(json.dumps(rendered, indent=2))
+    elif output_format == "junit":
+        typer.echo(render_junit(rendered), nl=False)
     else:
         typer.echo(render_markdown(rendered), nl=False)
     if write:
-        errors.print(f"written: {run_dir / REPORT_MD}, {run_dir / REPORT_JSON}", highlight=False)
+        errors.print(
+            f"written: {run_dir / REPORT_MD}, {run_dir / REPORT_JSON}, {run_dir / REPORT_JUNIT}",
+            highlight=False,
+        )
 
 
 def print_plan(resolved: Plan) -> None:

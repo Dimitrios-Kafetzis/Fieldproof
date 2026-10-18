@@ -1,14 +1,19 @@
-"""Reports of a run (task P1-T06): ``report.json`` and ``report.md`` next to ``run.json``.
+"""Reports of a run (task P1-T06): ``report.json``, ``report.md`` and ``junit.xml``.
 
-The record the runner writes is the engine's view (phases, containers, the stream). The report
-is the reader's: the verdict, every assertion with its reason and evidence, the timeline, the
-durations and the artefacts of the run directory (the MCAP recording first). :func:`write_reports`
-renders both at the end of a run; ``fieldproof report`` renders them again from a run directory.
+The record the runner writes next to them (``run.json``) is the engine's view (phases,
+containers, the stream). The report is the reader's: the verdict, every assertion with its
+reason and evidence, the timeline, the durations and the artefacts of the run directory (the
+MCAP recording first). :func:`write_reports` renders the three at the end of a run;
+``fieldproof report`` renders them again from a run
+directory. The JUnit document (task P1-T07) is the report for CI: one test suite per run, one
+test case per assertion and per timeline entry, and one for the run itself, so a test reporter
+shows a failed scenario by the assertion that failed it.
 """
 
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +21,8 @@ from typing import Any
 RECORD_FILE = "run.json"
 REPORT_JSON = "report.json"
 REPORT_MD = "report.md"
+REPORT_JUNIT = "junit.xml"
+REPORT_FILES = (REPORT_JSON, REPORT_MD, REPORT_JUNIT)
 RECORDING_DIR = "recording"
 VERDICTS = {
     "passed": "PASS",
@@ -64,7 +71,7 @@ def _artifacts(run_dir: Path) -> list[dict[str, Any]]:
     return [
         {"path": str(p.relative_to(run_dir)), "bytes": p.stat().st_size}
         for p in files
-        if p.name not in (REPORT_JSON, REPORT_MD)
+        if p.name not in REPORT_FILES
     ]
 
 
@@ -230,10 +237,132 @@ def render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _junit_time(value: Any) -> str:
+    try:
+        return f"{float(value):.3f}" if value is not None else "0.000"
+    except (TypeError, ValueError):
+        return "0.000"
+
+
+def _junit_text(value: Any) -> str:
+    """Text safe for an XML document (control characters other than whitespace dropped)."""
+    text = str(value)
+    return "".join(c for c in text if c in "\t\n\r" or ord(c) >= 0x20)
+
+
+def _junit_case(
+    suite: ET.Element, classname: str, name: str, time: Any, **attributes: str
+) -> ET.Element:
+    attrib = {"classname": classname, "name": name, "time": _junit_time(time), **attributes}
+    return ET.SubElement(suite, "testcase", attrib)
+
+
+def render_junit(report: dict[str, Any]) -> str:
+    """The report as a JUnit XML document.
+
+    One ``testsuite`` named after the scenario, with the run's facts as properties and three
+    kinds of ``testcase``: ``<scenario>.assertions`` (one per assertion: a ``failure`` when it
+    failed, ``skipped`` when it was skipped or still pending), ``<scenario>.timeline`` (one per
+    entry: a ``failure`` unless its status is ``ok``) and ``<scenario>`` / ``run`` for the run
+    itself (a ``failure`` when the run failed, an ``error`` when it timed out, errored or was
+    interrupted). The counts on the suite are what a test reporter sums.
+    """
+    scenario = report.get("scenario") or {}
+    suite_name = str(scenario.get("name") or report["run_id"])
+    suites = ET.Element("testsuites", name="fieldproof")
+    suite = ET.SubElement(suites, "testsuite", name=suite_name)
+    if report.get("started_at"):
+        suite.set("timestamp", str(report["started_at"]))
+    properties = ET.SubElement(suite, "properties")
+    recording = report.get("recording") or {}
+    facts = {
+        "run_id": report["run_id"],
+        "verdict": report["verdict"],
+        "status": report["status"],
+        "exit_code": report["exit_code"],
+        "reason": report.get("reason"),
+        "scenario": scenario.get("path"),
+        "scenario_digest": scenario.get("digest"),
+        "world": report.get("world"),
+        "engine_version": report.get("engine_version"),
+        "duration_s": report.get("duration_s"),
+        "timeline_duration_s": report.get("timeline_duration_s"),
+        "sim_elapsed_s": report.get("sim_elapsed_s"),
+        "recording": ", ".join(recording.get("mcap") or []) or None,
+        "run_dir": report.get("run_dir"),
+    }
+    for key, value in facts.items():
+        if value is not None:
+            ET.SubElement(properties, "property", name=key, value=_junit_text(value))
+    failures = errors = skipped = 0
+    for assertion in report.get("assertions") or []:
+        status = str(assertion.get("status") or "pending")
+        case = _junit_case(
+            suite,
+            f"{suite_name}.assertions",
+            str(assertion.get("name")),
+            assertion.get("t_s"),
+            type=str(assertion.get("type") or ""),
+        )
+        reason = _junit_text(assertion.get("reason") or status)
+        if status == "failed":
+            failures += 1
+            failure = ET.SubElement(
+                case, "failure", message=reason, type=str(assertion.get("type") or "assertion")
+            )
+            failure.text = json.dumps(assertion.get("evidence") or {}, indent=2)
+        elif status != "passed":
+            skipped += 1
+            ET.SubElement(case, "skipped", message=reason)
+    for entry in report.get("timeline") or []:
+        case = _junit_case(
+            suite,
+            f"{suite_name}.timeline",
+            str(entry.get("name")),
+            entry.get("duration_s"),
+            type=str(entry.get("action") or ""),
+        )
+        if str(entry.get("status")) != "ok":
+            failures += 1
+            ET.SubElement(
+                case,
+                "failure",
+                message=_junit_text(entry.get("detail") or entry.get("status") or "not ok"),
+                type=str(entry.get("action") or "action"),
+            )
+    run_case = _junit_case(suite, suite_name, "run", report.get("duration_s"))
+    status = str(report["status"])
+    if status == "failed":
+        failures += 1
+        ET.SubElement(
+            run_case, "failure", message=_junit_text(report.get("reason") or "failed"), type=status
+        ).text = f"{report['verdict']}: exit code {report['exit_code']}"
+    elif status != "passed":
+        errors += 1
+        ET.SubElement(
+            run_case, "error", message=_junit_text(report.get("reason") or status), type=status
+        ).text = f"{report['verdict']}: exit code {report['exit_code']}"
+    tests = len(suite.findall("testcase"))
+    for element in (suites, suite):
+        element.set("tests", str(tests))
+        element.set("failures", str(failures))
+        element.set("errors", str(errors))
+        element.set("skipped", str(skipped))
+        element.set("time", _junit_time(report.get("duration_s")))
+    ET.indent(suites)
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(suites, encoding="unicode") + "\n"
+    )
+
+
 def write_reports(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
-    """Write `report.json` and `report.md` into the run directory; return the report."""
+    """Write `report.json`, `report.md` and `junit.xml` into the run directory.
+
+    Returns the report as data.
+    """
     report = build_report(record, run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / REPORT_JSON).write_text(json.dumps(report, indent=2) + "\n")
     (run_dir / REPORT_MD).write_text(render_markdown(report))
+    (run_dir / REPORT_JUNIT).write_text(render_junit(report))
     return report
