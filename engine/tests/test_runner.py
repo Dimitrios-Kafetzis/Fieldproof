@@ -392,7 +392,7 @@ def test_run_passes(resolved: Plan, clock: FakeClock) -> None:
     assert [j.role for j in backend.jobs] == ["spawn"]
     assert backend.networks == {"fieldproof"}
     # The world was polled until its services answered, the bridge until odometry appeared.
-    sim_polls = [a for n, a in backend.execs if n.endswith("-sim")]
+    sim_polls = [a for n, a in backend.execs if n.endswith("-sim") and "service -l" in a[2]]
     assert len(sim_polls) == 2
     assert sim_polls[0] == ("bash", "-lc", "timeout 20 gz service -l")
     assert (
@@ -581,6 +581,130 @@ def test_recording_is_reported(config: Config, clock: FakeClock, tmp_path: Path)
     report = json.loads((resolved.run_dir / REPORT_JSON).read_text())
     assert report["recording"]["mcap"] == ["recording/recording_0.mcap"]
     assert "Recording (MCAP" in (resolved.run_dir / REPORT_MD).read_text()
+
+
+# ------------------------------------------------------------------------------------ video
+def test_video_is_recorded_and_saved(resolved: Plan, clock: FakeClock) -> None:
+    assert resolved.video is not None
+    assert resolved.video.camera == "spectator"
+    assert resolved.video.service == "/spectator/record_video"
+    assert resolved.video.file == "video/spectator.mp4"
+    assert resolved.video.in_sim == "/tmp/fieldproof-abc123-spectator.mp4"  # noqa: S108
+    assert resolved.to_dict()["video"]["service"] == "/spectator/record_video"
+    backend = ready_backend(resolved)
+    backend.video_file_polls_needed = 3
+    record, log = execute(resolved, backend, clock)
+    assert record.status == Status.PASSED
+    sim = resolved.sim.name
+    requests = [a[2] for n, a in backend.execs if n == sim and "record_video" in a[2]]
+    assert len(requests) == 2
+    assert "gz service -s /spectator/record_video --reqtype gz.msgs.VideoRecord" in requests[0]
+    assert (
+        '\'start: true, format: "mp4", save_filename: "/tmp/fieldproof-abc123-spectator.mp4"\''
+        in requests[0]
+    )
+    assert requests[1].endswith("--req 'stop: true'")
+    # The recording started with the timeline and stopped before the verdicts were settled.
+    events = [e["event"] for e in log.events]
+    assert (
+        events.index("timeline.start") < events.index("video.start") < events.index("action.start")
+    )
+    assert events.index("action.end") < events.index("video.saved") < events.index("timeline.done")
+    assert backend.video_file_polls == 3, "waited for the encoder to close the file"
+    assert backend.copies == [
+        (sim, "/tmp/fieldproof-abc123-spectator.mp4", resolved.run_dir / "video/spectator.mp4")  # noqa: S108
+    ]
+    saved = resolved.run_dir / "video/spectator.mp4"
+    assert saved.read_bytes()[4:8] == b"ftyp"
+    assert record.video == {
+        "camera": "spectator",
+        "file": "video/spectator.mp4",
+        "bytes": saved.stat().st_size,
+        "status": "saved",
+    }
+    report = json.loads((resolved.run_dir / REPORT_JSON).read_text())
+    assert report["video"]["status"] == "saved"
+    markdown = (resolved.run_dir / REPORT_MD).read_text()
+    assert "- Video from camera `spectator` (2.0 KB): `video/spectator.mp4`" in markdown
+    assert "- `video/spectator.mp4`" not in markdown, "listed once, as the video"
+    assert (
+        'name="video" value="video/spectator.mp4"' in (resolved.run_dir / "junit.xml").read_text()
+    )
+
+
+def test_video_start_refused_is_a_warning(resolved: Plan, clock: FakeClock) -> None:
+    backend = ready_backend(resolved)
+    backend.video_start_result = ExecResult(1, "Service call timed out\n")
+    record, log = execute(resolved, backend, clock)
+    assert record.status == Status.PASSED, "the video is best effort"
+    assert record.video is not None
+    assert record.video["status"] == "error"
+    assert "refused to start" in record.video["reason"]
+    error = next(e for e in log.events if e["event"] == "video.error")
+    assert error["level"] == "warning"
+    assert not [a for n, a in backend.execs if "stop: true" in a[2]], "nothing to stop"
+    assert backend.copies == []
+    assert (
+        "- No video from camera `spectator`: the recorder refused to start"
+        in (resolved.run_dir / REPORT_MD).read_text()
+    )
+
+
+def test_video_copy_failure_is_a_warning(resolved: Plan, clock: FakeClock) -> None:
+    backend = ready_backend(resolved)
+    backend.fail_copy = True
+    record, log = execute(resolved, backend, clock)
+    assert record.status == Status.PASSED
+    assert record.video is not None
+    assert record.video["status"] == "error"
+    assert record.video["reason"].startswith("cannot save the recording")
+    assert "video.error" in [e["event"] for e in log.events]
+
+
+def test_video_never_written_is_a_warning(resolved: Plan, clock: FakeClock) -> None:
+    backend = ready_backend(resolved)
+    backend.video_file_polls_needed = 10_000
+    record, _log = execute(resolved, backend, clock)
+    assert record.status == Status.PASSED
+    assert record.video is not None
+    assert record.video["status"] == "error"
+    assert "not written 15 s after the stop" in record.video["reason"]
+    assert backend.copies == []
+
+
+def test_video_stops_when_the_action_fails(resolved: Plan, clock: FakeClock) -> None:
+    backend = ready_backend(resolved)
+    backend.goal_result = ExecResult(0, "Goal finished with status: ABORTED\n")
+    record, _log = execute(resolved, backend, clock)
+    assert record.status == Status.FAILED
+    assert record.video is not None
+    assert record.video["status"] == "saved", "the video of a failed run is kept"
+
+
+def test_without_video(config: Config, clock: FakeClock, tmp_path: Path) -> None:
+    scenario = scenario_variant(lambda d: d["outputs"].pop("video"))
+    resolved = plan(scenario, config, runs_dir=tmp_path, render="software", token=SUFFIX)
+    assert resolved.video is None
+    assert resolved.to_dict()["video"] is None
+    backend = ready_backend(resolved)
+    record, log = execute(resolved, backend, clock)
+    assert record.status == Status.PASSED
+    assert record.video is None
+    assert not [a for n, a in backend.execs if "record_video" in a[2]]
+    assert not [e for e in log.events if e["event"].startswith("video.")]
+    markdown = (resolved.run_dir / REPORT_MD).read_text()
+    assert "Video from camera" not in markdown
+    assert "No video" not in markdown
+
+
+def test_video_unknown_camera(config: Config, tmp_path: Path) -> None:
+    scenario = scenario_variant(lambda d: d["outputs"].update({"video": {"camera": "roof"}}))
+    with pytest.raises(
+        ScenarioError,
+        match="outputs.video: world depot has no camera sensor 'roof' with a CameraVideoRecorder "
+        r"plugin \(cameras with one: spectator\)",
+    ):
+        plan(scenario, config, runs_dir=tmp_path, render="software", token=SUFFIX)
 
 
 # ------------------------------------------------------------------------------- assertions

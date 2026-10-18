@@ -73,6 +73,7 @@ from fieldproof.scenario import (
     TopicRate,
     TopicValue,
     Vehicle,
+    VideoOutput,
     WorldInfo,
     entry_label,
     place,
@@ -114,6 +115,10 @@ RUN_DIR_IN_CONTAINER = "/fieldproof/run"
 PROBE_LIMIT_S = 20
 RECORD_FILE = "run.json"
 LOG_FILE = "engine.log"
+VIDEO_DIR = "video"
+VIDEO_DIR_IN_SIM = "/tmp"  # noqa: S108  (inside the simulator container, writable by its user)
+VIDEO_SETTLE_S = 15.0
+"""How long the encoder may take to close the file after the recording is stopped."""
 SCENARIO_COPY = "scenario.yaml"
 LOGS_DIR = "logs"
 
@@ -205,6 +210,23 @@ class PlannedVehicle:
 
 
 @dataclass(frozen=True)
+class PlannedVideo:
+    """A video to record from a camera of the world (`outputs.video`)."""
+
+    camera: str
+    service: str
+    """The `CameraVideoRecorder` service of the camera, called in the simulator container."""
+    in_sim: str
+    """Where the simulator writes the file."""
+    file: str
+    """The file in the run directory, relative to it."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """The video plan as data."""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class Plan:
     """A resolved scenario, ready to run."""
 
@@ -223,6 +245,7 @@ class Plan:
     assertions: tuple[PlannedAssertion, ...]
     observe: dict[str, Any]
     """What the recorder's observer watches and records (`observe.json`)."""
+    video: PlannedVideo | None = None
 
     def containers(self) -> list[ContainerSpec]:
         """The long-running containers in start order (the teardown reverses it)."""
@@ -297,6 +320,7 @@ class Plan:
             ],
             "assertions": [a.to_dict() for a in self.assertions],
             "observe": self.observe,
+            "video": self.video.to_dict() if self.video else None,
         }
 
 
@@ -383,6 +407,21 @@ def plan(
         _plan_assertion(world, by_name, a, index) for index, a in enumerate(scenario.assertions)
     )
     run_dir = base / identity
+    video = None
+    wanted = scenario.outputs.video
+    if isinstance(wanted, VideoOutput):
+        if wanted.camera not in world.cameras:
+            known = ", ".join(sorted(world.cameras)) or "none"
+            raise ScenarioError(
+                f"outputs.video: world {world.name} has no camera sensor {wanted.camera!r} with "
+                f"a CameraVideoRecorder plugin (cameras with one: {known})"
+            )
+        video = PlannedVideo(
+            camera=wanted.camera,
+            service=world.cameras[wanted.camera],
+            in_sim=f"{VIDEO_DIR_IN_SIM}/fieldproof-{short}-{wanted.camera}.{wanted.format}",
+            file=f"{VIDEO_DIR}/{wanted.camera}.{wanted.format}",
+        )
     observe = observe_plan(
         assertions,
         world=world.name,
@@ -431,6 +470,7 @@ def plan(
         actions=tuple(actions),
         assertions=assertions,
         observe=observe,
+        video=video,
     )
 
 
@@ -652,6 +692,8 @@ class RunRecord:
     assertions: list[dict[str, Any]] = field(default_factory=list)
     observation: dict[str, Any] = field(default_factory=dict)
     """The observer's stream: samples, simulation time covered, problems."""
+    video: dict[str, Any] | None = None
+    """The video of the run (`outputs.video`): camera, file, bytes, status."""
     time: dict[str, Any] = field(default_factory=dict)
     stack: dict[str, Any] = field(default_factory=dict)
 
@@ -1104,6 +1146,25 @@ class Run:
             f"budget {budget:g} s",
             budget_s=budget,
         )
+        self.start_video()
+        try:
+            self._run_actions(started, budget)
+        finally:
+            self.stop_video()
+        self.log.event("timeline.done", f"after {self.clock() - started:.1f} s")
+        self._observe()
+        self._resolve(self.evaluator.finish(self.wall()))
+        failed = self.evaluator.failed
+        if failed:
+            first = failed[0]
+            more = f" (and {len(failed) - 1} more)" if len(failed) > 1 else ""
+            raise RunFailedError(f"assertion {first.name} failed: {first.reason}{more}")
+        if self.plan.assertions:
+            self.log.event(
+                "assertions.passed", f"all {len(self.plan.assertions)} assertion(s) passed"
+            )
+
+    def _run_actions(self, started: float, budget: float) -> None:
         for action in self.plan.actions:
             record = ActionRecord(
                 action.name, action.entry.action, action.entry.vehicle, action.entry.at
@@ -1133,18 +1194,90 @@ class Run:
                 if record.status == "timeout" and limit < action.entry.timeout_s:
                     raise RunTimeoutError(f"budget of {budget:g} s passed during {action.name}")
                 raise RunFailedError(f"{action.name}: {record.detail}")
-        self.log.event("timeline.done", f"after {self.clock() - started:.1f} s")
-        self._observe()
-        self._resolve(self.evaluator.finish(self.wall()))
-        failed = self.evaluator.failed
-        if failed:
-            first = failed[0]
-            more = f" (and {len(failed) - 1} more)" if len(failed) > 1 else ""
-            raise RunFailedError(f"assertion {first.name} failed: {first.reason}{more}")
-        if self.plan.assertions:
-            self.log.event(
-                "assertions.passed", f"all {len(self.plan.assertions)} assertion(s) passed"
+
+    # ------------------------------------------------------------------------------ the video
+    def _video_service(self, video: PlannedVideo, request: str) -> ExecResult:
+        return self.backend.exec(
+            self.plan.sim.name,
+            (
+                "bash",
+                "-lc",
+                f"timeout {PROBE_LIMIT_S} gz service -s {video.service} "
+                "--reqtype gz.msgs.VideoRecord --reptype gz.msgs.Boolean --timeout 5000 "
+                f"--req {shlex.quote(request)}",
+            ),
+        )
+
+    def start_video(self) -> None:
+        """Ask the world's camera to record (`outputs.video`); a failure is a warning."""
+        video = self.plan.video
+        if video is None:
+            return
+        self.record.video = {
+            "camera": video.camera,
+            "file": video.file,
+            "bytes": None,
+            "status": "starting",
+        }
+        try:
+            result = self._video_service(
+                video,
+                f'start: true, format: "{video.file.rsplit(".", 1)[-1]}", '
+                f'save_filename: "{video.in_sim}"',
             )
+        except BackendError as error:
+            self._video_failed(f"cannot start the recording: {error}")
+            return
+        if not result.ok or "true" not in result.output:
+            self._video_failed(f"the recorder refused to start:\n{result.tail()}")
+            return
+        self.record.video["status"] = "recording"
+        self.log.event(
+            "video.start",
+            f"camera {video.camera} recording through {video.service}",
+            camera=video.camera,
+        )
+
+    def stop_video(self) -> None:
+        """Stop the recording and copy the file into the run directory.
+
+        Waits for the encoder to close the file first; a failure is a warning.
+        """
+        video = self.plan.video
+        if video is None or not self.record.video or self.record.video["status"] != "recording":
+            return
+        try:
+            result = self._video_service(video, "stop: true")
+            if not result.ok or "true" not in result.output:
+                self._video_failed(f"the recorder refused to stop:\n{result.tail()}")
+                return
+            self.record.video["status"] = "encoding"
+            deadline = self.clock() + VIDEO_SETTLE_S
+            check = ("bash", "-lc", f"test -s {shlex.quote(video.in_sim)}")
+            while not self.backend.exec(self.plan.sim.name, check).ok:
+                if self.clock() >= deadline:
+                    self._video_failed(
+                        f"{video.in_sim} not written {VIDEO_SETTLE_S:g} s after the stop"
+                    )
+                    return
+                self.sleep(EVAL_POLL_S)
+            destination = self.plan.run_dir / video.file
+            size = self.backend.copy_from(self.plan.sim.name, video.in_sim, destination)
+        except BackendError as error:
+            self._video_failed(f"cannot save the recording: {error}")
+            return
+        self.record.video.update({"bytes": size, "status": "saved"})
+        self.log.event(
+            "video.saved", f"{video.file} ({size} bytes)", camera=video.camera, bytes=size
+        )
+        self._write()
+
+    def _video_failed(self, reason: str) -> None:
+        video = self.record.video or {}
+        video.update({"status": "error", "reason": reason})
+        self.record.video = video
+        self.log.event("video.error", reason, level="warning", camera=video.get("camera"))
+        self._write()
 
     def _exec_while_observing(
         self, name: str, argv: tuple[str, ...], on_line: Callable[[str], None]

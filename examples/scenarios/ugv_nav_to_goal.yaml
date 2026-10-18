@@ -68,6 +68,7 @@ assertions:
 outputs:
   logs: true
   record: true # recording/*.mcap in the run directory (opens in Foxglove Studio)
+  video: true # video/spectator.mp4 from the depot's spectator camera (the demo video)
   topics: # the allow-list; the /fieldproof/* side channels are always recorded
     - /clock
     - /tf

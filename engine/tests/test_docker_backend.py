@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +42,26 @@ class StubContainer:
 
     def remove(self, **kwargs: Any) -> None:
         self.calls.append(("remove", kwargs))
+
+    def get_archive(self, path: str) -> tuple[Any, dict[str, Any]]:
+        self.calls.append(("get_archive", path))
+        if path == "/scratch/missing.mp4":
+            raise NotFound(path)
+        if path == "/scratch/api-error.mp4":
+            raise APIError("boom")
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as tar:
+            if path == "/scratch/dir":
+                info = tarfile.TarInfo("dir")
+                info.type = tarfile.DIRTYPE
+                tar.addfile(info)
+            else:
+                data = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 100
+                info = tarfile.TarInfo(path.rsplit("/", 1)[-1])
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        payload = buffer.getvalue()
+        return iter([payload[:50], payload[50:]]), {"size": len(payload)}
 
 
 class StubCollection:
@@ -121,6 +143,25 @@ def client() -> StubClient:
 @pytest.fixture
 def backend(client: StubClient) -> DockerBackend:
     return DockerBackend(client)  # type: ignore[arg-type]
+
+
+def test_copy_from(backend: DockerBackend, client: StubClient, tmp_path: Path) -> None:
+    container = StubContainer("c1", {"State": {"Running": True}})
+    client.containers.items["c1"] = container
+    destination = tmp_path / "video" / "spectator.mp4"
+    size = backend.copy_from("c1", "/scratch/spectator.mp4", destination)
+    assert size == 112
+    assert destination.read_bytes()[4:8] == b"ftyp"
+    assert destination.stat().st_size == 112
+    assert ("get_archive", "/scratch/spectator.mp4") in container.calls
+    with pytest.raises(BackendError, match=r"no such container or file /scratch/missing.mp4"):
+        backend.copy_from("c1", "/scratch/missing.mp4", destination)
+    with pytest.raises(BackendError, match=r"cannot copy /scratch/api-error.mp4: boom"):
+        backend.copy_from("c1", "/scratch/api-error.mp4", destination)
+    with pytest.raises(BackendError, match="/scratch/dir is not a file"):
+        backend.copy_from("c1", "/scratch/dir", destination)
+    with pytest.raises(BackendError, match="no such container"):
+        backend.copy_from("gone", "/scratch/spectator.mp4", destination)
 
 
 def test_images_and_network(backend: DockerBackend, client: StubClient) -> None:

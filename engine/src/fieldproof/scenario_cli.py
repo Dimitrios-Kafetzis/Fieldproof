@@ -43,7 +43,13 @@ from fieldproof.runner import (
     leftovers,
     plan,
 )
-from fieldproof.scenario import Scenario, ScenarioError, json_schema, load_scenario
+from fieldproof.scenario import (
+    Scenario,
+    ScenarioError,
+    VideoOutput,
+    json_schema,
+    load_scenario,
+)
 from fieldproof_bridge.manifest import ManifestError
 
 console = Console()
@@ -90,9 +96,16 @@ def resolve(
     domain_id: int | None = None,
     network: str | None = None,
     run_id: str | None = None,
+    video: bool | None = None,
 ) -> tuple[Scenario, Plan]:
-    """Load the scenario and the configuration and plan the run."""
+    """Load the scenario and the configuration and plan the run.
+
+    `video` overrides `outputs.video` (`--video` turns the world's default camera on,
+    `--no-video` turns the recording off).
+    """
     scenario = load_scenario(scenario_path)
+    if video is not None:
+        scenario.outputs.video = VideoOutput() if video else None
     config = load_config(config_path, start=scenario.directory)
     if render is not None and render not in ("auto", "gpu", "software"):
         raise ScenarioError(f"--render {render!r}: expected auto, gpu or software")
@@ -199,6 +212,14 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Resolve the scenario and print the plan as JSON.")
     ] = False,
+    video: Annotated[
+        bool | None,
+        typer.Option(
+            "--video/--no-video",
+            help="Record (or not) a video from the world's camera, whatever outputs.video says.",
+            show_default=False,
+        ),
+    ] = None,
 ) -> None:
     """Run SCENARIO: start the simulator, the bridges and the vehicles, run the timeline.
 
@@ -216,6 +237,7 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             domain_id=domain_id,
             network=network,
             run_id=run_id,
+            video=video,
         )
     except (ScenarioError, ConfigError, ManifestError) as error:
         raise fail(error) from error
@@ -277,6 +299,12 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
         )
     if (resolved.run_dir / REPORT_MD).is_file():
         console.print(f"  report: {resolved.run_dir / REPORT_MD}", highlight=False, soft_wrap=True)
+    if record.video and record.video.get("status") == "saved":
+        console.print(
+            f"  video: {resolved.run_dir / str(record.video['file'])}",
+            highlight=False,
+            soft_wrap=True,
+        )
     remaining = leftovers(backend, record.run_id) if not keep else []
     if remaining:
         errors.print(

@@ -174,12 +174,34 @@ def test_run_passes_with_a_fake_backend(fake: ReadyFake, tmp_path: Path) -> None
     assert "PASS reached_goal (reach_pose): 0.20 m from (10, -1)" in out
     assert "PASS no_collision (no_collision): no contact of ugv1" in out
     assert f"report: {tmp_path / 'cli-1' / 'report.md'}" in out
+    assert f"video: {tmp_path / 'cli-1' / 'video' / 'spectator.mp4'}" in out
+    assert (tmp_path / "cli-1" / "video" / "spectator.mp4").is_file()
     assert fake.containers == {}
     assert fake.networks == {"fieldproof"}
     assert fake.started[0] == "fieldproof-1-sim"
     assert json.loads((tmp_path / "cli-1" / "run.json").read_text())["stack"]["ros_domain_id"] == 3
     assert (tmp_path / "cli-1" / "engine.log").is_file()
     assert (tmp_path / "cli-1" / "report.json").is_file()
+
+
+def test_run_video_override(fake: ReadyFake, tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["run", str(EXAMPLE), "--render", "software", "--runs-dir", str(tmp_path), "--no-video"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "video:" not in plain(result.output)
+    assert not list(tmp_path.glob("*/video")), "nothing recorded"
+    assert not [a for n, a in fake.execs if "record_video" in a[2]]
+    result = runner.invoke(
+        app,
+        ["run", str(EXAMPLE), "--runs-dir", str(tmp_path), "--dry-run", "--no-video"],
+    )
+    assert json.loads(result.output)["video"] is None
+    result = runner.invoke(
+        app, ["run", str(EXAMPLE), "--runs-dir", str(tmp_path), "--dry-run", "--video"]
+    )
+    assert json.loads(result.output)["video"]["camera"] == "spectator"
 
 
 def test_run_quiet_hides_command_output(fake: ReadyFake, tmp_path: Path) -> None:

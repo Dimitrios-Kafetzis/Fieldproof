@@ -19,6 +19,7 @@ from fieldproof.scenario import (
     ScenarioError,
     TopicRate,
     TopicValue,
+    VideoOutput,
     WithinTime,
     entry_label,
     json_schema,
@@ -127,6 +128,26 @@ def test_example_loads(example: Scenario) -> None:
     assert example.outputs.logs is True
     assert example.outputs.record is True
     assert "/clock" in example.outputs.topics
+    assert example.outputs.video == VideoOutput(camera="spectator", format="mp4")
+
+
+def test_video_output_forms(data: dict[str, Any]) -> None:
+    data["outputs"]["video"] = False
+    assert validate_data(data).outputs.video is None
+    data["outputs"]["video"] = True
+    assert validate_data(data).outputs.video == VideoOutput()
+    data["outputs"]["video"] = {"camera": "roof"}
+    video = validate_data(data).outputs.video
+    assert isinstance(video, VideoOutput)
+    assert video.camera == "roof"
+    del data["outputs"]["video"]
+    assert validate_data(data).outputs.video is None
+    data["outputs"]["video"] = {"fps": 30}
+    with pytest.raises(ScenarioError, match=r"outputs\.video\.VideoOutput\.fps"):
+        validate_data(data)
+    data["outputs"]["video"] = {"format": "avi"}
+    with pytest.raises(ScenarioError, match=r"outputs\.video\.VideoOutput\.format"):
+        validate_data(data)
 
 
 def test_defaults_without_optional_sections(data: dict[str, Any]) -> None:
@@ -283,6 +304,9 @@ def test_within_time_needs_a_named_entry(data: dict[str, Any]) -> None:
 
 def test_read_depot() -> None:
     world = read_world(DEPOT)
+    assert world.cameras == {"spectator": "/spectator/record_video"}, (
+        "the depot's spectator camera carries the CameraVideoRecorder plugin"
+    )
     assert world.name == "depot"
     assert world.file == DEPOT
     assert world.frames["spawn_dock"] == Pose(10.0, 3.0, 0.0, -1.5708)

@@ -10,7 +10,8 @@ Runs after ``test_ugv_nav2.py`` (pytest orders the files by name) against the sa
    ``passed`` with evidence, the observer's stream, an MCAP recording that the ``mcap`` library
    reads back with the recorded topics and the three ``/fieldproof/*`` side channels, the
    reports (the JUnit document of task P1-T07 included), ``engine.log`` and the four
-   containers' logs, and no container of the run is left
+   containers' logs, the video of the drive from the depot's spectator camera, and no
+   container of the run is left
    (the P1-T06 definition of done: "the UGV scenario reports PASS with per-assertion evidence",
    "MCAP opens in Foxglove Studio" by way of a valid MCAP with ROS 2 schemas);
 2. a second run is interrupted with SIGINT while the stack is coming up (as soon as its
@@ -152,7 +153,9 @@ def test_01_fieldproof_run_passes(tmp_path: Path) -> None:
     check_observer_files(run_dir, record)
     mcaps = check_recording(run_dir)
     check_reports(run_dir, mcaps)
+    check_video(run_dir, record)
     assert "PASS ugv_nav_to_goal" in plain(completed.stdout)
+    assert f"video: {run_dir / 'video' / 'spectator.mp4'}" in plain(completed.stdout)
     events = [
         json.loads(line)["event"] for line in (run_dir / "engine.log").read_text().splitlines()
     ]
@@ -260,6 +263,26 @@ def check_reports(run_dir: Path, mcaps: list[Path]) -> None:
     assert {p.get("name"): p.get("value") for p in suite.find("properties")}[  # type: ignore[union-attr]
         "recording"
     ] == f"recording/{mcaps[0].name}"
+
+
+def check_video(run_dir: Path, record: dict[str, Any]) -> None:
+    """The video from the depot's spectator camera (issue #46): an MP4 file of the drive,
+    written by Gazebo's CameraVideoRecorder and copied out of the simulator."""
+    video = run_dir / "video" / "spectator.mp4"
+    assert video.is_file(), list(run_dir.iterdir())
+    size = video.stat().st_size
+    print(f"video: {size} bytes", flush=True)  # noqa: T201
+    assert size > 100_000, "a few seconds of 720p video"
+    assert video.read_bytes()[4:8] == b"ftyp", "an ISO base media file"
+    assert record["video"] == {
+        "camera": "spectator",
+        "file": "video/spectator.mp4",
+        "bytes": size,
+        "status": "saved",
+    }
+    report = json.loads((run_dir / "report.json").read_text())
+    assert report["video"]["status"] == "saved"
+    assert "- Video from camera `spectator`" in (run_dir / "report.md").read_text()
 
 
 def mcap_topics(path: Path) -> dict[str, int]:
