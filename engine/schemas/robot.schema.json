@@ -609,7 +609,7 @@
     },
     "Launch": {
       "additionalProperties": false,
-      "description": "`ros2 launch <package> <file> key:=value ...`.",
+      "description": "`ros2 launch <package> <file> key:=value ...`.\n\n`namespace_arg` and `frame_prefix_arg` name the launch arguments that take the vehicle's\nnamespace and frame prefix when a scenario gives it one (task P2-T01): the orchestrator\nappends `<namespace_arg>:=<namespace>` to the command line of a vehicle in a fleet, and\nleaves the argument out when the value is empty (`ros2 launch` rejects an empty value, and\nthe field default then applies). A stack whose launch takes no such argument runs at the\nroot namespace only.",
       "properties": {
         "package": {
           "title": "Package",
@@ -639,6 +639,34 @@
           "description": "Launch arguments the simulation adds (`use_sim_time`, driver swap).",
           "title": "Args",
           "type": "object"
+        },
+        "namespace_arg": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Launch argument that receives the vehicle's namespace (`namespace`).",
+          "title": "Namespace Arg"
+        },
+        "frame_prefix_arg": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Launch argument that receives the vehicle's frame prefix.",
+          "title": "Frame Prefix Arg"
         }
       },
       "required": ["package", "file"],
@@ -884,7 +912,7 @@
     },
     "Resources": {
       "additionalProperties": false,
-      "description": "Container budget, in Docker's units.",
+      "description": "Container budget, in Docker's units (cgroup CPU quota, cpuset, memory, pids).",
       "properties": {
         "cpus": {
           "anyOf": [
@@ -897,8 +925,22 @@
             }
           ],
           "default": null,
-          "description": "`--cpus`.",
+          "description": "`--cpus`: the CPU quota, in cores.",
           "title": "Cpus"
+        },
+        "cpuset": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`--cpuset-cpus`: the cores the container may run on (`0-1`, `0,2`).",
+          "title": "Cpuset"
         },
         "memory": {
           "anyOf": [
@@ -1000,6 +1042,19 @@
             }
           ],
           "default": null
+        },
+        "dds_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle's own DDS XML profile (relative to the manifest), mounted into the container and named to its RMW (`FASTRTPS_DEFAULT_PROFILES_FILE`, `CYCLONEDDS_URI`).",
+          "title": "Dds Profile"
         },
         "env": {
           "additionalProperties": {

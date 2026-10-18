@@ -37,7 +37,13 @@ from pathlib import Path
 import yaml
 
 from fieldproof import __version__, vehicle_ready
-from fieldproof.manifest import Build, RobotManifest, Runtime, load_manifest
+from fieldproof.manifest import (
+    DDS_PROFILE_IN_CONTAINER,
+    Build,
+    RobotManifest,
+    Runtime,
+    load_manifest,
+)
 from fieldproof_bridge.manifest import ManifestError, read_manifest_data
 
 SOURCE_CONTEXT = "vehicle-source"
@@ -329,6 +335,10 @@ def check_sources(manifest: RobotManifest) -> None:
     for params in runtime.params:
         if not (base / params).is_file():
             raise VehicleError(f"{manifest.path}: runtime.params: {params!r} is not a file")
+    if runtime.dds_profile is not None and not (base / runtime.dds_profile).is_file():
+        raise VehicleError(
+            f"{manifest.path}: runtime.dds_profile: {runtime.dds_profile!r} is not a file"
+        )
 
 
 @dataclass
@@ -434,12 +444,14 @@ def build_command(
     return command
 
 
-def run_command(
+def run_command(  # noqa: PLR0912
     manifest: RobotManifest,
     *,
     name: str | None = None,
     network: str | None = "fieldproof",
     domain_id: int | None = None,
+    namespace: str = "",
+    frame_prefix: str = "",
     detach: bool = False,
     remove: bool = True,
     image: str | None = None,
@@ -447,7 +459,13 @@ def run_command(
     extra_args: tuple[str, ...] = (),
     command: tuple[str, ...] = (),
 ) -> list[str]:
-    """The ``docker run`` command line of the vehicle with its budget and environment."""
+    """The ``docker run`` command line of the vehicle with its budget and environment.
+
+    A `namespace` or `frame_prefix` goes into the environment (``FIELDPROOF_NAMESPACE``, which
+    the readiness probe reads) and, when the manifest's launch names an argument for it, onto the
+    launch command line in place of the image's default command (unless `command` is given). The
+    manifest's DDS profile, if any, is mounted read-only and named to the RMW.
+    """
     rt = runtime_of(manifest)
     argv = ["docker", "run"]
     if remove:
@@ -459,15 +477,28 @@ def run_command(
         argv += ["--network", network]
     if domain_id is not None:
         argv += ["--env", f"ROS_DOMAIN_ID={domain_id}"]
-    for key, value in {**rt.env, **(env or {})}.items():
+    environment = dict(rt.env)
+    if namespace:
+        environment["FIELDPROOF_NAMESPACE"] = namespace
+    if frame_prefix:
+        environment["FIELDPROOF_FRAME_PREFIX"] = frame_prefix
+    if rt.dds_profile is not None:
+        profile = (manifest.directory / rt.dds_profile).resolve()
+        argv += ["--volume", f"{profile}:{DDS_PROFILE_IN_CONTAINER}:ro"]
+        environment.update(rt.dds_profile_env())
+    for key, value in {**environment, **(env or {})}.items():
         argv += ["--env", f"{key}={value}"]
     if rt.resources is not None:
         if rt.resources.cpus is not None:
             argv += ["--cpus", f"{rt.resources.cpus:g}"]
+        if rt.resources.cpuset is not None:
+            argv += ["--cpuset-cpus", rt.resources.cpuset]
         if rt.resources.memory is not None:
             argv += ["--memory", rt.resources.memory]
         if rt.resources.pids is not None:
             argv += ["--pids-limit", str(rt.resources.pids)]
+    if not command and (namespace or frame_prefix) and rt.entrypoint.launch is not None:
+        command = tuple(rt.entrypoint.argv(namespace=namespace, frame_prefix=frame_prefix))
     argv += [*extra_args, image or rt.image, *command]
     return argv
 

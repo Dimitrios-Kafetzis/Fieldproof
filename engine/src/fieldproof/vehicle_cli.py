@@ -197,6 +197,20 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
     domain_id: Annotated[
         int | None, typer.Option("--domain-id", help="ROS_DOMAIN_ID of the container.")
     ] = None,
+    namespace: Annotated[
+        str,
+        typer.Option(
+            "--namespace",
+            help="Vehicle namespace (FIELDPROOF_NAMESPACE and the launch's namespace_arg).",
+        ),
+    ] = "",
+    frame_prefix: Annotated[
+        str,
+        typer.Option(
+            "--frame-prefix",
+            help="Frame prefix (FIELDPROOF_FRAME_PREFIX and the launch's frame_prefix_arg).",
+        ),
+    ] = "",
     detach: Annotated[bool, typer.Option("--detach", "-d", help="Run in the background.")] = False,
     keep: Annotated[
         bool, typer.Option("--keep", help="Do not remove the container on exit.")
@@ -222,6 +236,8 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             name=name,
             network=network or None,
             domain_id=domain_id,
+            namespace=namespace,
+            frame_prefix=frame_prefix,
             detach=detach,
             remove=not keep,
             image=image,

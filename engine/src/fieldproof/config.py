@@ -1,7 +1,8 @@
 """The workspace configuration, ``fieldproof.toml`` (task P1-T05).
 
 A workspace is a directory with a ``fieldproof.toml`` at its root: where runs are written, which
-Docker network and image tag the stack uses, where the worlds, models and assets the simulator
+Docker network and image tag the stack uses, how the containers of a run are isolated from other
+runs (the ROS domain, the DDS discovery), where the worlds, models and assets the simulator
 mounts live, and the timeouts of the orchestrator. Every value has a default that matches this
 repository, so the file may be short or absent; :func:`load_config` finds it by walking up from a
 starting directory (the scenario's, then the current one), the way git finds its repository, and
@@ -9,7 +10,8 @@ the directory that holds it is the workspace root that relative paths resolve ag
 
 Precedence, highest first (01-architecture.md): the scenario file, the command line, the
 environment (``FIELDPROOF_IMAGE_PREFIX``, ``FIELDPROOF_IMAGE_TAG``, ``FIELDPROOF_RENDER``,
-``ROS_DOMAIN_ID``, as the compose stack reads them), ``fieldproof.toml``, the defaults.
+``ROS_DOMAIN_ID``, ``FIELDPROOF_DISCOVERY``, as the compose stack reads them),
+``fieldproof.toml``, the defaults.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import os
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PrivateAttr, ValidationError
 
@@ -32,8 +34,12 @@ ENV_IMAGE_PREFIX = "FIELDPROOF_IMAGE_PREFIX"
 ENV_IMAGE_TAG = "FIELDPROOF_IMAGE_TAG"
 ENV_RENDER = "FIELDPROOF_RENDER"
 ENV_DOMAIN_ID = "ROS_DOMAIN_ID"
+ENV_DISCOVERY = "FIELDPROOF_DISCOVERY"
+AUTO: Literal["auto"] = "auto"
 
 Render = Literal["auto", "gpu", "software"]
+Discovery = Literal["multicast", "server"]
+DomainId = Annotated[int, Field(ge=0, le=232)] | Literal["auto"]
 
 
 class ConfigError(ValueError):
@@ -67,8 +73,16 @@ class Docker(Strict):
         description="`gpu`: map /dev/dri into the simulator; `software`: Mesa software "
         "rendering; `auto`: gpu when the host has a render node.",
     )
-    ros_domain_id: int = Field(
-        default=0, ge=0, le=232, description="ROS_DOMAIN_ID of every container."
+    ros_domain_id: DomainId = Field(
+        default=AUTO,
+        description="ROS_DOMAIN_ID of every container of a run: a number, or `auto` for one "
+        "derived from the run id (between 1 and 100), so two runs on one host never share a "
+        "domain (task P2-T01).",
+    )
+    discovery: Discovery = Field(
+        default="multicast",
+        description="DDS discovery of a run: `multicast` on the Docker network, or `server`, a "
+        "Fast DDS discovery server container the others point at (ROS_DISCOVERY_SERVER).",
     )
 
 
@@ -98,6 +112,12 @@ class Timeouts(Strict):
     bridge_s: PositiveFloat = Field(default=120.0, description="A bridge publishing its topics.")
     recorder_s: PositiveFloat = Field(
         default=60.0, description="The recorder's observer reporting ready."
+    )
+    discovery_s: PositiveFloat = Field(
+        default=60.0, description="The discovery server container listening."
+    )
+    contract_s: PositiveFloat = Field(
+        default=180.0, description="A vehicle's bridge contract check (`--check-contracts`)."
     )
     teardown_s: PositiveFloat = Field(default=10.0, description="Grace period of a container stop.")
 
@@ -190,10 +210,22 @@ def load_config(
         except ValidationError as error:
             raise ConfigError(f"{ENV_RENDER}: {format_errors(error)}") from error
     if ENV_DOMAIN_ID in environment:
+        value = environment[ENV_DOMAIN_ID]
         try:
-            config.docker.ros_domain_id = int(environment[ENV_DOMAIN_ID])
+            config.docker.ros_domain_id = (
+                AUTO
+                if value.strip() == AUTO
+                else Docker.model_validate({"ros_domain_id": int(value)}).ros_domain_id
+            )
         except ValueError as error:
             raise ConfigError(
-                f"{ENV_DOMAIN_ID}={environment[ENV_DOMAIN_ID]!r}: not an integer"
+                f"{ENV_DOMAIN_ID}={value!r}: not an integer between 0 and 232 or 'auto'"
             ) from error
+    if ENV_DISCOVERY in environment:
+        try:
+            config.docker.discovery = Docker.model_validate(
+                {"discovery": environment[ENV_DISCOVERY]}
+            ).discovery
+        except ValidationError as error:
+            raise ConfigError(f"{ENV_DISCOVERY}: {format_errors(error)}") from error
     return config

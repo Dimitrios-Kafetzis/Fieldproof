@@ -18,6 +18,7 @@ from fieldproof.vehicle import (
     SOURCE_CONTEXT,
     VehicleError,
     build_command,
+    check_sources,
     render_dockerfile,
     render_repos,
     run_command,
@@ -276,12 +277,34 @@ def test_run_command(nav2: RobotManifest, repo_vehicle: RobotManifest) -> None:
         "fieldproof",
         "--env",
         "ROS_DOMAIN_ID=7",
+        "--volume",
+        f"{NAV2_MANIFEST.parent / 'src/ugv_nav2_bringup/config/fastdds.xml'}"
+        ":/opt/fieldproof/dds/profile.xml:ro",
+        "--env",
+        "FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fieldproof/dds/profile.xml",
         "--cpus",
         "2",
         "--memory",
         "2g",
         "ghcr.io/dimitrios-kafetzis/fieldproof-vehicle-ugv-nav2:local",
     ]
+    # A namespace goes to the probe's environment and to the launch's namespace_arg.
+    command = run_command(nav2, namespace="ugv2", frame_prefix="ugv2/")
+    assert "FIELDPROOF_NAMESPACE=ugv2" in command
+    assert "FIELDPROOF_FRAME_PREFIX=ugv2/" in command
+    assert command[-7:] == [
+        "ros2",
+        "launch",
+        "ugv_nav2_bringup",
+        "bringup.launch.py",
+        "use_sim_time:=true",
+        "drivers:=false",
+        "namespace:=ugv2",
+    ], "the example names no frame_prefix_arg, so the prefix stays in the environment"
+    assert run_command(nav2, namespace="ugv2", command=("bash",))[-1] == "bash"
+    # A command entrypoint gets the namespace through the environment only.
+    assert "FIELDPROOF_NAMESPACE=b1" in run_command(repo_vehicle, namespace="b1")
+    assert run_command(repo_vehicle, namespace="b1")[-1] == "example.test/bot:dev"
     command = run_command(
         repo_vehicle,
         name="bot1",
@@ -374,6 +397,57 @@ def test_cli_run_dry_run() -> None:
     assert "--env ROS_DOMAIN_ID=5" in output
     assert "--env A=1" in output
     assert output.endswith("fieldproof-vehicle-ugv-nav2:local bash")
+
+
+def test_cli_run_with_a_namespace() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "vehicle",
+            "run",
+            str(NAV2_MANIFEST),
+            "--dry-run",
+            "--namespace",
+            "ugv3",
+            "--frame-prefix",
+            "ugv3_",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    output = plain(result.output)
+    assert "--env FIELDPROOF_NAMESPACE=ugv3" in output
+    assert "--env FIELDPROOF_FRAME_PREFIX=ugv3_" in output
+    assert "--volume " in output
+    assert ":/opt/fieldproof/dds/profile.xml:ro" in output
+    assert "--env FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fieldproof/dds/profile.xml" in output
+    assert output.endswith(
+        "fieldproof-vehicle-ugv-nav2:local ros2 launch ugv_nav2_bringup bringup.launch.py "
+        "use_sim_time:=true drivers:=false namespace:=ugv3"
+    )
+
+
+def test_run_command_cpuset_and_missing_profile(
+    tmp_path: Path, repo_vehicle: RobotManifest
+) -> None:
+    manifest = tmp_path / "robot.yaml"
+    data = yaml.safe_load(manifest.read_text())
+    data["runtime"]["resources"]["cpuset"] = "2-3"
+    data["runtime"]["dds_profile"] = "dds/cyclone.xml"
+    manifest.write_text(yaml.safe_dump(data))
+    vehicle = load_manifest(manifest)
+    with pytest.raises(
+        VehicleError, match=r"runtime\.dds_profile: 'dds/cyclone\.xml' is not a file"
+    ):
+        check_sources(vehicle)
+    (tmp_path / "dds").mkdir()
+    (tmp_path / "dds" / "cyclone.xml").write_text("<CycloneDDS/>")
+    check_sources(vehicle)
+    command = run_command(vehicle)
+    assert command[command.index("--cpuset-cpus") + 1] == "2-3"
+    assert f"{tmp_path / 'dds' / 'cyclone.xml'}:/opt/fieldproof/dds/profile.xml:ro" in command
+    assert "CYCLONEDDS_URI=file:///opt/fieldproof/dds/profile.xml" in command, "the RMW of env"
+    assert repo_vehicle.runtime is not None
+    assert repo_vehicle.runtime.dds_profile is None
 
 
 def test_wait_command(nav2: RobotManifest, repo_vehicle: RobotManifest) -> None:

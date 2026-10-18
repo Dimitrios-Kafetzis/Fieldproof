@@ -2,9 +2,11 @@
 
 :class:`Backend` is the small surface the runner drives containers through: images exist,
 a network exists, a container starts detached or runs to completion, a command runs inside one,
-its state and logs can be read, it stops and is removed, and the containers of a run are found by
-label. :mod:`fieldproof.docker_backend` implements it with the Docker SDK; the runner's tests use
-a fake, so the state machine is tested without Docker.
+its state and logs can be read, it stops and is removed, the containers of a run are found by
+label, and the host's capacity is known. :mod:`fieldproof.docker_backend` implements it with the
+Docker SDK; the runner's tests use a fake, so the state machine is tested without Docker. The
+runner calls it from several threads at once (task P2-T01: the vehicles of a fleet start in
+parallel), so an implementation must be safe to share between threads.
 """
 
 from __future__ import annotations
@@ -44,6 +46,9 @@ class ContainerSpec:
     devices: tuple[str, ...] = ()
     group_add: tuple[str, ...] = ()
     cpus: float | None = None
+    """The CPU quota in cores (`--cpus`)."""
+    cpuset: str | None = None
+    """The cores the container may run on (`--cpuset-cpus`)."""
     memory: str | None = None
     pids: int | None = None
     user: str | None = None
@@ -77,6 +82,14 @@ class ContainerState:
     running: bool = False
     exit_code: int | None = None
     health: str | None = None
+
+
+@dataclass(frozen=True)
+class HostInfo:
+    """What the runtime's host can give: cores and memory."""
+
+    cpus: int
+    memory_bytes: int
 
 
 LineSink = Callable[[str], None]
@@ -117,3 +130,6 @@ class Backend(Protocol):
 
     def copy_from(self, name: str, path: str, destination: Path) -> int:
         """Copy a file out of a container to `destination`; return the bytes written."""
+
+    def host(self) -> HostInfo:
+        """The cores and memory of the host the containers run on."""

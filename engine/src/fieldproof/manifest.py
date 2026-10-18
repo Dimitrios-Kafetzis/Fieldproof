@@ -1,11 +1,12 @@
-"""The vehicle manifest schema v0 (``robot.yaml``), task P1-T04.
+"""The vehicle manifest schema v0 (``robot.yaml``), tasks P1-T04 and P2-T01.
 
 A manifest describes one vehicle for the whole stack: the **model** sections (``description``,
 ``frames``, ``dimensions``, ``drive``, ``sensors``) that task P1-T01 wrote for the reference UGV
 and the bridge generator reads (:mod:`fieldproof_bridge.manifest`), and the **runtime** section
 that says what runs on it: the container image or how to build it from the vehicle's repository,
-the entrypoint launch, the parameter files, the driver-swap map, the readiness conditions and the
-resource budget (ADR-0004; ADR-0007 for the fidelity tier).
+the entrypoint launch (and which of its arguments take the vehicle's namespace and frame prefix
+in a fleet), the parameter files, the driver-swap map, the readiness conditions, the DDS profile
+and the resource budget (ADR-0004; ADR-0007 for the fidelity tier).
 
 A manifest may ``extends`` another one: the vehicle manifest of a stack inherits the model
 sections of the reference vehicle it runs on and adds ``runtime``. :func:`load_manifest` resolves
@@ -36,8 +37,12 @@ from fieldproof_bridge.manifest import ManifestError, read_manifest_data
 API_VERSION = "fieldproof.dev/v0alpha1"
 KIND = "Robot"
 SCHEMA_ID = "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/robot.schema.json"
-# Topics the bridge provides beyond the manifest's interfaces (robot_state_publisher, clock).
-BRIDGE_TOPICS = frozenset({"/tf_static", "/robot_description", "/clock"})
+# Topics the bridge provides beyond the manifest's interfaces (robot_state_publisher, clock);
+# the TF and description topics follow the namespace like the drive's `tf` interface, so a
+# driver may name them relative or absolute.
+BRIDGE_TOPICS = frozenset(
+    {"tf_static", "/tf_static", "robot_description", "/robot_description", "/clock"}
+)
 # The base image vehicle images build on by default (docs/setup/containers.md).
 DEFAULT_BASE_IMAGE = "ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2:local"
 DEFAULT_ROS_DISTRO = "jazzy"
@@ -49,6 +54,20 @@ Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$", min_length=1, max_leng
 Sha = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Scalar = bool | int | float | str
 MEMORY_PATTERN = r"^[1-9][0-9]*(\.[0-9]+)?[kKmMgG]?[bB]?$"
+# `--cpuset-cpus`: a list of cores or ranges (`0-1`, `0,2`, `0-1,4`).
+CPUSET_PATTERN = r"^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$"
+# A launch argument name (`namespace`, `frame_prefix`).
+LaunchArgName = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
+# Where the vehicle's DDS profile is mounted in the container, and the variable each RMW reads it
+# from (task P2-T01; the environment of the container names the file for the RMW it runs).
+DDS_PROFILE_IN_CONTAINER = "/opt/fieldproof/dds/profile.xml"
+DDS_PROFILE_ENV = {
+    "rmw_fastrtps_cpp": "FASTRTPS_DEFAULT_PROFILES_FILE",
+    "rmw_fastrtps_dynamic_cpp": "FASTRTPS_DEFAULT_PROFILES_FILE",
+    "rmw_cyclonedds_cpp": "CYCLONEDDS_URI",
+    "rmw_connextdds": "NDDS_QOS_PROFILES",
+}
+DEFAULT_RMW = "rmw_fastrtps_cpp"
 
 
 class Strict(BaseModel):
@@ -260,13 +279,27 @@ class Build(Strict):
 
 
 class Launch(Strict):
-    """`ros2 launch <package> <file> key:=value ...`."""
+    """`ros2 launch <package> <file> key:=value ...`.
+
+    `namespace_arg` and `frame_prefix_arg` name the launch arguments that take the vehicle's
+    namespace and frame prefix when a scenario gives it one (task P2-T01): the orchestrator
+    appends `<namespace_arg>:=<namespace>` to the command line of a vehicle in a fleet, and
+    leaves the argument out when the value is empty (`ros2 launch` rejects an empty value, and
+    the field default then applies). A stack whose launch takes no such argument runs at the
+    root namespace only.
+    """
 
     package: str
     file: str
     args: dict[str, Scalar] = Field(
         default_factory=dict,
         description="Launch arguments the simulation adds (`use_sim_time`, driver swap).",
+    )
+    namespace_arg: LaunchArgName | None = Field(
+        None, description="Launch argument that receives the vehicle's namespace (`namespace`)."
+    )
+    frame_prefix_arg: LaunchArgName | None = Field(
+        None, description="Launch argument that receives the vehicle's frame prefix."
     )
 
 
@@ -282,14 +315,28 @@ class Entrypoint(Strict):
             raise ValueError("entrypoint needs exactly one of launch or command")
         return self
 
-    def argv(self) -> list[str]:
-        """The command line the image runs by default."""
+    def argv(self, *, namespace: str = "", frame_prefix: str = "") -> list[str]:
+        """The command line the image runs by default, or with a namespace and frame prefix.
+
+        A non-empty `namespace` or `frame_prefix` is appended as the launch argument the
+        manifest names for it (`namespace_arg`, `frame_prefix_arg`); without one it is left to
+        the environment (`FIELDPROOF_NAMESPACE`, `FIELDPROOF_FRAME_PREFIX`).
+        """
         if self.command is not None:
             return list(self.command)
         if self.launch is None:  # pragma: no cover  (the validator rules it out)
             raise ManifestError("entrypoint has neither launch nor command")
-        args = [f"{k}:={launch_argument(v)}" for k, v in self.launch.args.items()]
-        return ["ros2", "launch", self.launch.package, self.launch.file, *args]
+        launch = self.launch
+        args = [f"{k}:={launch_argument(v)}" for k, v in launch.args.items()]
+        if namespace and launch.namespace_arg:
+            args.append(f"{launch.namespace_arg}:={namespace}")
+        if frame_prefix and launch.frame_prefix_arg:
+            args.append(f"{launch.frame_prefix_arg}:={frame_prefix}")
+        return ["ros2", "launch", launch.package, launch.file, *args]
+
+    def takes_namespace(self) -> bool:
+        """Whether the launch has an argument for the vehicle's namespace."""
+        return self.launch is not None and self.launch.namespace_arg is not None
 
 
 def launch_argument(value: Scalar) -> str:
@@ -373,11 +420,38 @@ class Ready(Strict):
 
 
 class Resources(Strict):
-    """Container budget, in Docker's units."""
+    """Container budget, in Docker's units (cgroup CPU quota, cpuset, memory, pids)."""
 
-    cpus: PositiveFloat | None = Field(None, description="`--cpus`.")
-    memory: str | None = Field(None, pattern=MEMORY_PATTERN, description="`--memory` (`2g`).")
-    pids: PositiveInt | None = Field(None, description="`--pids-limit`.")
+    cpus: PositiveFloat | None = Field(
+        default=None, description="`--cpus`: the CPU quota, in cores."
+    )
+    cpuset: str | None = Field(
+        default=None,
+        pattern=CPUSET_PATTERN,
+        description="`--cpuset-cpus`: the cores the container may run on (`0-1`, `0,2`).",
+    )
+    memory: str | None = Field(
+        default=None, pattern=MEMORY_PATTERN, description="`--memory` (`2g`)."
+    )
+    pids: PositiveInt | None = Field(default=None, description="`--pids-limit`.")
+
+    def merged(self, override: Resources | None) -> Resources:
+        """This budget with the fields `override` sets replacing this one's."""
+        if override is None:
+            return self
+        return Resources(**{**self.model_dump(), **override.model_dump(exclude_none=True)})
+
+    def to_dict(self) -> dict[str, Any]:
+        """The limits that are set."""
+        return self.model_dump(exclude_none=True)
+
+
+def memory_bytes(value: str) -> int:
+    """`2g`, `512m`, `1.5G`, `1024` as bytes (Docker's units)."""
+    text = value.strip().rstrip("bB")
+    unit = text[-1].lower() if text and text[-1].isalpha() else ""
+    number = float(text[:-1] if unit else text)
+    return int(number * {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3}[unit])
 
 
 class Runtime(Strict):
@@ -397,6 +471,11 @@ class Runtime(Strict):
     drivers: list[Driver] = Field(default_factory=list, description="The driver-swap map.")
     ready: Ready | None = None
     resources: Resources | None = None
+    dds_profile: str | None = Field(
+        None,
+        description="The vehicle's own DDS XML profile (relative to the manifest), mounted into "
+        "the container and named to its RMW (`FASTRTPS_DEFAULT_PROFILES_FILE`, `CYCLONEDDS_URI`).",
+    )
     env: dict[str, str] = Field(
         default_factory=dict, description="Extra environment of the container."
     )
@@ -406,7 +485,32 @@ class Runtime(Strict):
         names = [d.name for d in self.drivers]
         if len(set(names)) != len(names):
             raise ValueError("drivers: names must be unique")
+        if self.dds_profile is not None:
+            path = Path(self.dds_profile)
+            if path.is_absolute() or ".." in path.parts or not self.dds_profile.strip():
+                raise ValueError(
+                    f"dds_profile: {self.dds_profile!r} must be a relative path inside the "
+                    "manifest's directory"
+                )
         return self
+
+    @property
+    def rmw(self) -> str:
+        """The RMW the container runs (`RMW_IMPLEMENTATION` of `env`, Fast DDS by default)."""
+        return self.env.get("RMW_IMPLEMENTATION", DEFAULT_RMW)
+
+    def dds_profile_env(self, path: str = DDS_PROFILE_IN_CONTAINER) -> dict[str, str]:
+        """The variable that names the mounted DDS profile to the container's RMW."""
+        if self.dds_profile is None:
+            return {}
+        variable = DDS_PROFILE_ENV.get(self.rmw)
+        if variable is None:
+            raise ManifestError(
+                f"dds_profile: no known profile variable for RMW {self.rmw!r} "
+                f"(known: {', '.join(sorted(DDS_PROFILE_ENV))})"
+            )
+        value = f"file://{path}" if variable == "CYCLONEDDS_URI" else path
+        return {variable: value}
 
 
 # ----------------------------------------------------------------------------------- manifest

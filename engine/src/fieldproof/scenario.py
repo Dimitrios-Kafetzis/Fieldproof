@@ -2,8 +2,9 @@
 
 A scenario is a YAML document, ``apiVersion: fieldproof.dev/v0alpha1``, ``kind: Scenario``, that
 says what a run is made of: the **world** the simulator loads, the **vehicles** (a manifest, a
-spawn pose, a namespace), the **time** settings of ADR-0006, a **timeline** of actions, the
-**assertions** that turn the run into a test, and the **outputs** of the run. The Pydantic models
+spawn pose, a namespace and frame prefix, a budget, what they wait for; task P2-T01 made them a
+fleet), the **time** settings of ADR-0006, a **timeline** of actions, the **assertions** that
+turn the run into a test, and the **outputs** of the run. The Pydantic models
 here are the schema: unknown keys are errors in every section, :func:`json_schema` exports the
 JSON Schema for editors and the ``check-jsonschema`` hook, :func:`load_scenario` reads and
 validates a file. What the engine does with a scenario is :mod:`fieldproof.runner`.
@@ -39,7 +40,7 @@ from pydantic import (
 )
 
 from fieldproof.expression import ExpressionError, compile_condition
-from fieldproof.manifest import Name, format_errors
+from fieldproof.manifest import Name, Resources, format_errors
 
 API_VERSION = "fieldproof.dev/v0alpha1"
 KIND = "Scenario"
@@ -131,7 +132,14 @@ class Placement(Strict):
 
 
 class Vehicle(Strict):
-    """One vehicle of the scenario."""
+    """One vehicle of the scenario.
+
+    In a fleet every vehicle has its own `namespace`: its Gazebo topics, its ROS topics (the TF
+    topics included, Nav2's multi-robot convention) and its nodes live under it, so nothing of
+    one vehicle reaches another. `frame_prefix` is for a stack that keeps one shared `/tf` tree
+    instead and tells its frames apart by name (REP 105); it is passed to the spawn, the bridge
+    and the vehicle's launch (`runtime.entrypoint.launch.frame_prefix_arg`).
+    """
 
     name: Name = Field(description="Vehicle name: the model name in Gazebo and the container.")
     manifest: str = Field(description="Vehicle manifest (robot.yaml), relative to the scenario.")
@@ -140,10 +148,25 @@ class Vehicle(Strict):
         pattern=r"^([a-z][a-z0-9_]*)?$",
         description="ROS and Gazebo namespace of the vehicle (empty: the root).",
     )
+    frame_prefix: str = Field(
+        default="",
+        pattern=r"^([a-z][a-z0-9_]*[/_]?)?$",
+        description="Prefix of every frame of the vehicle (`ugv1/`, `ugv1_`; empty: none).",
+    )
     spawn: Placement
     image: str | None = Field(default=None, description="Image to run instead of the manifest's.")
     env: dict[str, str] = Field(
         default_factory=dict, description="Extra environment of the vehicle container."
+    )
+    resources: Resources | None = Field(
+        default=None,
+        description="Budget of the vehicle container; fields set here replace the manifest's "
+        "`runtime.resources` (`cpus`, `cpuset`, `memory`, `pids`).",
+    )
+    depends_on: list[Name] = Field(
+        default_factory=list,
+        description="Vehicles that must be ready before this one's container starts "
+        "(start order within the fleet; the others start in parallel).",
     )
 
 
@@ -414,6 +437,27 @@ class Scenario(Strict):
         """The vehicle called `name`."""
         return next(v for v in self.vehicles if v.name == name)
 
+    def start_order(self) -> list[Vehicle]:
+        """The vehicles, every dependency before its dependents, the scenario's order otherwise."""
+        by_name = {v.name: v for v in self.vehicles}
+        ordered: list[Vehicle] = []
+        visiting: set[str] = set()
+
+        def visit(vehicle: Vehicle, chain: tuple[str, ...]) -> None:
+            if vehicle.name in visiting:
+                return
+            if vehicle.name in chain:
+                cycle = " -> ".join((*chain[chain.index(vehicle.name) :], vehicle.name))
+                raise ValueError(f"vehicles: depends_on forms a cycle: {cycle}")
+            for name in vehicle.depends_on:
+                visit(by_name[name], (*chain, vehicle.name))
+            visiting.add(vehicle.name)
+            ordered.append(vehicle)
+
+        for vehicle in self.vehicles:
+            visit(vehicle, ())
+        return ordered
+
     @model_validator(mode="after")
     def _consistent(self) -> Scenario:
         names = [v.name for v in self.vehicles]
@@ -424,6 +468,15 @@ class Scenario(Strict):
             raise ValueError(
                 "vehicles: namespaces must be unique (several vehicles at the root collide)"
             )
+        for dependent in self.vehicles:
+            for name in dependent.depends_on:
+                if name == dependent.name:
+                    raise ValueError(f"vehicles[{dependent.name}].depends_on: depends on itself")
+                if name not in names:
+                    raise ValueError(
+                        f"vehicles[{dependent.name}].depends_on: {name!r} is not a vehicle"
+                    )
+        self.start_order()  # raises on a cycle
         for index, entry in enumerate(self.timeline):
             if entry.vehicle not in names:
                 raise ValueError(f"timeline[{index}].vehicle: {entry.vehicle!r} is not a vehicle")

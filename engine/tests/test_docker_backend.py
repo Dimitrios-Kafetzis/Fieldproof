@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import tarfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,7 @@ import pytest
 import requests
 from docker.errors import APIError, ImageNotFound, NotFound
 
-from fieldproof.backend import BackendError, ContainerSpec, Mount
+from fieldproof.backend import BackendError, ContainerSpec, HostInfo, Mount
 from fieldproof.docker_backend import DockerBackend
 
 
@@ -133,6 +134,12 @@ class StubClient:
         self.networks = StubNetworks()
         self.containers = StubCollection({})
         self.api = StubApi([b"line 1\nli", b"ne 2\n", b"tail"])
+        self.info_error: Exception | None = None
+
+    def info(self) -> dict[str, Any]:
+        if self.info_error is not None:
+            raise self.info_error
+        return {"NCPU": 16, "MemTotal": 32 * 1024**3, "ServerVersion": "29.9.0"}
 
 
 @pytest.fixture
@@ -303,3 +310,68 @@ def test_from_env_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(docker, "from_env", refuse)
     with pytest.raises(BackendError, match="cannot reach the Docker daemon"):
         DockerBackend()
+
+
+def test_host(backend: DockerBackend, client: StubClient) -> None:
+    assert backend.host() == HostInfo(16, 32 * 1024**3)
+    client.info_error = APIError("down")
+    with pytest.raises(BackendError, match="daemon's info"):
+        backend.host()
+
+
+def test_create_applies_the_budget(backend: DockerBackend, client: StubClient) -> None:
+    backend.start(
+        ContainerSpec(
+            name="v1",
+            image="present:1",
+            role="vehicle",
+            cpus=1.5,
+            cpuset="0-1",
+            memory="2g",
+            pids=256,
+            mounts=(Mount(Path("/host/dds.xml"), "/opt/fieldproof/dds/profile.xml"),),
+        )
+    )
+    (created,) = client.containers.created
+    assert created["nano_cpus"] == 1_500_000_000
+    assert created["cpuset_cpus"] == "0-1"
+    assert created["mem_limit"] == "2g"
+    assert created["pids_limit"] == 256
+    (mount,) = created["mounts"]
+    assert mount["Target"] == "/opt/fieldproof/dds/profile.xml"
+    assert mount["ReadOnly"] is True
+    backend.start(ContainerSpec(name="v2", image="present:1", role="vehicle"))
+    assert client.containers.created[1]["cpuset_cpus"] is None
+
+
+def test_each_thread_gets_its_own_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    made: list[str] = []
+
+    def connect() -> Any:
+        made.append(threading.current_thread().name)
+        return StubClient()
+
+    monkeypatch.setattr(DockerBackend, "_connect", staticmethod(connect))
+    backend = DockerBackend()
+    assert backend.client is backend.client, "one connection per thread"
+    seen: list[Any] = []
+
+    def use() -> None:
+        seen.append(backend.client)
+        seen.append(backend.client)
+
+    thread = threading.Thread(target=use, name="worker-1")
+    thread.start()
+    thread.join()
+    assert seen[0] is seen[1]
+    assert seen[0] is not backend.client
+    assert made == [threading.main_thread().name, "worker-1"]
+    # An injected client is shared by every thread.
+    shared = StubClient()
+    injected = DockerBackend(shared)  # type: ignore[arg-type]
+    seen.clear()
+    thread = threading.Thread(target=lambda: seen.append(injected.client))
+    thread.start()
+    thread.join()
+    assert seen == [shared]
+    assert made == [threading.main_thread().name, "worker-1"], "nothing new connected"

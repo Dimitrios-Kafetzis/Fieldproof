@@ -8,10 +8,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from fieldproof.backend import BackendError, ContainerSpec, ContainerState, ExecResult, LineSink
+from fieldproof.backend import (
+    BackendError,
+    ContainerSpec,
+    ContainerState,
+    ExecResult,
+    HostInfo,
+    LineSink,
+)
 
 WORLD_LIST = "/world/depot/control\n/world/depot/create\n/world/depot/set_physics\n"
 TOPIC_LIST = "/clock\n/odom\n/scan\n/tf\n"
+# What a bridge's `ros2 topic list` shows for a namespaced vehicle, for any namespace.
+NAMESPACED_TOPICS = "/clock\n/{ns}/odom\n/{ns}/scan\n/{ns}/tf\n"
+CONTRACT_OK = "ok graph /odom: publisher nav_msgs/msg/Odometry\n14 passed, 0 failed\n"
+DISCOVERY_LOG = "### Server is running ###\n"
 PROBE_OK = "waiting (3/9 ready): /map topic no publisher\nready: 9 conditions hold after 5.5 s\n"
 GOAL_OK = (
     "Waiting for an action server to become available...\nGoal finished with status: SUCCEEDED\n"
@@ -65,6 +76,8 @@ class FakeBackend:
     probe_result: ExecResult = field(default_factory=lambda: ExecResult(0, PROBE_OK))
     goal_result: ExecResult = field(default_factory=lambda: ExecResult(0, GOAL_OK))
     rtf_result: ExecResult = field(default_factory=lambda: ExecResult(0, "data: true\n"))
+    contract_result: ExecResult = field(default_factory=lambda: ExecResult(0, CONTRACT_OK))
+    host_info: HostInfo = field(default_factory=lambda: HostInfo(16, 32 * 1024**3))
     fail_start: dict[str, BaseException] = field(default_factory=dict)
     fail_stop: set[str] = field(default_factory=set)
     # The world's video recorder: the answers to the start and stop requests, whether the file
@@ -101,6 +114,8 @@ class FakeBackend:
             raise BackendError(f"{spec.name}: name in use")
         self.containers[spec.name] = FakeContainer(spec, logs=f"log of {spec.name}\n")
         self.started.append(spec.name)
+        if spec.role == "discovery":
+            self.containers[spec.name].logs += DISCOVERY_LOG
         if spec.role == "recorder":
             run_dir = next(m.source for m in spec.mounts if not m.read_only)
             self.samples_file = Path(run_dir) / "samples.jsonl"
@@ -153,9 +168,20 @@ class FakeBackend:
         if role == "sim":
             ready = self.polls[container.spec.name] >= self.world_polls_needed
             return ExecResult(0, WORLD_LIST if ready else "/world/depot/control\n")
+        if role == "bridge" and "contract_check" in command:
+            return self.contract_result
         if role == "bridge":
             ready = self.polls[container.spec.name] >= self.bridge_polls_needed
-            return ExecResult(0, TOPIC_LIST if ready else "/clock\n")
+            namespace = next(
+                (
+                    a.split(":=", 1)[1]
+                    for a in container.spec.command
+                    if a.startswith("namespace:=")
+                ),
+                "",
+            )
+            topics = NAMESPACED_TOPICS.format(ns=namespace) if namespace else TOPIC_LIST
+            return ExecResult(0, topics if ready else "/clock\n")
         if "send_goal" in command:
             if self.clock is not None:
                 self.clock.sleep(self.goal_duration_s)
@@ -184,6 +210,9 @@ class FakeBackend:
 
     def find(self, label: str, value: str) -> list[str]:
         return [n for n, c in self.containers.items() if c.spec.labels.get(label) == value]
+
+    def host(self) -> HostInfo:
+        return self.host_info
 
     def copy_from(self, name: str, path: str, destination: Path) -> int:
         self.copies.append((name, path, destination))

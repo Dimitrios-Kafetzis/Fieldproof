@@ -20,6 +20,7 @@ from fieldproof.backend import BackendError, ContainerSpec, ContainerState, Exec
 from fieldproof.config import Config, load_config
 from fieldproof.report import REPORT_JSON, REPORT_MD
 from fieldproof.runner import (
+    DOMAIN_LABEL,
     EXIT_CODES,
     LOG_FILE,
     OBSERVER_FILE,
@@ -35,6 +36,7 @@ from fieldproof.runner import (
     Run,
     RunLog,
     Status,
+    auto_domain_id,
     detect_render,
     goal_status,
     leftovers,
@@ -168,7 +170,11 @@ def test_plan_resolves_the_example(resolved: Plan, config: Config, tmp_path: Pat
     assert resolved.world.name == "depot"
     assert resolved.network == "fieldproof"
     assert resolved.render == "software"
-    assert resolved.domain_id == 0
+    assert resolved.domain_id == auto_domain_id(resolved.run_id), "derived from the run id"
+    assert 1 <= resolved.domain_id <= 100
+    assert resolved.domain_source == "auto"
+    assert resolved.discovery is None
+    assert resolved.discovery_mode == "multicast"
     sim = resolved.sim
     assert sim.name == "fieldproof-abc123-sim"
     assert sim.image == config.image("sim")
@@ -183,7 +189,13 @@ def test_plan_resolves_the_example(resolved: Plan, config: Config, tmp_path: Pat
         "/fieldproof/robots",
     ]
     assert all(m.read_only and m.source.is_absolute() for m in sim.mounts)
-    assert sim.labels == {RUN_LABEL: resolved.run_id, ROLE_LABEL: "sim"}
+    assert sim.labels == {
+        RUN_LABEL: resolved.run_id,
+        DOMAIN_LABEL: str(resolved.domain_id),
+        ROLE_LABEL: "sim",
+    }
+    assert sim.env["ROS_DOMAIN_ID"] == str(resolved.domain_id)
+    assert "ROS_DISCOVERY_SERVER" not in sim.env
     (vehicle,) = resolved.vehicles
     assert vehicle.name == "ugv1"
     assert vehicle.manifest.name == "ugv_nav2"
@@ -224,7 +236,7 @@ def test_plan_resolves_the_recorder_and_assertions(
     assert [s.role for s in resolved.containers()] == ["sim", "bridge", "recorder", "vehicle"]
 
 
-def test_plan_resolves_the_assertions_and_the_observation(resolved: Plan) -> None:
+def test_plan_resolves_the_assertions_and_the_observation(resolved: Plan) -> None:  # noqa: PLR0915
     recorder = resolved.recorder
     (vehicle,) = resolved.vehicles
     job = vehicle.spawn_job
@@ -263,20 +275,36 @@ def test_plan_resolves_the_assertions_and_the_observation(resolved: Plan) -> Non
     assert job.mounts[0].source == REPO
     assert job.mounts[0].target == "/workspace"
     bridge = vehicle.bridge
-    assert bridge.command == ("fieldproof-bridge",)
+    assert bridge.command == ("fieldproof-bridge", "bundle_out:=/tmp/fieldproof-bridge")
+    assert vehicle.clock is True, "the first vehicle's bridge publishes /clock"
     assert bridge.env["FIELDPROOF_MANIFEST"] == "/workspace/examples/vehicles/ugv_nav2/robot.yaml"
     assert bridge.labels[VEHICLE_LABEL] == "ugv1"
     container = vehicle.container
     assert container.name == "fieldproof-abc123-ugv1"
     assert container.image.endswith("fieldproof-vehicle-ugv-nav2:local")
     assert container.hostname == "ugv1"
+    assert container.command == (), "the image's own command: no namespace to pass"
     assert container.cpus == 2.0
+    assert container.cpuset is None
     assert container.memory == "2g"
     assert container.pids is None
-    assert container.env["ROS_DOMAIN_ID"] == "0"
+    assert vehicle.resources.to_dict() == {"cpus": 2.0, "memory": "2g"}
+    assert container.env["ROS_DOMAIN_ID"] == str(resolved.domain_id)
+    assert container.env["FIELDPROOF_NAMESPACE"] == ""
+    assert container.env["FIELDPROOF_FRAME_PREFIX"] == ""
+    assert "GZ_PARTITION" not in container.env
+    # The vehicle's own DDS profile, mounted and named to its RMW (Fast DDS, the default).
+    assert vehicle.dds_profile == (
+        REPO / "examples/vehicles/ugv_nav2/src/ugv_nav2_bringup/config/fastdds.xml"
+    )
+    assert [(m.source, m.target, m.read_only) for m in container.mounts] == [
+        (vehicle.dds_profile, "/opt/fieldproof/dds/profile.xml", True)
+    ]
+    assert container.env["FASTRTPS_DEFAULT_PROFILES_FILE"] == "/opt/fieldproof/dds/profile.xml"
     assert [s.role for s in resolved.containers()] == ["sim", "bridge", "recorder", "vehicle"]
     assert vehicle.topic("navigate_to_pose") == "/navigate_to_pose"
     assert vehicle.topic("/tf") == "/tf"
+    assert vehicle.describe()["resources"] == {"cpus": 2.0, "memory": "2g"}
 
 
 def test_plan_resolves_the_timeline(resolved: Plan) -> None:
@@ -311,11 +339,27 @@ def test_plan_namespace_and_overrides(config: Config, tmp_path: Path) -> None:
     assert resolved.sim.name == "fieldproof-id-sim"
     assert resolved.sim.network == "lab"
     assert resolved.sim.env["ROS_DOMAIN_ID"] == "9"
+    assert resolved.domain_source == "explicit"
     (vehicle,) = resolved.vehicles
-    assert vehicle.bridge.command == ("fieldproof-bridge", "namespace:=ugv1")
+    assert vehicle.bridge.command == (
+        "fieldproof-bridge",
+        "namespace:=ugv1",
+        "bundle_out:=/tmp/fieldproof-bridge",
+    )
     assert "namespace:=ugv1" in vehicle.spawn_job.command
     assert vehicle.container.image == "x:1"
+    assert vehicle.container.command == (
+        "ros2",
+        "launch",
+        "ugv_nav2_bringup",
+        "bringup.launch.py",
+        "use_sim_time:=true",
+        "drivers:=false",
+        "namespace:=ugv1",
+    ), "the manifest's namespace_arg carries the namespace to the vehicle's launch"
+    assert vehicle.container.env["FIELDPROOF_NAMESPACE"] == "ugv1"
     assert vehicle.topic("navigate_to_pose") == "/ugv1/navigate_to_pose"
+    assert vehicle.topic("tf") == "/ugv1/tf"
 
 
 def test_plan_outputs_directory_wins(config: Config, tmp_path: Path) -> None:
@@ -457,14 +501,19 @@ def test_run_record_and_files(resolved: Plan, clock: FakeClock) -> None:
     assert record.observation["samples"] == len(GOOD_SAMPLES) + 1, "the samples and `ready`"
     assert record.observation["sim_elapsed_s"] == 8.5
     assert record.observation["observer_errors"] == 0
-    assert record.vehicles == [
-        {
-            "name": "ugv1",
-            "manifest": "ugv_nav2",
-            "namespace": "",
-            "image": "ghcr.io/dimitrios-kafetzis/fieldproof-vehicle-ugv-nav2:local",
-        }
-    ]
+    (described,) = record.vehicles
+    assert described["name"] == "ugv1"
+    assert described["manifest"] == "ugv_nav2"
+    assert described["namespace"] == ""
+    assert described["frame_prefix"] == ""
+    assert described["image"] == "ghcr.io/dimitrios-kafetzis/fieldproof-vehicle-ugv-nav2:local"
+    assert described["resources"] == {"cpus": 2.0, "memory": "2g"}
+    assert described["depends_on"] == []
+    assert described["dds_profile"].endswith("config/fastdds.xml")
+    assert described["contract"] is None, "no contract check unless asked for"
+    assert record.stack["ros_domain_id"] == resolved.domain_id
+    assert record.stack["domain_source"] == "auto"
+    assert record.stack["discovery"] == "multicast"
     assert [c["role"] for c in record.containers] == ["sim", "bridge", "recorder", "vehicle"]
     assert record.stack["world"] == "depot"
     assert record.stack["render"] == "software"

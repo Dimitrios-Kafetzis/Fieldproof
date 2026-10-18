@@ -357,6 +357,70 @@
       "title": "ReachPose",
       "type": "object"
     },
+    "Resources": {
+      "additionalProperties": false,
+      "description": "Container budget, in Docker's units (cgroup CPU quota, cpuset, memory, pids).",
+      "properties": {
+        "cpus": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`--cpus`: the CPU quota, in cores.",
+          "title": "Cpus"
+        },
+        "cpuset": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`--cpuset-cpus`: the cores the container may run on (`0-1`, `0,2`).",
+          "title": "Cpuset"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*(\\.[0-9]+)?[kKmMgG]?[bB]?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`--memory` (`2g`).",
+          "title": "Memory"
+        },
+        "pids": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`--pids-limit`.",
+          "title": "Pids"
+        }
+      },
+      "title": "Resources",
+      "type": "object"
+    },
     "Time": {
       "additionalProperties": false,
       "description": "The clock of the run (ADR-0006).",
@@ -626,7 +690,7 @@
     },
     "Vehicle": {
       "additionalProperties": false,
-      "description": "One vehicle of the scenario.",
+      "description": "One vehicle of the scenario.\n\nIn a fleet every vehicle has its own `namespace`: its Gazebo topics, its ROS topics (the TF\ntopics included, Nav2's multi-robot convention) and its nodes live under it, so nothing of\none vehicle reaches another. `frame_prefix` is for a stack that keeps one shared `/tf` tree\ninstead and tells its frames apart by name (REP 105); it is passed to the spawn, the bridge\nand the vehicle's launch (`runtime.entrypoint.launch.frame_prefix_arg`).",
       "properties": {
         "name": {
           "description": "Vehicle name: the model name in Gazebo and the container.",
@@ -646,6 +710,13 @@
           "description": "ROS and Gazebo namespace of the vehicle (empty: the root).",
           "pattern": "^([a-z][a-z0-9_]*)?$",
           "title": "Namespace",
+          "type": "string"
+        },
+        "frame_prefix": {
+          "default": "",
+          "description": "Prefix of every frame of the vehicle (`ugv1/`, `ugv1_`; empty: none).",
+          "pattern": "^([a-z][a-z0-9_]*[/_]?)?$",
+          "title": "Frame Prefix",
           "type": "string"
         },
         "spawn": {
@@ -671,6 +742,29 @@
           "description": "Extra environment of the vehicle container.",
           "title": "Env",
           "type": "object"
+        },
+        "resources": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Resources"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Budget of the vehicle container; fields set here replace the manifest's `runtime.resources` (`cpus`, `cpuset`, `memory`, `pids`)."
+        },
+        "depends_on": {
+          "description": "Vehicles that must be ready before this one's container starts (start order within the fleet; the others start in parallel).",
+          "items": {
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
         }
       },
       "required": ["name", "manifest", "spawn"],
