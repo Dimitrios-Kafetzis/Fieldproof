@@ -1,39 +1,51 @@
-"""The scenario runner (tasks P1-T05 and P1-T06; ADR-0004, ADR-0005, ADR-0006).
+"""The scenario runner (tasks P1-T05, P1-T06 and P2-T01; ADR-0004, ADR-0005, ADR-0006).
 
 :func:`plan` turns a validated scenario and the workspace configuration into a :class:`Plan`:
-the world file and its named frames, every vehicle's manifest, spawn pose and the three
-containers it needs (the one-shot spawn, its bridge, the vehicle itself), the simulator
-container, the recorder container, the resolved timeline and assertions, the run id and the
-run directory. Nothing in it touches Docker, so ``fieldproof validate`` and ``fieldproof run
---dry-run`` stop here.
+the world file and its named frames, every vehicle's manifest, spawn pose, namespace, budget and
+the three containers it needs (the one-shot spawn, its bridge, the vehicle itself), the
+simulator container, the discovery server when asked for, the recorder container, the resolved
+timeline and assertions, the run's ROS domain, the run id and the run directory. Nothing in it
+touches Docker, so ``fieldproof validate`` and ``fieldproof run --dry-run`` stop here.
 
 :class:`Run` executes a plan against a :class:`~fieldproof.backend.Backend` as a state machine
-of phases (01-architecture.md, "Data flow for one run"): preparing (images, assets, network),
-sim (started, the world's services answer), spawn (one one-shot container per vehicle), bridges
-(started, the vehicle's odometry topic appears), recorder (the observer of
-:mod:`fieldproof.observer` started on the run directory, recording to MCAP when asked, its
-``ready`` sample seen), vehicles (started, the image's readiness probe reports every
-``runtime.ready`` condition), running (the timeline within the scenario's budget while the
-:class:`~fieldproof.assertions.Evaluator` consumes the observer's stream), teardown (vehicles,
-recorder, bridges, simulator in reverse order, logs kept, then a sweep by label), finished (the
-report written). A failure in any phase, a failed assertion, the scenario's budget, a Ctrl-C
-or an error of the runtime all end in the teardown: a run never leaves containers behind unless
-asked to with ``keep``. Everything the run did is in ``runs/<run_id>/``: the scenario as run,
-``run.json`` (the record, rewritten at every phase), ``engine.log`` (one JSON object per line),
-``samples.jsonl`` and ``assertions.jsonl`` (the stream and the verdicts), ``recording/`` (the
-MCAP), ``report.json`` and ``report.md``, and the containers' logs.
+of phases (01-architecture.md, "Data flow for one run"): preparing (images, assets, network, the
+budget against the host), sim (the discovery server if any, then the simulator, started until
+the world's services answer), spawn (one one-shot container per vehicle, all at once), bridges
+(started at once, each until the vehicle's odometry topic appears, each checked against its
+contract when asked), recorder (the observer of :mod:`fieldproof.observer` started on the run
+directory, recording to MCAP when asked, its ``ready`` sample seen), vehicles (started in
+parallel, a vehicle once the ones it ``depends_on`` are ready, each until the image's readiness
+probe reports every ``runtime.ready`` condition), running (the timeline within the scenario's
+budget, every entry starting at its time while the :class:`~fieldproof.assertions.Evaluator`
+consumes the observer's stream), teardown (vehicles, recorder, bridges, simulator, discovery in
+reverse order, logs kept, then a sweep by label), finished (the report written). A failure in
+any phase, a failed assertion, the scenario's budget, a Ctrl-C or an error of the runtime all
+end in the teardown: a run never leaves containers behind unless asked to with ``keep``.
+Everything the run did is in ``runs/<run_id>/``: the scenario as run, ``run.json`` (the record,
+rewritten at every phase), ``engine.log`` (one JSON object per line), ``samples.jsonl`` and
+``assertions.jsonl`` (the stream and the verdicts), ``recording/`` (the MCAP), ``report.json``
+and ``report.md``, and the containers' logs.
+
+Isolation between runs and between vehicles (task P2-T01): every container of a run carries the
+run's ``ROS_DOMAIN_ID`` (derived from the run id unless configured, so two runs on one host never
+share a domain) and ``GZ_PARTITION``; with ``discovery: server`` the ROS containers find each
+other through a Fast DDS discovery server of the run instead of multicast; every vehicle's
+topics, nodes and TF tree live under its namespace, its own DDS profile is mounted in, and its
+container runs under the cgroup limits of its budget.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
+import re
 import shlex
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -58,8 +70,8 @@ from fieldproof.assertions import (
     observe_plan,
 )
 from fieldproof.backend import Backend, BackendError, ContainerSpec, ExecResult, Mount
-from fieldproof.config import Config
-from fieldproof.manifest import RobotManifest
+from fieldproof.config import AUTO, Config
+from fieldproof.manifest import DDS_PROFILE_IN_CONTAINER, Resources, RobotManifest, memory_bytes
 from fieldproof.observer import FileTail
 from fieldproof.report import REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
 from fieldproof.scenario import (
@@ -85,6 +97,18 @@ from fieldproof_bridge.manifest import ManifestError
 RUN_LABEL = "io.fieldproof.run"
 ROLE_LABEL = "io.fieldproof.role"
 VEHICLE_LABEL = "io.fieldproof.vehicle"
+DOMAIN_LABEL = "io.fieldproof.domain"
+# The domains an automatic run id maps to: 1 to 100, inside the range ROS 2 documents as safe on
+# Linux, and away from 0, the compose stack's default, so a run never disturbs `make up`.
+DOMAIN_RANGE = (1, 100)
+# The Fast DDS discovery server of a run (`discovery: server`): its container, the port it
+# listens on, and the line its tool prints once it does.
+DISCOVERY_PORT = 11811
+DISCOVERY_READY = "Server is running"
+# Where a vehicle's bridge writes the bundle it runs from, so a contract check can read it.
+BUNDLE_DIR_IN_BRIDGE = "/tmp/fieldproof-bridge"  # noqa: S108  (inside the bridge container)
+CONTRACT_CHECK = ("ros2", "run", "fieldproof_bridge", "contract_check")
+CONTRACT_SUMMARY = re.compile(r"^(\d+) passed, (\d+) failed$")
 # Where the bridge image sees the workspace (manifests, descriptions, launch files).
 WORKSPACE = "/workspace"
 # The simulator's resource path: the compose stack's four read-only mounts (containers.md).
@@ -186,7 +210,7 @@ class PlannedAction:
 
 @dataclass(frozen=True)
 class PlannedVehicle:
-    """A vehicle of the scenario with its manifest, spawn pose and containers."""
+    """A vehicle of the scenario with its manifest, spawn pose, budget and containers."""
 
     vehicle: Vehicle
     manifest: RobotManifest
@@ -195,11 +219,25 @@ class PlannedVehicle:
     bridge: ContainerSpec
     container: ContainerSpec
     ready_timeout_s: float
+    resources: Resources = field(default_factory=Resources)
+    """The budget applied: the manifest's `runtime.resources` under the scenario's overrides."""
+    depends_on: tuple[str, ...] = ()
+    dds_profile: Path | None = None
+    """The vehicle's DDS profile on the host, mounted into its container."""
+    clock: bool = True
+    """Whether this vehicle's bridge is the one bridging `/clock` (the first vehicle's is)."""
+    bundle_dir: str = BUNDLE_DIR_IN_BRIDGE
+    """Where the bridge container writes its bundle (`contract.yaml` for the contract check)."""
 
     @property
     def name(self) -> str:
         """The vehicle's name."""
         return self.vehicle.name
+
+    @property
+    def namespace(self) -> str:
+        """The vehicle's namespace (empty at the root)."""
+        return self.vehicle.namespace
 
     def topic(self, name: str) -> str:
         """`name` under the vehicle's namespace (an absolute name stays as written)."""
@@ -207,6 +245,19 @@ class PlannedVehicle:
             return name
         namespace = self.vehicle.namespace
         return f"/{namespace}/{name}" if namespace else f"/{name}"
+
+    def describe(self) -> dict[str, Any]:
+        """The vehicle as the record and the reports carry it."""
+        return {
+            "name": self.name,
+            "manifest": self.manifest.name,
+            "namespace": self.namespace,
+            "frame_prefix": self.vehicle.frame_prefix,
+            "image": self.container.image,
+            "resources": self.resources.to_dict(),
+            "depends_on": list(self.depends_on),
+            "dds_profile": str(self.dds_profile) if self.dds_profile else None,
+        }
 
 
 @dataclass(frozen=True)
@@ -246,10 +297,20 @@ class Plan:
     observe: dict[str, Any]
     """What the recorder's observer watches and records (`observe.json`)."""
     video: PlannedVideo | None = None
+    domain_source: str = "explicit"
+    """Where the domain id came from: `auto` (derived from the run id) or `explicit`."""
+    discovery: ContainerSpec | None = None
+    """The run's Fast DDS discovery server (`discovery: server`), or None for multicast."""
+
+    @property
+    def discovery_mode(self) -> str:
+        """`server` or `multicast`."""
+        return "server" if self.discovery is not None else "multicast"
 
     def containers(self) -> list[ContainerSpec]:
         """The long-running containers in start order (the teardown reverses it)."""
-        specs = [self.sim]
+        specs = [self.discovery] if self.discovery is not None else []
+        specs.append(self.sim)
         specs += [v.bridge for v in self.vehicles]
         specs.append(self.recorder)
         specs += [v.container for v in self.vehicles]
@@ -258,6 +319,10 @@ class Plan:
     def vehicle(self, name: str) -> PlannedVehicle:
         """The planned vehicle called `name`."""
         return next(v for v in self.vehicles if v.name == name)
+
+    def start_order(self) -> list[PlannedVehicle]:
+        """The vehicles with every dependency before its dependents."""
+        return [self.vehicle(v.name) for v in self.scenario.start_order()]
 
     def to_dict(self) -> dict[str, Any]:
         """The plan as data (`fieldproof run --dry-run`)."""
@@ -275,7 +340,9 @@ class Plan:
                 ],
                 "devices": list(s.devices),
                 "cpus": s.cpus,
+                "cpuset": s.cpuset,
                 "memory": s.memory,
+                "pids": s.pids,
                 "user": s.user,
                 "working_dir": s.working_dir,
             }
@@ -292,15 +359,17 @@ class Plan:
             "network": self.network,
             "render": self.render,
             "ros_domain_id": self.domain_id,
+            "domain_source": self.domain_source,
+            "discovery": self.discovery_mode,
             "world": {"name": self.world.name, "file": str(self.world.file)},
             "time": self.scenario.time.model_dump(),
             "vehicles": [
                 {
-                    "name": v.name,
+                    **v.describe(),
                     "manifest": str(v.manifest.path),
-                    "namespace": v.vehicle.namespace,
                     "spawn": asdict(v.spawn),
                     "ready_timeout_s": v.ready_timeout_s,
+                    "clock": v.clock,
                     "spawn_job": spec(v.spawn_job),
                 }
                 for v in self.vehicles
@@ -329,6 +398,18 @@ def make_run_id(scenario: Scenario, now: datetime, token: str) -> str:
     return f"{scenario.digest or 'nohash'}-{now.astimezone(UTC):%Y%m%dT%H%M%SZ}-{token}"
 
 
+def auto_domain_id(run_id: str) -> int:
+    """The ROS domain a run id maps to: a hash of the id into :data:`DOMAIN_RANGE`.
+
+    Derived rather than allocated so a dry run, the record and the containers agree without
+    asking the daemon; two runs started at once collide with the odds of one in a hundred, and
+    `--domain-id` settles it when that matters.
+    """
+    low, high = DOMAIN_RANGE
+    digest = int(hashlib.sha256(run_id.encode()).hexdigest(), 16)
+    return low + digest % (high - low + 1)
+
+
 def detect_render(preference: str, render_dir: Path = RENDER_DIR) -> tuple[str, tuple[str, ...]]:
     """`gpu` with the render node's group, or `software` (the host decides under `auto`)."""
     nodes = sorted(render_dir.glob("renderD*")) if render_dir.is_dir() else []
@@ -348,6 +429,7 @@ def plan(
     render: str | None = None,
     domain_id: int | None = None,
     network: str | None = None,
+    discovery: str | None = None,
     now: datetime | None = None,
     token: str | None = None,
 ) -> Plan:
@@ -358,20 +440,59 @@ def plan(
         raise ScenarioError(f"world.file: {scenario.world.file!r} is not a file in {worlds_dir}")
     world = read_world(world_file)
     render_mode, groups = detect_render(render or config.docker.render)
-    domain = config.docker.ros_domain_id if domain_id is None else domain_id
     net = network or config.docker.network
     identity = run_id or make_run_id(
         scenario, now or datetime.now(UTC), token or uuid.uuid4().hex[:6]
     )
     short = identity.rsplit("-", 1)[-1]
+    if domain_id is not None:
+        domain, domain_source = domain_id, "explicit"
+    elif config.docker.ros_domain_id == AUTO:
+        domain, domain_source = auto_domain_id(identity), "auto"
+    else:
+        domain, domain_source = int(config.docker.ros_domain_id), "explicit"
+    discovery_mode = discovery or config.docker.discovery
+    if discovery_mode not in ("multicast", "server"):
+        raise ScenarioError(f"discovery {discovery_mode!r}: expected multicast or server")
     if scenario.outputs.directory is not None:
         base = config.resolve(scenario.outputs.directory)
     elif runs_dir is not None:
         base = Path(runs_dir).resolve()
     else:
         base = config.resolve(config.runs.directory)
-    labels = {RUN_LABEL: identity}
+    labels = {RUN_LABEL: identity, DOMAIN_LABEL: str(domain)}
     env = {"ROS_DOMAIN_ID": str(domain), "GZ_PARTITION": GZ_PARTITION}
+    # What every ROS container of the run gets on top: with a discovery server, where it is and
+    # super-client mode, so graph queries (the readiness probe, the observer, `ros2 topic list`)
+    # see the whole graph as they do with multicast.
+    server: ContainerSpec | None = None
+    ros_env = dict(env)
+    if discovery_mode == "server":
+        server = ContainerSpec(
+            name=f"fieldproof-{short}-discovery",
+            image=config.image("bridge"),
+            role="discovery",
+            command=(
+                "fastdds",
+                "discovery",
+                "--server-id",
+                "0",
+                "--udp-address",
+                "0.0.0.0",  # noqa: S104  (every interface of the container)
+                "--udp-port",
+                str(DISCOVERY_PORT),
+            ),
+            env=dict(env),
+            labels={**labels, ROLE_LABEL: "discovery"},
+            network=net,
+            hostname=f"fieldproof-{short}-discovery",
+        )
+        ros_env.update(
+            {
+                "ROS_DISCOVERY_SERVER": f"{server.hostname}:{DISCOVERY_PORT}",
+                "ROS_SUPER_CLIENT": "TRUE",
+            }
+        )
     sim = ContainerSpec(
         name=f"fieldproof-{short}-sim",
         image=config.image("sim"),
@@ -393,8 +514,8 @@ def plan(
         group_add=groups,
     )
     vehicles = tuple(
-        _plan_vehicle(scenario, config, world, v, short, net, env, labels)
-        for v in scenario.vehicles
+        _plan_vehicle(scenario, config, world, v, short, net, ros_env, labels, clock=index == 0)
+        for index, v in enumerate(scenario.vehicles)
     )
     by_name = {v.name: v for v in vehicles}
     actions = []
@@ -444,7 +565,7 @@ def plan(
         # user who started the run; HOME, the ROS log directory and the working directory point
         # at places that user can reach (the image's home is not, when the uids differ: rosbag2
         # then fails to open its file with "Permission denied").
-        env={**env, "HOME": "/tmp", "ROS_LOG_DIR": "/tmp/ros-log"},  # noqa: S108  (in-container)
+        env={**ros_env, "HOME": "/tmp", "ROS_LOG_DIR": "/tmp/ros-log"},  # noqa: S108  (in-container)
         working_dir=RUN_DIR_IN_CONTAINER,
         labels={**labels, ROLE_LABEL: "recorder"},
         network=net,
@@ -471,6 +592,8 @@ def plan(
         assertions=assertions,
         observe=observe,
         video=video,
+        domain_source=domain_source,
+        discovery=server,
     )
 
 
@@ -505,6 +628,8 @@ def _plan_vehicle(  # noqa: PLR0917
     network: str,
     env: dict[str, str],
     labels: dict[str, str],
+    *,
+    clock: bool = True,
 ) -> PlannedVehicle:
     where = f"vehicles[{vehicle.name}]"
     manifest_path = (scenario.directory / vehicle.manifest).resolve()
@@ -532,7 +657,23 @@ def _plan_vehicle(  # noqa: PLR0917
         launch = (f"{WORKSPACE}/{launch_file.resolve().relative_to(config.root)}",)
     else:
         launch = (ROBOTS_PACKAGE, description.launch)
-    namespace = vehicle.namespace
+    namespace, prefix = vehicle.namespace, vehicle.frame_prefix
+    entrypoint = runtime.entrypoint
+    # A launch that cannot be told its namespace runs at the root while its bridge would not:
+    # refuse now rather than watch the readiness gate time out.
+    if entrypoint.launch is not None:
+        for value, arg, key in (
+            (namespace, entrypoint.launch.namespace_arg, "namespace"),
+            (prefix, entrypoint.launch.frame_prefix_arg, "frame_prefix"),
+        ):
+            if value and arg is None:
+                raise ScenarioError(
+                    f"{where}.{key}: {manifest.name}'s entrypoint launch names no {key}_arg, so "
+                    f"its stack cannot be told its {key} (runtime.entrypoint.launch.{key}_arg)"
+                )
+    # ros2 launch rejects an empty value, and the launch files default to the root.
+    namespace_args = (f"namespace:={namespace}",) if namespace else ()
+    prefix_args = (f"frame_prefix:={prefix}",) if prefix else ()
     spawn_job = ContainerSpec(
         name=f"fieldproof-{short}-spawn-{vehicle.name}",
         image=config.image("bridge"),
@@ -542,8 +683,8 @@ def _plan_vehicle(  # noqa: PLR0917
             "launch",
             *launch,
             f"name:={vehicle.name}",
-            # ros2 launch rejects an empty value, and the launch defaults to the root.
-            *((f"namespace:={namespace}",) if namespace else ()),
+            *namespace_args,
+            *prefix_args,
             f"world:={world.name}",
             f"x:={spawn.x:g}",
             f"y:={spawn.y:g}",
@@ -561,25 +702,63 @@ def _plan_vehicle(  # noqa: PLR0917
         name=f"fieldproof-{short}-bridge-{vehicle.name}",
         image=config.image("bridge"),
         role="bridge",
-        command=(BRIDGE_COMMAND, *((f"namespace:={namespace}",) if namespace else ())),
+        command=(
+            BRIDGE_COMMAND,
+            *namespace_args,
+            *prefix_args,
+            # One bridge of the run publishes the simulation clock; the others leave it alone.
+            *(() if clock else ("clock:=false",)),
+            f"bundle_out:={BUNDLE_DIR_IN_BRIDGE}",
+        ),
         env={**env, "FIELDPROOF_MANIFEST": f"{WORKSPACE}/{in_workspace}"},
         labels={**labels, ROLE_LABEL: "bridge", VEHICLE_LABEL: vehicle.name},
         network=network,
         hostname=f"fieldproof-{short}-bridge-{vehicle.name}",
         mounts=(Mount(config.root, WORKSPACE),),
     )
-    resources = runtime.resources
+    resources = (runtime.resources or Resources()).merged(vehicle.resources)
+    mounts: tuple[Mount, ...] = ()
+    dds_profile: Path | None = None
+    dds_env: dict[str, str] = {}
+    if runtime.dds_profile is not None:
+        dds_profile = (manifest.directory / runtime.dds_profile).resolve()
+        if not dds_profile.is_file():
+            raise ScenarioError(
+                f"{where}.manifest: runtime.dds_profile: {dds_profile} is not a file"
+            )
+        mounts = (Mount(dds_profile, DDS_PROFILE_IN_CONTAINER),)
+        try:
+            dds_env = runtime.dds_profile_env()
+        except ManifestError as error:
+            raise ScenarioError(f"{where}.manifest: runtime.{error}") from error
+    # The vehicle's command: the image's own (the manifest's entrypoint) unless the vehicle has
+    # a namespace or frame prefix to pass to its launch.
+    command = (
+        tuple(entrypoint.argv(namespace=namespace, frame_prefix=prefix))
+        if (namespace or prefix) and entrypoint.launch is not None
+        else ()
+    )
     container = ContainerSpec(
         name=f"fieldproof-{short}-{vehicle.name}",
         image=vehicle.image or runtime.image,
         role="vehicle",
-        env={**runtime.env, "ROS_DOMAIN_ID": env["ROS_DOMAIN_ID"], **vehicle.env},
+        command=command,
+        env={
+            **runtime.env,
+            **{k: v for k, v in env.items() if k != "GZ_PARTITION"},
+            "FIELDPROOF_NAMESPACE": namespace,
+            "FIELDPROOF_FRAME_PREFIX": prefix,
+            **dds_env,
+            **vehicle.env,
+        },
         labels={**labels, ROLE_LABEL: "vehicle", VEHICLE_LABEL: vehicle.name},
         network=network,
         hostname=vehicle.name,
-        cpus=resources.cpus if resources else None,
-        memory=resources.memory if resources else None,
-        pids=resources.pids if resources else None,
+        mounts=mounts,
+        cpus=resources.cpus,
+        cpuset=resources.cpuset,
+        memory=resources.memory,
+        pids=resources.pids,
     )
     return PlannedVehicle(
         vehicle=vehicle,
@@ -589,6 +768,10 @@ def _plan_vehicle(  # noqa: PLR0917
         bridge=bridge,
         container=container,
         ready_timeout_s=runtime.ready.timeout_s if runtime.ready else 0.0,
+        resources=resources,
+        depends_on=tuple(vehicle.depends_on),
+        dds_profile=dds_profile,
+        clock=clock,
     )
 
 
@@ -687,6 +870,8 @@ class RunRecord:
     finished_at: str | None = None
     phases: list[dict[str, Any]] = field(default_factory=list)
     vehicles: list[dict[str, Any]] = field(default_factory=list)
+    """Per vehicle: name, manifest, namespace, frame prefix, image, the budget applied, what it
+    depends on, its DDS profile, and the contract check's counts when one ran."""
     containers: list[dict[str, Any]] = field(default_factory=list)
     timeline: list[ActionRecord] = field(default_factory=list)
     assertions: list[dict[str, Any]] = field(default_factory=list)
@@ -718,6 +903,7 @@ class Run:
         log: RunLog,
         *,
         keep: bool = False,
+        check_contracts: bool = False,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], float] = time.time,
@@ -727,14 +913,21 @@ class Run:
         self.backend = backend
         self.log = log
         self.keep = keep
+        self.check_contracts = check_contracts
+        """Run each bridge's contract check before the recorder starts."""
         self.sleep = sleep
         self.clock = clock
         self.wall = wall
         """The wall clock the observer's samples are stamped with (epoch seconds)."""
+        # One worker per vehicle, so the fleet's spawns, bridges and vehicles proceed at once (a
+        # vehicle waiting for the ones it depends on holds its worker), and one per timeline
+        # entry, so actions run concurrently while the main thread observes the run.
         self._executor = executor or ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="fieldproof-action"
+            max_workers=max(1, len(plan.vehicles), len(plan.actions)),
+            thread_name_prefix="fieldproof-worker",
         )
-        """Runs an action's command while the main thread keeps observing the run."""
+        self._lock = threading.Lock()
+        """Guards the record, which the workers add to while the main thread writes it."""
         self.tearing_down = False
         self.evaluator = Evaluator(plan.assertions)
         self.record = RunRecord(
@@ -747,21 +940,15 @@ class Run:
             },
             engine_version=__version__,
             started_at=utc_now(),
-            vehicles=[
-                {
-                    "name": v.name,
-                    "manifest": v.manifest.name,
-                    "namespace": v.vehicle.namespace,
-                    "image": v.container.image,
-                }
-                for v in plan.vehicles
-            ],
+            vehicles=[{**v.describe(), "contract": None} for v in plan.vehicles],
             assertions=[r.to_dict() for r in self.evaluator.results],
             time=plan.scenario.time.model_dump(),
             stack={
                 "network": plan.network,
                 "render": plan.render,
                 "ros_domain_id": plan.domain_id,
+                "domain_source": plan.domain_source,
+                "discovery": plan.discovery_mode,
                 "world": plan.world.name,
                 "images": sorted({s.image for s in plan.containers()}),
             },
@@ -788,18 +975,16 @@ class Run:
             self._phase(Phase.PREPARING)
             self.prepare()
             self._phase(Phase.SIM)
+            self.start_discovery()
             self.start_sim()
             self._phase(Phase.SPAWN)
-            for vehicle in self.plan.vehicles:
-                self.spawn(vehicle)
+            self._parallel("spawn", [(v.name, v, self.spawn) for v in self.plan.vehicles])
             self._phase(Phase.BRIDGES)
-            for vehicle in self.plan.vehicles:
-                self.start_bridge(vehicle)
+            self._parallel("bridge", [(v.name, v, self.start_bridge) for v in self.plan.vehicles])
             self._phase(Phase.RECORDER)
             self.start_recorder()
             self._phase(Phase.VEHICLES)
-            for vehicle in self.plan.vehicles:
-                self.start_vehicle(vehicle)
+            self.start_vehicles()
             self._phase(Phase.RUNNING)
             self.run_timeline()
             self.check_alive()
@@ -851,6 +1036,9 @@ class Run:
         self.record.reason = reason
         level = "info" if status is Status.PASSED else "error"
         self.log.event("run.status", reason or str(status), level=level, status=str(status))
+        for action in self.record.timeline:
+            if action.status == "running":
+                action.status, action.detail = "cancelled", f"the run ended {status}: {reason}"
         self._resolve(self.evaluator.skip_pending(f"the run ended {status}: {reason}"))
         self.record.observation = {
             "samples": self.evaluator.samples,
@@ -860,19 +1048,47 @@ class Run:
         }
 
     def _write(self) -> None:
-        self.record.write(self.plan.run_dir / RECORD_FILE)
+        with self._lock:
+            self.record.write(self.plan.run_dir / RECORD_FILE)
 
     def _started(self, spec: ContainerSpec) -> None:
-        self.record.containers.append(
-            {
-                "role": spec.role,
-                "name": spec.name,
-                "image": spec.image,
-                "vehicle": spec.labels.get(VEHICLE_LABEL),
-                "started_at": utc_now(),
-            }
-        )
+        with self._lock:
+            self.record.containers.append(
+                {
+                    "role": spec.role,
+                    "name": spec.name,
+                    "image": spec.image,
+                    "vehicle": spec.labels.get(VEHICLE_LABEL),
+                    "started_at": utc_now(),
+                }
+            )
         self.log.event(f"{spec.role}.start", f"{spec.name} ({spec.image})", container=spec.name)
+
+    def _vehicle_record(self, name: str) -> dict[str, Any]:
+        return next(v for v in self.record.vehicles if v["name"] == name)
+
+    def _parallel(
+        self,
+        label: str,
+        tasks: Sequence[tuple[str, PlannedVehicle, Callable[[PlannedVehicle], None]]],
+    ) -> None:
+        """Run one step for every vehicle at once on the workers and wait for all of them.
+
+        Every task runs to its end (or its own failure) before the first failure, in the
+        vehicles' order, is raised; the others are logged.
+        """
+        futures = [(name, self._executor.submit(fn, vehicle)) for name, vehicle, fn in tasks]
+        failures: list[tuple[str, BaseException]] = []
+        for name, future in futures:
+            try:
+                future.result()
+            except Exception as error:
+                failures.append((name, error))
+        if not failures:
+            return
+        for name, failure in failures[1:]:
+            self.log.event(f"{label}.failed", f"{name}: {failure}", level="error", vehicle=name)
+        raise failures[0][1]
 
     def wait_for(self, predicate: Callable[[], bool], timeout_s: float, what: str) -> None:
         """Poll `predicate` until it holds or `timeout_s` passes (a :class:`RunError`)."""
@@ -897,7 +1113,7 @@ class Run:
 
     # ---------------------------------------------------------------------------- phases
     def prepare(self) -> None:
-        """Refuse what cannot run yet; check images and assets; make sure the network exists."""
+        """Refuse what cannot run yet; check images, assets and the budget; make the network."""
         scenario = self.plan.scenario
         if scenario.time.mode == "realtime":
             raise RunError("time.mode realtime: the real-time-locked mode arrives with task P2-T04")
@@ -914,8 +1130,72 @@ class Run:
             )
         self.log.event("images.ok", ", ".join(images))
         self.check_assets()
+        self.check_budget()
         self.backend.ensure_network(self.plan.network)
-        self.log.event("network.ok", self.plan.network)
+        self.log.event(
+            "network.ok",
+            f"{self.plan.network}, ROS_DOMAIN_ID {self.plan.domain_id} "
+            f"({self.plan.domain_source}), discovery by {self.plan.discovery_mode}",
+            network=self.plan.network,
+            ros_domain_id=self.plan.domain_id,
+            discovery=self.plan.discovery_mode,
+        )
+
+    def check_budget(self) -> None:
+        """Log every vehicle's budget and warn when the fleet asks for more than the host has."""
+        host = self.backend.host()
+        cpus = sum(v.resources.cpus or 0.0 for v in self.plan.vehicles)
+        memory = sum(
+            memory_bytes(v.resources.memory) for v in self.plan.vehicles if v.resources.memory
+        )
+        budgets = "; ".join(
+            f"{v.name}: "
+            + (", ".join(f"{k} {val}" for k, val in v.resources.to_dict().items()) or "unlimited")
+            for v in self.plan.vehicles
+        )
+        self.log.event(
+            "budget",
+            f"{len(self.plan.vehicles)} vehicle(s) ask for {cpus:g} CPU(s) and "
+            f"{memory / 1024**3:.1f} GiB of the host's {host.cpus} CPU(s) and "
+            f"{host.memory_bytes / 1024**3:.1f} GiB ({budgets})",
+            cpus=cpus,
+            memory_bytes=memory,
+            host_cpus=host.cpus,
+            host_memory_bytes=host.memory_bytes,
+        )
+        if host.cpus and cpus > host.cpus:
+            self.log.event(
+                "budget.oversubscribed",
+                f"the vehicles' CPU quotas ({cpus:g}) exceed the host's {host.cpus} CPU(s): the "
+                "simulator and the bridges share what is left, expect a low real-time factor",
+                level="warning",
+            )
+        if host.memory_bytes and memory > host.memory_bytes:
+            self.log.event(
+                "budget.oversubscribed",
+                f"the vehicles' memory limits ({memory / 1024**3:.1f} GiB) exceed the host's "
+                f"{host.memory_bytes / 1024**3:.1f} GiB",
+                level="warning",
+            )
+
+    def start_discovery(self) -> None:
+        """Start the run's discovery server (`discovery: server`) and wait until it listens."""
+        server = self.plan.discovery
+        if server is None:
+            return
+        self.backend.start(server)
+        self._started(server)
+
+        def listening() -> bool:
+            self._running(server)
+            return DISCOVERY_READY in self.backend.logs(server.name)
+
+        self.wait_for(listening, self.plan.config.timeouts.discovery_s, "the discovery server")
+        self.log.event(
+            "discovery.ready",
+            f"Fast DDS discovery server at {server.hostname}:{DISCOVERY_PORT}",
+            server=f"{server.hostname}:{DISCOVERY_PORT}",
+        )
 
     def check_assets(self) -> None:
         """Every Fuel model the world uses is fetched (`make assets`), if there is a lock."""
@@ -1007,6 +1287,65 @@ class Run:
             f"the bridge of {vehicle.name} ({odom})",
         )
         self.log.event("bridge.ready", f"{vehicle.name}: {odom} is published", vehicle=vehicle.name)
+        if self.check_contracts:
+            self.check_contract(vehicle)
+
+    def check_contract(self, vehicle: PlannedVehicle) -> None:
+        """Run the bridge's contract check inside the bridge container (`--check-contracts`).
+
+        `contract_check` subscribes to every topic of the bundle's `contract.yaml` and reports
+        the graph, QoS, frames, rates and stray topics; a failure is a :class:`RunError`, since
+        the bridge is Fieldproof's own promise, not the stack under test.
+        """
+        bridge = vehicle.bridge
+        timeout_s = self.plan.config.timeouts.contract_s
+        self.log.event(
+            "contract.start", f"{vehicle.name}: checking the bridge contract", vehicle=vehicle.name
+        )
+        result = self.backend.exec(
+            bridge.name,
+            (
+                BRIDGE_ENTRYPOINT,
+                "timeout",
+                f"{timeout_s + 30:.0f}",
+                *CONTRACT_CHECK,
+                vehicle.bundle_dir,
+                "--timeout",
+                f"{timeout_s:g}",
+            ),
+            lambda line: self.log.event(
+                "contract.output", line.rstrip(), level="debug", vehicle=vehicle.name
+            ),
+        )
+        lines = [line.strip() for line in result.output.splitlines() if line.strip()]
+        summary = next(
+            (
+                CONTRACT_SUMMARY.match(line)
+                for line in reversed(lines)
+                if CONTRACT_SUMMARY.match(line)
+            ),
+            None,
+        )
+        counts = {
+            "passed": int(summary.group(1)) if summary else None,
+            "failed": int(summary.group(2)) if summary else None,
+            "exit_code": result.exit_code,
+            "findings": [line for line in lines if line.startswith("FAIL")],
+        }
+        with self._lock:
+            self._vehicle_record(vehicle.name)["contract"] = counts
+        self._write()
+        if not result.ok:
+            raise RunError(
+                f"{vehicle.name}: the bridge contract check exited {result.exit_code}:\n"
+                + result.tail()
+            )
+        self.log.event(
+            "contract.ok",
+            f"{vehicle.name}: {counts['passed']} check(s) passed",
+            vehicle=vehicle.name,
+            passed=counts["passed"],
+        )
 
     def start_recorder(self) -> None:
         """Start the recorder container on the run directory and wait for the observer's `ready`."""
@@ -1100,12 +1439,56 @@ class Run:
             self._last_alive_check = self.clock()
             self.check_alive()
 
+    def start_vehicles(self) -> None:
+        """Start every vehicle on the workers, each once the ones it depends on are ready."""
+        futures: dict[str, Future[None]] = {}
+
+        def task(vehicle: PlannedVehicle) -> None:
+            for name in vehicle.depends_on:
+                try:
+                    futures[name].result()
+                except Exception as error:
+                    raise RunFailedError(
+                        f"{vehicle.name}: not started, it depends on {name}, which failed ({error})"
+                    ) from error
+                self.log.event(
+                    "vehicle.dependency", f"{vehicle.name}: {name} is ready", vehicle=vehicle.name
+                )
+            self.start_vehicle(vehicle)
+
+        # Dependencies are submitted before their dependents, so a synchronous executor (the
+        # tests') runs them in a valid order and a thread pool never waits on a task it has
+        # not been given.
+        ordered = self.plan.start_order()
+        for vehicle in ordered:
+            futures[vehicle.name] = self._executor.submit(task, vehicle)
+        failures: list[tuple[str, BaseException]] = []
+        for vehicle in ordered:
+            try:
+                futures[vehicle.name].result()
+            except Exception as error:
+                failures.append((vehicle.name, error))
+        if not failures:
+            return
+        for name, failure in failures[1:]:
+            self.log.event("vehicle.failed", f"{name}: {failure}", level="error", vehicle=name)
+        raise failures[0][1]
+
     def start_vehicle(self, vehicle: PlannedVehicle) -> None:
         """Start the vehicle container and run its readiness probe until `runtime.ready` holds."""
         container = vehicle.container
         self.backend.start(container)
         self._started(container)
         self._running(container)
+        self.log.event(
+            "vehicle.budget",
+            f"{vehicle.name}: "
+            + (", ".join(f"{k} {v}" for k, v in vehicle.resources.to_dict().items()) or "unlimited")
+            + (f"; namespace /{vehicle.namespace}" if vehicle.namespace else "; the root namespace")
+            + (f"; DDS profile {vehicle.dds_profile.name}" if vehicle.dds_profile else ""),
+            vehicle=vehicle.name,
+            resources=vehicle.resources.to_dict(),
+        )
         if vehicle.ready_timeout_s <= 0:
             self.log.event(
                 "vehicle.ready", f"{vehicle.name}: no ready conditions", vehicle=vehicle.name
@@ -1165,35 +1548,70 @@ class Run:
             )
 
     def _run_actions(self, started: float, budget: float) -> None:
-        for action in self.plan.actions:
+        """Start every entry at its time on a worker and settle it when it returns.
+
+        Entries run concurrently (three vehicles can drive at once); the main thread keeps
+        observing the run between polls. The first entry that does not end `ok` fails the run
+        at once, and the budget ends it whatever is still running.
+        """
+        pending = list(self.plan.actions)  # in order of `at`
+        records: dict[str, ActionRecord] = {}
+        for action in pending:
             record = ActionRecord(
                 action.name, action.entry.action, action.entry.vehicle, action.entry.at
             )
             self.record.timeline.append(record)
-            while self.clock() - started < action.entry.at:
-                if self.clock() - started >= budget:
-                    raise RunTimeoutError(f"budget of {budget:g} s passed before {action.name}")
-                self._observe()
-                self.sleep(min(EVAL_POLL_S, action.entry.at - (self.clock() - started)))
-            remaining = budget - (self.clock() - started)
-            if remaining <= 0:
-                raise RunTimeoutError(f"budget of {budget:g} s passed before {action.name}")
-            limit = min(action.entry.timeout_s, remaining)
-            record.started_at = utc_now()
-            began = self.clock()
-            self._resolve(self.evaluator.action(action.name, "started", self.wall()))
-            try:
-                self.navigate_to_pose(action, limit, record)
-            finally:
+            records[action.name] = record
+        running: dict[str, tuple[PlannedAction, Future[None], float, float]] = {}
+        while pending or running:
+            elapsed = self.clock() - started
+            if elapsed >= budget:
+                what = f"during {', '.join(running)}" if running else f"before {pending[0].name}"
+                raise RunTimeoutError(f"budget of {budget:g} s passed {what}")
+            while pending and pending[0].entry.at <= elapsed:
+                action = pending.pop(0)
+                record = records[action.name]
+                limit = min(action.entry.timeout_s, budget - elapsed)
+                record.started_at = utc_now()
+                record.status = "running"
+                self._resolve(self.evaluator.action(action.name, "started", self.wall()))
+                future = self._executor.submit(self.navigate_to_pose, action, limit, record)
+                running[action.name] = (action, future, self.clock(), limit)
+            # The stream first, so what the vehicles did during an action is judged before the
+            # action's own result ends the run.
+            self._observe()
+            failed: tuple[str, PlannedAction, float] | None = None
+            for name in [n for n, (_, f, _, _) in running.items() if f.done()]:
+                action, future, began, limit = running.pop(name)
+                record = records[name]
                 record.duration_s = round(self.clock() - began, 3)
-                self._resolve(
-                    self.evaluator.action(action.name, "finished", self.wall(), record.status)
-                )
+                error = future.exception()
+                if error is not None:
+                    record.status = "failed"
+                    record.detail = f"{type(error).__name__}: {error}"
+                    self.log.event(
+                        "action.end", f"{name}: {record.detail}", level="error", action=name
+                    )
+                self._resolve(self.evaluator.action(name, "finished", self.wall(), record.status))
+                if record.status != "ok" and failed is None:
+                    failed = (name, action, limit)
+            if failed is not None:
+                name, action, limit = failed
+                record = records[name]
+                for other in running:
+                    records[other].status = "cancelled"
+                    records[other].detail = f"cancelled: {name} {record.status}"
                 self._write()
-            if record.status != "ok":
                 if record.status == "timeout" and limit < action.entry.timeout_s:
-                    raise RunTimeoutError(f"budget of {budget:g} s passed during {action.name}")
-                raise RunFailedError(f"{action.name}: {record.detail}")
+                    raise RunTimeoutError(f"budget of {budget:g} s passed during {name}")
+                raise RunFailedError(f"{name}: {record.detail}")
+            if not pending and not running:
+                self._write()
+                break
+            wait = EVAL_POLL_S
+            if pending:
+                wait = min(wait, max(pending[0].entry.at - (self.clock() - started), 0.0))
+            self.sleep(wait)
 
     # ------------------------------------------------------------------------------ the video
     def _video_service(self, video: PlannedVideo, request: str) -> ExecResult:
@@ -1279,19 +1697,12 @@ class Run:
         self.log.event("video.error", reason, level="warning", camera=video.get("camera"))
         self._write()
 
-    def _exec_while_observing(
-        self, name: str, argv: tuple[str, ...], on_line: Callable[[str], None]
-    ) -> ExecResult:
-        """Run a command in a container in a thread, observing the run until it returns."""
-        future: Future[ExecResult] = self._executor.submit(self.backend.exec, name, argv, on_line)
-        while True:
-            self._observe()
-            if future.done():
-                return future.result()
-            self.sleep(EVAL_POLL_S)
-
     def navigate_to_pose(self, action: PlannedAction, limit_s: float, record: ActionRecord) -> None:
-        """Send the goal with `ros2 action send_goal` inside the vehicle and read the result."""
+        """Send the goal with `ros2 action send_goal` inside the vehicle and read the result.
+
+        Runs on a worker while the main thread observes the run; it only touches its own record
+        and the log (which is thread-safe).
+        """
         vehicle = self.plan.vehicle(action.entry.vehicle)
         goal = action.goal_map
         message = json.dumps(
@@ -1313,7 +1724,7 @@ class Run:
             action=action.name,
             vehicle=vehicle.name,
         )
-        result = self._exec_while_observing(
+        result = self.backend.exec(
             vehicle.container.name,
             (
                 ENTRYPOINT_IN_IMAGE,

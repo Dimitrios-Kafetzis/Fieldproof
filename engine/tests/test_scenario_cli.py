@@ -142,6 +142,96 @@ def test_run_rejects_bad_arguments(tmp_path: Path) -> None:
     result = runner.invoke(app, ["run", str(EXAMPLE), "--render", "metal", "--dry-run"])
     assert result.exit_code == 2
     assert "--render 'metal'" in plain(result.output)
+    result = runner.invoke(app, ["run", str(EXAMPLE), "--discovery", "gossip", "--dry-run"])
+    assert result.exit_code == 2
+    assert "--discovery 'gossip'" in plain(result.output)
+
+
+FLEET = REPO / "examples/scenarios/ugv_fleet.yaml"
+
+
+def test_validate_fleet() -> None:
+    result = runner.invoke(app, ["validate", str(FLEET)])
+    assert result.exit_code == 0, result.output
+    out = plain(result.output)
+    assert "ugv_fleet (world depot, 3 vehicle(s): ugv1 (ugv_nav2, " in out
+    assert ", /ugv1), ugv2 (ugv_nav2, " in out
+    assert "3 timeline entries, 12 assertion(s)" in out
+
+
+def test_run_dry_run_with_a_discovery_server(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(FLEET),
+            "--dry-run",
+            "--render",
+            "software",
+            "--runs-dir",
+            str(tmp_path),
+            "--run-id",
+            "fleet-dry",
+            "--discovery",
+            "server",
+            "--domain-id",
+            "77",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["discovery"] == "server"
+    assert data["ros_domain_id"] == 77
+    assert data["domain_source"] == "explicit"
+    assert data["containers"][0]["role"] == "discovery"
+    assert data["containers"][0]["name"] == "fieldproof-dry-discovery"
+    assert [v["namespace"] for v in data["vehicles"]] == ["ugv1", "ugv2", "ugv3"]
+    assert data["vehicles"][1]["resources"] == {"cpus": 2.0, "memory": "3g"}
+    assert data["containers"][-1]["env"]["ROS_DISCOVERY_SERVER"] == "fieldproof-dry-discovery:11811"
+    result = runner.invoke(app, ["run", str(FLEET), "--dry-run", "--runs-dir", str(tmp_path)])
+    assert json.loads(result.output)["discovery"] == "multicast"
+    assert json.loads(result.output)["domain_source"] == "auto"
+
+
+def test_run_fleet_with_contract_checks(fake: ReadyFake, tmp_path: Path) -> None:
+    fake.samples_on_goal = []
+    for name, (x, y) in {"ugv1": (10.0, -1.0), "ugv2": (2.0, 15.0), "ugv3": (-4.0, -5.0)}.items():
+        fake.samples_on_goal.append(
+            {"kind": "pose", "sim": 9.0, "model": name, "x": x, "y": y, "z": 0.1, "yaw": 0.0}
+        )
+        fake.samples_on_goal.append(
+            {
+                "kind": "value",
+                "sim": 6.0,
+                "topic": f"/{name}/cmd_vel",
+                "field": "linear.x",
+                "value": 0.4,
+            }
+        )
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(FLEET),
+            "--render",
+            "software",
+            "--runs-dir",
+            str(tmp_path),
+            "--run-id",
+            "fleet-1",
+            "--check-contracts",
+            "-q",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    out = plain(result.output)
+    assert "PASS ugv_fleet (fleet-1)" in out
+    assert "PASS ugv3_reached (reach_pose)" in out
+    record = json.loads((tmp_path / "fleet-1" / "run.json").read_text())
+    assert [v["contract"]["passed"] for v in record["vehicles"]] == [14, 14, 14]
+    assert record["stack"]["domain_source"] == "auto"
+    assert len(fake.execs) >= 3
+    assert fake.containers == {}
     result = runner.invoke(app, ["run", str(tmp_path / "none.yaml")])
     assert result.exit_code == 2
     assert "No such file" in plain(result.output)

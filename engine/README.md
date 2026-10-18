@@ -20,7 +20,11 @@ the vehicle image generator (`fieldproof.vehicle`, `fieldproof vehicle dockerfil
 (`fieldproof.scenario`, `fieldproof validate`, `fieldproof schema`), the workspace configuration
 (`fieldproof.config`, `fieldproof.toml`) and the runner v0 (`fieldproof.runner` on the
 `fieldproof.backend` protocol, `fieldproof.docker_backend` with the Docker SDK, `fieldproof run`,
-[scenarios.md](../docs/reference/scenarios.md)). The event injector, assertions, recording and
-reports arrive with the remaining Phase 1 and Phase 2 tasks of the
+[scenarios.md](../docs/reference/scenarios.md)), P1-T06 the assertions, the recorder's observer
+and the reports (`fieldproof.assertions`, `fieldproof.observer`, `fieldproof.report`), P2-T01
+the fleet: namespaces end to end, a ROS domain per run, the discovery server, DDS profiles,
+budgets, the parallel start and concurrent actions in `fieldproof.runner`
+([scenarios.md#fleets](../docs/reference/scenarios.md#fleets)). The event injector and the clock
+manager arrive with the remaining Phase 2 tasks of the
 [backlog](../docs/plan/03-task-backlog.md). Lint and type-check settings (ruff, mypy strict) come
 from the repository root `pyproject.toml`; the hooks run through `make lint`.

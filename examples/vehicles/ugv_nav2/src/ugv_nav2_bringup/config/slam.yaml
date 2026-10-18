@@ -14,6 +14,10 @@ slam_toolbox:
     map_frame: map
     base_frame: base_link
     scan_topic: scan
+    # Relative, like scan_topic, so a robot of a fleet publishes its map under its own
+    # namespace (`/ugv1/map`; slam_toolbox's default is the absolute `/map`); alone, at the
+    # root, it is `/map` as before.
+    map_name: map
     use_map_saver: true
     mode: mapping
 

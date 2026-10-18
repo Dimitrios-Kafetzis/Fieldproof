@@ -1,0 +1,148 @@
+# The fleet scenario (task P2-T01): three example UGVs, each the unmodified Nav2 and SLAM
+# Toolbox stack in its own container under its own namespace and budget, drive at the same time
+# to three goals in the depot: ugv1 from the loading dock into the yard (the M1 drive), ugv2
+# along the open floor of the hall, ugv3 across the yard. Nothing of one vehicle reaches
+# another: Gazebo topics, ROS topics, nodes and the TF tree live under `/ugv1`, `/ugv2`,
+# `/ugv3`, so the stacks cannot cross-talk, and every container of the run shares one ROS
+# domain that other runs on the host never use (docs/reference/scenarios.md#fleets).
+#
+#   fieldproof validate examples/scenarios/ugv_fleet.yaml
+#   fieldproof run examples/scenarios/ugv_fleet.yaml --check-contracts
+#   docker stats --no-stream $(docker ps -q --filter label=io.fieldproof.role=vehicle)
+#
+# Three Nav2 stacks and a simulator with three lidars want a workstation (about six cores for
+# the vehicles' quotas alone); on a two-core CI runner with software rendering the readiness
+# gates would time out, which is why the integration test of the fleet skips small hosts.
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: ugv_fleet
+  description: Three example UGVs navigate concurrently in the depot, isolated by namespace and budget
+  tags: [fleet, nav, ugv]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    namespace: ugv1
+    spawn:
+      frame: spawn_dock # (10, 3), facing the roller door
+  - name: ugv2
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    namespace: ugv2
+    spawn:
+      frame: spawn_hall # (6, 15), facing west along the open floor of the hall
+    resources:
+      memory: 3g # one vehicle gets more than the manifest's 2 GiB, to show the override
+  - name: ugv3
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    namespace: ugv3
+    spawn: { x: -8.0, y: -5.0, yaw: 0.0 } # in the yard, facing east, clear of the slope
+    depends_on: [ugv1] # starts once ugv1 is ready (the others start at once)
+time:
+  mode: sim
+  timeout_s: 15m # wall-clock budget once every vehicle is ready
+timeline:
+  - at: 0s
+    name: ugv1_to_yard
+    vehicle: ugv1
+    action: navigate_to_pose
+    goal: { x: 10.0, y: -1.0, yaw: -1.5708 } # through the roller door, 4 m ahead
+    timeout_s: 5m
+  - at: 0s
+    name: ugv2_along_hall
+    vehicle: ugv2
+    action: navigate_to_pose
+    goal: { x: 2.0, y: 15.0, yaw: 3.1416 } # 4 m west along the open floor
+    timeout_s: 5m
+  - at: 0s
+    name: ugv3_across_yard
+    vehicle: ugv3
+    action: navigate_to_pose
+    goal: { x: -4.0, y: -5.0, yaw: 0.0 } # 4 m east across the yard
+    timeout_s: 5m
+assertions:
+  # Ground truth from Gazebo: every model ends up within half a metre of its goal.
+  - name: ugv1_reached
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: 10.0, y: -1.0 }
+    tolerance_m: 0.5
+  - name: ugv2_reached
+    type: reach_pose
+    vehicle: ugv2
+    target: { x: 2.0, y: 15.0 }
+    tolerance_m: 0.5
+  - name: ugv3_reached
+    type: reach_pose
+    vehicle: ugv3
+    target: { x: -4.0, y: -5.0 }
+    tolerance_m: 0.5
+  # The three drives complete within four minutes of wall clock each (generous: three stacks
+  # share the host and the simulator runs below real time with three lidars).
+  - name: ugv1_in_time
+    type: within_time
+    action: ugv1_to_yard
+    max_s: 4m
+  - name: ugv2_in_time
+    type: within_time
+    action: ugv2_along_hall
+    max_s: 4m
+  - name: ugv3_in_time
+    type: within_time
+    action: ugv3_across_yard
+    max_s: 4m
+  # No chassis touches the world or another vehicle.
+  - name: ugv1_no_collision
+    type: no_collision
+    vehicle: ugv1
+  - name: ugv2_no_collision
+    type: no_collision
+    vehicle: ugv2
+  - name: ugv3_no_collision
+    type: no_collision
+    vehicle: ugv3
+  # Each stack commands its own vehicle within the manifest's forward speed limit: `cmd_vel`
+  # is read under each namespace, so a command of one stack reaching another would show here.
+  - name: ugv1_speed_limit
+    type: topic_value
+    topic: cmd_vel
+    vehicle: ugv1
+    field: linear.x
+    condition: value <= 1.5
+  - name: ugv2_speed_limit
+    type: topic_value
+    topic: cmd_vel
+    vehicle: ugv2
+    field: linear.x
+    condition: value <= 1.5
+  - name: ugv3_speed_limit
+    type: topic_value
+    topic: cmd_vel
+    vehicle: ugv3
+    field: linear.x
+    condition: value <= 1.5
+outputs:
+  logs: true
+  record: true # recording/*.mcap: the three vehicles' topics under their namespaces
+  topics:
+    - /clock
+    - /ugv1/tf
+    - /ugv1/odom
+    - /ugv1/cmd_vel
+    - /ugv1/scan
+    - /ugv1/map
+    - /ugv1/plan
+    - /ugv2/tf
+    - /ugv2/odom
+    - /ugv2/cmd_vel
+    - /ugv2/scan
+    - /ugv2/map
+    - /ugv2/plan
+    - /ugv3/tf
+    - /ugv3/odom
+    - /ugv3/cmd_vel
+    - /ugv3/scan
+    - /ugv3/map
+    - /ugv3/plan
+    - /rosout

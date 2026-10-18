@@ -15,7 +15,11 @@ answers with the wanted state; a node that offers no service or does not answer 
 ``LIFECYCLE_TIMEOUT_S`` is pending, which is what a Nav2 server blocked in its activation looks
 like), ``topic`` (a publisher, of the type when given), ``service`` (offered, of the type when
 given), ``action`` (an action server, recognised by its ``_action/send_goal`` service), ``node``
-(in the graph). Names are resolved against the probe's namespace unless absolute.
+(in the graph), ``tf`` (a chain of transforms seen on the TF topics). Names are resolved against
+the probe's namespace unless absolute: ``--namespace`` or ``FIELDPROOF_NAMESPACE``, which the
+orchestrator sets to the vehicle's namespace in a fleet (task P2-T01), so a manifest written with
+relative names (``lifecycle: bt_navigator``) holds for every vehicle of it. The ``tf`` condition
+listens on the namespace's ``tf`` and ``tf_static`` topics and on the global ones.
 
 ``fieldproof vehicle dockerfile`` copies this file unchanged into every vehicle image as
 ``/usr/local/bin/fieldproof-vehicle-ready``, so it depends on nothing but the standard library,
@@ -39,6 +43,7 @@ from typing import Any, Protocol, TextIO
 import yaml
 
 DEFAULT_MANIFEST = "/opt/fieldproof/robot.yaml"
+NAMESPACE_ENV = "FIELDPROOF_NAMESPACE"
 DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_INTERVAL_S = 1.0
 # How long one evaluation listens on /tf for the frames of a `tf` condition.
@@ -245,16 +250,22 @@ def wait(
         sleep(min(interval_s, max(timeout_s - elapsed, 0.0)))
 
 
+def normalise_namespace(namespace: str) -> str:
+    """``/`` or ``/name/space`` from whatever was given (``ugv1``, ``/ugv1/``, empty)."""
+    stripped = namespace.strip().strip("/")
+    return f"/{stripped}" if stripped else "/"
+
+
 class RosGraph:
     """The graph as rclpy sees it from a probe node (one node for the probe's lifetime)."""
 
-    def __init__(self, name: str = PROBE_NODE_NAME) -> None:
+    def __init__(self, name: str = PROBE_NODE_NAME, namespace: str = "") -> None:
         # Imported here so the engine (no ROS on the host) can import this module for its tests.
         import rclpy  # noqa: PLC0415
 
         self._rclpy = rclpy
         rclpy.init(args=[])
-        self._node: Any = rclpy.create_node(name)
+        self._node: Any = rclpy.create_node(name, namespace=normalise_namespace(namespace))
         self._clients: dict[str, Any] = {}
         self._edges: set[tuple[str, str]] = set()
         self._tf_subscriptions: list[Any] = []
@@ -345,9 +356,13 @@ class RosGraph:
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
                 reliability=ReliabilityPolicy.RELIABLE,
             )
+            # The vehicle's TF topics under its namespace (Nav2's multi-robot convention) and the
+            # global ones (a stack that keeps one shared tree): frames from either count.
+            topics = {self.resolve("tf"): 100, "/tf": 100}
+            static_topics = {self.resolve("tf_static"): static, "/tf_static": static}
             self._tf_subscriptions = [
-                self._node.create_subscription(TFMessage, "/tf", collect, 100),
-                self._node.create_subscription(TFMessage, "/tf_static", collect, static),
+                self._node.create_subscription(TFMessage, topic, collect, qos)
+                for topic, qos in (*topics.items(), *static_topics.items())
             ]
         deadline = time.monotonic() + TF_LISTEN_S
         while time.monotonic() < deadline:
@@ -365,6 +380,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--manifest",
         default=os.environ.get("FIELDPROOF_MANIFEST", DEFAULT_MANIFEST),
         help="the vehicle manifest (default: $FIELDPROOF_MANIFEST, then %(default)s)",
+    )
+    parser.add_argument(
+        "--namespace",
+        default=os.environ.get(NAMESPACE_ENV, ""),
+        help=f"namespace relative names resolve against (default: ${NAMESPACE_ENV}, then the root)",
     )
     parser.add_argument(
         "--timeout",
@@ -412,7 +432,9 @@ def main(
         if args.json:
             out.write("[]\n")
         return 0
-    graph = graph_factory() if graph_factory is not None else RosGraph()
+    graph = graph_factory() if graph_factory is not None else RosGraph(namespace=args.namespace)
+    if args.namespace.strip("/"):
+        report(f"namespace: {normalise_namespace(args.namespace)}")
     try:
         statuses = wait(
             conditions, graph, timeout_s=timeout_s, interval_s=args.interval, report=report

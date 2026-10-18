@@ -21,6 +21,7 @@ from fieldproof.vehicle_ready import (
     kind_of,
     load_conditions,
     main,
+    normalise_namespace,
     pending,
     summary,
     wait,
@@ -82,9 +83,73 @@ def test_load_conditions_of_the_example() -> None:
     kinds = [kind_of(c) for c in conditions]
     assert kinds.count("lifecycle") == 7
     assert len(conditions) == 10
-    assert {"topic": "/map", "type": "nav_msgs/msg/OccupancyGrid"} in conditions
+    assert {"topic": "map", "type": "nav_msgs/msg/OccupancyGrid"} in conditions
     assert {"tf": "map", "child": "base_link"} in conditions
-    assert {"action": "/navigate_to_pose", "type": NAV2_TYPE} in conditions
+    assert {"action": "navigate_to_pose", "type": NAV2_TYPE} in conditions
+    assert all(
+        not str(c.get(kind_of(c))).startswith("/") for c in conditions if kind_of(c) != "tf"
+    ), "relative, so they resolve under a fleet vehicle's namespace"
+
+
+def test_namespace_resolves_relative_names(graph: FakeGraph) -> None:
+    """Under a namespace the example's conditions name the vehicle's own nodes and topics."""
+    graph.namespace = "/ugv2"
+    graph.states = {"/ugv2/bt_navigator": "active", "/bt_navigator": "inactive"}
+    graph.topics = {"/ugv2/map": ["nav_msgs/msg/OccupancyGrid"]}
+    graph.offer_action("/ugv2/navigate_to_pose", NAV2_TYPE)
+    graph.edges = {("map", "odom"), ("odom", "base_link")}
+    conditions = [
+        {"lifecycle": "bt_navigator"},
+        {"topic": "map", "type": "nav_msgs/msg/OccupancyGrid"},
+        {"action": "navigate_to_pose", "type": NAV2_TYPE},
+        {"tf": "map", "child": "base_link"},
+        {"lifecycle": "/bt_navigator"},
+    ]
+    statuses = evaluate(conditions, graph)
+    assert [s.ok for s in statuses] == [True, True, True, True, False]
+    assert statuses[4].detail == "inactive", "an absolute name stays at the root"
+
+
+def test_normalise_namespace() -> None:
+    assert normalise_namespace("") == "/"
+    assert normalise_namespace("/") == "/"
+    assert normalise_namespace("ugv1") == "/ugv1"
+    assert normalise_namespace("/ugv1/") == "/ugv1"
+    assert normalise_namespace(" fleet/ugv1 ") == "/fleet/ugv1"
+
+
+def test_main_takes_the_namespace_from_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = tmp_path / "robot.yaml"
+    manifest.write_text("runtime:\n  ready:\n    conditions: [{node: probe}]\n")
+    seen: dict[str, str] = {}
+
+    def factory() -> FakeGraph:
+        graph = FakeGraph()
+        graph.namespace = "/ugv7"
+        graph.node_names = ["/ugv7/probe"]
+        seen["made"] = "yes"
+        return graph
+
+    argv = ["--manifest", str(manifest), "--timeout", "1"]
+    monkeypatch.setenv("FIELDPROOF_NAMESPACE", "ugv7")
+    out = io.StringIO()
+    assert main(argv, graph_factory=factory, out=out) == 0
+    assert "namespace: /ugv7" in out.getvalue()
+    assert seen == {"made": "yes"}
+    monkeypatch.delenv("FIELDPROOF_NAMESPACE")
+    out = io.StringIO()
+    assert main(argv, graph_factory=factory, out=out) == 0
+    assert "namespace:" not in out.getvalue()
+    out = io.StringIO()
+    code = main(
+        ["--manifest", str(manifest), "--timeout", "1", "--namespace", "/ugv7/"],
+        graph_factory=factory,
+        out=out,
+    )
+    assert code == 0
+    assert "namespace: /ugv7" in out.getvalue()
 
 
 def test_load_conditions_without_ready(tmp_path: Path) -> None:

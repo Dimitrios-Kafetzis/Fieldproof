@@ -39,7 +39,8 @@ def test_bridge_gen_writes_the_bundle(tmp_path: Path) -> None:
         "/ugv1/imu/data",
         "/ugv1/odom",
         "/ugv1/camera/image",
-        "/tf",
+        "/ugv1/tf",
+        "/ugv1/tf_static",
         "/clock",
     } <= names
 

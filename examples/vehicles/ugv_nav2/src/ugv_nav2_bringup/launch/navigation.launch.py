@@ -8,7 +8,10 @@ TurtleBot demos, without the demo's simulation and visualisation dependencies): 
 server, all under the lifecycle manager, with the parameters of config/nav2.yaml. Topics are
 remapped exactly as Nav2 expects: the controller and the behaviours publish `cmd_vel_nav`, the
 velocity smoother reads it and publishes `cmd_vel_smoothed`, the collision monitor publishes the
-vehicle's `cmd_vel`.
+vehicle's `cmd_vel`. Under a `namespace` the parameter file is rewritten with the namespace as
+its root key (nav2_common's RewrittenYaml, as nav2_bringup does): a ROS 2 parameter file names
+its nodes, and `controller_server:` reaches `/controller_server` only, not
+`/ugv1/controller_server`.
 """
 
 from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
@@ -16,6 +19,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, PushRosNamespace, SetParameter
 from launch_ros.descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
+from nav2_common.launch import RewrittenYaml
 
 from launch import LaunchDescription
 
@@ -42,7 +46,15 @@ def generate_launch_description() -> LaunchDescription:
     use_sim_time = LaunchConfiguration("use_sim_time")
     autostart = LaunchConfiguration("autostart")
     log_level = LaunchConfiguration("log_level")
-    params = ParameterFile(LaunchConfiguration("params_file"), allow_substs=True)
+    params = ParameterFile(
+        RewrittenYaml(
+            source_file=LaunchConfiguration("params_file"),
+            param_rewrites={},
+            root_key=namespace,
+            convert_types=True,
+        ),
+        allow_substs=True,
+    )
     # Nav2 publishes TF through relative names so a namespace can be prepended.
     remappings = [("/tf", "tf"), ("/tf_static", "tf_static")]
     arguments = [

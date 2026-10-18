@@ -87,7 +87,7 @@ the model publishes.
 | --- | --- | --- | --- | --- |
 | drive command | `cmd_vel` `gz.msgs.Twist` (input) | | | `cmd_vel` `geometry_msgs/msg/Twist` |
 | odometry (DiffDrive) | `odom` `gz.msgs.Odometry` | 50 Hz | `odom` → `base_link` | `odom` `nav_msgs/msg/Odometry` |
-| transform (DiffDrive) | `tf` `gz.msgs.Pose_V` | 50 Hz | `odom` → `base_link` | `/tf` `tf2_msgs/msg/TFMessage` (global) |
+| transform (DiffDrive) | `tf` `gz.msgs.Pose_V` | 50 Hz | `odom` → `base_link` | `tf` `tf2_msgs/msg/TFMessage` (`/tf` at the root, `/ugv1/tf` under the namespace `ugv1`: one tree per vehicle) |
 | joint states | `joint_states` `gz.msgs.Model` | physics rate (1 kHz) | | `joint_states` `sensor_msgs/msg/JointState` at 50 Hz (throttled by the bridge) |
 | `lidar` (`gpu_lidar`) | `scan` `gz.msgs.LaserScan` | 10 Hz | `lidar_link` | `scan` `sensor_msgs/msg/LaserScan` |
 | `imu` (`imu`) | `imu` `gz.msgs.IMU` | 100 Hz | `imu_link` | `imu/data` `sensor_msgs/msg/Imu` |

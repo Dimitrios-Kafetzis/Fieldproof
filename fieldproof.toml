@@ -3,7 +3,8 @@
 # it, the bridge containers mount it read-only at /workspace, and `fieldproof run` finds it by
 # walking up from the scenario's directory. Every value shown is the default; the environment
 # variables the compose stack reads (FIELDPROOF_IMAGE_PREFIX, FIELDPROOF_IMAGE_TAG,
-# FIELDPROOF_RENDER, ROS_DOMAIN_ID) override the file, and the command line overrides both.
+# FIELDPROOF_RENDER, ROS_DOMAIN_ID, FIELDPROOF_DISCOVERY) override the file, and the command
+# line overrides both.
 
 [runs]
 directory = "runs"
@@ -13,7 +14,8 @@ network = "fieldproof"
 image_prefix = "ghcr.io/dimitrios-kafetzis/fieldproof-"
 image_tag = "local"
 render = "auto" # gpu when the host has a /dev/dri render node, software otherwise
-ros_domain_id = 0
+ros_domain_id = "auto" # a number, or one derived from the run id (1..100) so runs never share one
+discovery = "multicast" # or "server": a Fast DDS discovery server container per run
 
 [stack]
 worlds = "sim/fieldproof_worlds/worlds"
@@ -27,4 +29,6 @@ world_s = 300.0
 spawn_s = 300.0
 bridge_s = 120.0
 recorder_s = 60.0
+discovery_s = 60.0
+contract_s = 180.0
 teardown_s = 10.0

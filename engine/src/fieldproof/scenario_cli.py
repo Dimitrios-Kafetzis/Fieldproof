@@ -95,6 +95,7 @@ def resolve(
     render: str | None = None,
     domain_id: int | None = None,
     network: str | None = None,
+    discovery: str | None = None,
     run_id: str | None = None,
     video: bool | None = None,
 ) -> tuple[Scenario, Plan]:
@@ -109,6 +110,8 @@ def resolve(
     config = load_config(config_path, start=scenario.directory)
     if render is not None and render not in ("auto", "gpu", "software"):
         raise ScenarioError(f"--render {render!r}: expected auto, gpu or software")
+    if discovery is not None and discovery not in ("multicast", "server"):
+        raise ScenarioError(f"--discovery {discovery!r}: expected multicast or server")
     resolved = plan(
         scenario,
         config,
@@ -117,6 +120,7 @@ def resolve(
         render=render,
         domain_id=domain_id,
         network=network,
+        discovery=discovery,
     )
     return scenario, resolved
 
@@ -124,7 +128,10 @@ def resolve(
 def describe(scenario: Scenario, resolved: Plan) -> str:
     """One line about a resolved scenario."""
     vehicles = ", ".join(
-        f"{v.name} ({v.manifest.name}, {v.container.image})" for v in resolved.vehicles
+        f"{v.name} ({v.manifest.name}, {v.container.image}"
+        + (f", /{v.namespace}" if v.namespace else "")
+        + ")"
+        for v in resolved.vehicles
     )
     return (
         f"world {resolved.world.name}, {len(resolved.vehicles)} vehicle(s): {vehicles}; "
@@ -203,6 +210,21 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
         str | None,
         typer.Option("--network", help="Docker network the containers join.", show_default=False),
     ] = None,
+    discovery: Annotated[
+        str | None,
+        typer.Option(
+            "--discovery",
+            help="DDS discovery of the run: multicast, or server (a Fast DDS discovery server).",
+            show_default=False,
+        ),
+    ] = None,
+    check_contracts: Annotated[
+        bool,
+        typer.Option(
+            "--check-contracts",
+            help="Run every vehicle's bridge contract check once its bridge is up.",
+        ),
+    ] = False,
     keep: Annotated[
         bool, typer.Option("--keep", help="Leave the containers running at the end.")
     ] = False,
@@ -236,6 +258,7 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             render=render,
             domain_id=domain_id,
             network=network,
+            discovery=discovery,
             run_id=run_id,
             video=video,
         )
@@ -253,7 +276,7 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
     log = RunLog(
         resolved.run_id, file=resolved.run_dir / LOG_FILE, console=console, verbose=not quiet
     )
-    execution = Run(resolved, backend, log, keep=keep)
+    execution = Run(resolved, backend, log, keep=keep, check_contracts=check_contracts)
     previous = {
         signal.SIGINT: signal.getsignal(signal.SIGINT),
         signal.SIGTERM: signal.getsignal(signal.SIGTERM),

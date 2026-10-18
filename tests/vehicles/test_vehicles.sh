@@ -235,7 +235,7 @@ PY
       fail "readiness probe or HEALTHCHECK missing: $health"
     fi
     probe="$(run fieldproof-vehicle-ready --timeout 3 2>&1)" && probe_status=0 || probe_status=$?
-    if [[ "$probe_status" -eq 1 && "$probe" == *"not ready after"*"10 of 10 pending"*"/bt_navigator lifecycle unavailable"*"map->base_link tf no frames yet"*"/navigate_to_pose action no server"* ]]; then
+    if [[ "$probe_status" -eq 1 && "$probe" == *"not ready after"*"10 of 10 pending"*"bt_navigator lifecycle unavailable"*"map->base_link tf no frames yet"*"navigate_to_pose action no server"* ]]; then
       pass "the probe alone reports the 10 conditions pending and exits 1"
     else
       fail "the probe alone exited $probe_status: $probe"
@@ -305,7 +305,7 @@ else
   # The probe's last line is its verdict (the earlier lines show discovery in progress).
   wait_out="$("${FIELDPROOF[@]}" vehicle wait "$MANIFEST" --name "$CONTAINER" --timeout 5 2>&1)" && wait_status=0 || wait_status=$?
   verdict="$(tail -n 1 <<<"$wait_out")"
-  if [[ "$wait_status" -eq 1 && "$verdict" == "not ready after"*"/bt_navigator lifecycle inactive"* && "$verdict" != *"/slam_toolbox lifecycle"* ]]; then
+  if [[ "$wait_status" -eq 1 && "$verdict" == "not ready after"*"bt_navigator lifecycle inactive"* && "$verdict" != *"slam_toolbox lifecycle"* ]]; then
     pass "fieldproof vehicle wait exits 1 without the bridge: Nav2 pending, SLAM Toolbox ready"
   else
     fail "fieldproof vehicle wait exited $wait_status: $wait_out"

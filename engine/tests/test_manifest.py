@@ -18,9 +18,11 @@ from fieldproof.manifest import (
     BRIDGE_TOPICS,
     DEFAULT_BASE_IMAGE,
     DEFAULT_ROSDISTRO_COMMIT,
+    Resources,
     RobotManifest,
     json_schema,
     load_manifest,
+    memory_bytes,
     validate_data,
 )
 from fieldproof_bridge.manifest import Manifest as BridgeManifest
@@ -122,7 +124,15 @@ def test_example_vehicle_extends_the_reference(nav2: RobotManifest, ugv: RobotMa
         assert (nav2.directory / params).is_file(), params
     assert nav2.unswapped() == [], "every interface of the model has a field driver"
     provided = {t for d in runtime.drivers for t in d.provides}
-    assert provided == set(nav2.interfaces()) | {"/tf_static", "/robot_description"}
+    assert provided == set(nav2.interfaces()) | {"tf_static", "robot_description"}
+    assert runtime.entrypoint.launch is not None
+    assert runtime.entrypoint.launch.namespace_arg == "namespace"
+    assert runtime.entrypoint.argv(namespace="ugv2")[-1] == "namespace:=ugv2"
+    assert runtime.dds_profile == "src/ugv_nav2_bringup/config/fastdds.xml"
+    assert (nav2.directory / runtime.dds_profile).is_file()
+    assert runtime.dds_profile_env() == {
+        "FASTRTPS_DEFAULT_PROFILES_FILE": "/opt/fieldproof/dds/profile.xml"
+    }
     assert runtime.ready is not None
     assert runtime.ready.timeout_s == 180
     assert runtime.resources is not None
@@ -185,6 +195,14 @@ def test_minimal_runtime(ugv: RobotManifest, runtime: dict[str, Any]) -> None:
         (lambda r: r["ready"].__setitem__("timeout_s", 0), "timeout_s"),
         (lambda r: r["resources"].__setitem__("memory", "lots"), "resources.memory"),
         (lambda r: r["resources"].__setitem__("cpus", -1), "resources.cpus"),
+        (lambda r: r["resources"].__setitem__("cpuset", "0-"), "resources.cpuset"),
+        (lambda r: r["resources"].__setitem__("cpuset", "a"), "resources.cpuset"),
+        (lambda r: r.__setitem__("dds_profile", "/etc/fastdds.xml"), "dds_profile: .*relative"),
+        (lambda r: r.__setitem__("dds_profile", "../other.xml"), "dds_profile: .*relative"),
+        (
+            lambda r: r["entrypoint"]["launch"].__setitem__("namespace_arg", "my ns"),
+            "namespace_arg",
+        ),
         (lambda r: r.__setitem__("typo", 1), "runtime.typo: Extra inputs"),
     ],
 )
@@ -195,6 +213,74 @@ def test_runtime_errors(runtime: dict[str, Any], mutate: Any, message: str) -> N
     data["runtime"] = broken
     with pytest.raises(ManifestError, match=message):
         validate_data(data)
+
+
+def test_resources_merge_and_memory_units() -> None:
+    base = Resources(cpus=2.0, memory="2g")
+    assert base.merged(None) is base
+    merged = base.merged(Resources(memory="3g", cpuset="0-1"))
+    assert merged.to_dict() == {"cpus": 2.0, "cpuset": "0-1", "memory": "3g"}
+    assert base.to_dict() == {"cpus": 2.0, "memory": "2g"}, "unchanged"
+    assert Resources().to_dict() == {}
+    assert memory_bytes("2g") == 2 * 1024**3
+    assert memory_bytes("512m") == 512 * 1024**2
+    assert memory_bytes("1.5G") == int(1.5 * 1024**3)
+    assert memory_bytes("64k") == 64 * 1024
+    assert memory_bytes("1024") == 1024
+    assert memory_bytes("2gb") == 2 * 1024**3
+
+
+def test_launch_arguments_for_namespace_and_prefix(runtime: dict[str, Any]) -> None:
+    data = yaml.safe_load(UGV_MANIFEST.read_text())
+    runtime["entrypoint"]["launch"]["args"] = {"use_sim_time": True}
+    runtime["entrypoint"]["launch"]["namespace_arg"] = "robot_namespace"
+    runtime["entrypoint"]["launch"]["frame_prefix_arg"] = "tf_prefix"
+    data["runtime"] = runtime
+    entrypoint = validate_data(data).runtime.entrypoint  # type: ignore[union-attr]
+    assert entrypoint.takes_namespace()
+    assert entrypoint.argv() == [
+        "ros2",
+        "launch",
+        "bot_bringup",
+        "bringup.launch.py",
+        "use_sim_time:=true",
+    ]
+    assert entrypoint.argv(namespace="ugv2", frame_prefix="ugv2/") == [
+        "ros2",
+        "launch",
+        "bot_bringup",
+        "bringup.launch.py",
+        "use_sim_time:=true",
+        "robot_namespace:=ugv2",
+        "tf_prefix:=ugv2/",
+    ]
+    assert entrypoint.argv(namespace="", frame_prefix="")[-1] == "use_sim_time:=true"
+    runtime["entrypoint"] = {"command": ["ros2", "run", "bot", "main"]}
+    data["runtime"] = runtime
+    entrypoint = validate_data(data).runtime.entrypoint  # type: ignore[union-attr]
+    assert not entrypoint.takes_namespace()
+    assert entrypoint.argv(namespace="ugv2") == ["ros2", "run", "bot", "main"]
+
+
+def test_dds_profile_environment(runtime: dict[str, Any]) -> None:
+    data = yaml.safe_load(UGV_MANIFEST.read_text())
+    runtime["dds_profile"] = "config/dds.xml"
+    data["runtime"] = runtime
+    assert validate_data(data).runtime.dds_profile_env() == {  # type: ignore[union-attr]
+        "FASTRTPS_DEFAULT_PROFILES_FILE": "/opt/fieldproof/dds/profile.xml"
+    }
+    runtime["env"] = {"RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp"}
+    data["runtime"] = runtime
+    assert validate_data(data).runtime.dds_profile_env() == {  # type: ignore[union-attr]
+        "CYCLONEDDS_URI": "file:///opt/fieldproof/dds/profile.xml"
+    }
+    runtime["env"] = {"RMW_IMPLEMENTATION": "rmw_zenoh_cpp"}
+    data["runtime"] = runtime
+    with pytest.raises(ManifestError, match="no known profile variable for RMW 'rmw_zenoh_cpp'"):
+        validate_data(data).runtime.dds_profile_env()  # type: ignore[union-attr]
+    runtime.pop("dds_profile")
+    data["runtime"] = runtime
+    assert validate_data(data).runtime.dds_profile_env() == {}  # type: ignore[union-attr]
 
 
 def test_bridge_topics_may_be_provided(runtime: dict[str, Any]) -> None:

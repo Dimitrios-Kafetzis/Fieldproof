@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Fast DDS profile of the example UGV, as deployed on the vehicle (task P2-T01): the field
+  stack's DDS configuration, which Fieldproof mounts into the vehicle container unchanged
+  (robot.yaml, `runtime.dds_profile`; FASTRTPS_DEFAULT_PROFILES_FILE names it to the RMW).
+
+  The vehicle talks UDP over its own network: the default participant uses one UDPv4 transport
+  with socket buffers large enough for the camera's 1 to 5 MB images, and leaves the built-in
+  shared-memory transport out, which a field computer running the stack as one process tree
+  does not need. In a container the same profile works as it does on the vehicle.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>ugv_udp</transport_id>
+        <type>UDPv4</type>
+        <sendBufferSize>8388608</sendBufferSize>
+        <receiveBufferSize>8388608</receiveBufferSize>
+        <maxMessageSize>65500</maxMessageSize>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="ugv_nav2_participant" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>ugv_udp</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

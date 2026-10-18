@@ -4,7 +4,9 @@ Every operation maps to one or two Docker API calls; errors of the daemon surfac
 :class:`BackendError` with the container's name, so the runner can record and continue its
 teardown. Commands run inside containers through the low-level exec API so their output streams
 line by line (the readiness probe prints what is still pending) and their exit code is read
-afterwards.
+afterwards. The runner drives a fleet from several threads at once (task P2-T01); the SDK's
+client holds one HTTP session, which is not meant to be shared, so each thread gets its own
+client to the same daemon unless one was injected.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import io
 import math
 import tarfile
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -21,17 +24,50 @@ from docker.errors import APIError, DockerException, ImageNotFound, NotFound
 from docker.models.containers import Container
 from docker.types import Mount as DockerMount
 
-from fieldproof.backend import BackendError, ContainerSpec, ContainerState, ExecResult, LineSink
+from fieldproof.backend import (
+    BackendError,
+    ContainerSpec,
+    ContainerState,
+    ExecResult,
+    HostInfo,
+    LineSink,
+)
 
 
 class DockerBackend:
     """Containers through the Docker daemon the environment points at (``DOCKER_HOST``)."""
 
     def __init__(self, client: docker.DockerClient | None = None) -> None:
+        self._shared = client
+        self._local = threading.local()
+        if client is None:
+            self._local.client = self._connect()
+
+    @staticmethod
+    def _connect() -> docker.DockerClient:
         try:
-            self.client = client if client is not None else docker.from_env()
+            return docker.from_env()
         except DockerException as error:
             raise BackendError(f"cannot reach the Docker daemon: {error}") from error
+
+    @property
+    def client(self) -> docker.DockerClient:
+        """The injected client, or this thread's own connection to the daemon."""
+        if self._shared is not None:
+            return self._shared
+        client = getattr(self._local, "client", None)
+        if client is None:
+            client = self._connect()
+            self._local.client = client
+        return client
+
+    def host(self) -> HostInfo:
+        """The daemon's cores and memory (`docker info`)."""
+        try:
+            info = self.client.info()
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"cannot read the daemon's info: {error}") from error
+        return HostInfo(int(info.get("NCPU") or 0), int(info.get("MemTotal") or 0))
 
     # ------------------------------------------------------------------------------- images
     def image_exists(self, image: str) -> bool:
@@ -71,6 +107,7 @@ class DockerBackend:
                 devices=[f"{d}:{d}:rwm" for d in spec.devices],
                 group_add=list(spec.group_add),
                 nano_cpus=int(spec.cpus * 1e9) if spec.cpus is not None else None,
+                cpuset_cpus=spec.cpuset,
                 mem_limit=spec.memory,
                 pids_limit=spec.pids,
                 user=spec.user,

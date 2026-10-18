@@ -26,13 +26,15 @@ runtime:
     # ros/rosdistro commit and installed from the base image's apt snapshots.
   entrypoint:
     # The field bringup launch, unchanged; the simulation only sets the clock and swaps the
-    # drivers. Every other argument keeps its field default (parameter files included).
+    # drivers. Every other argument keeps its field default (parameter files included). In a
+    # fleet the orchestrator adds `namespace:=<vehicle namespace>` (task P2-T01).
     launch:
       package: ugv_nav2_bringup
       file: bringup.launch.py
       args:
         use_sim_time: true
         drivers: false
+      namespace_arg: namespace
   params:
     # Read by the launch exactly as in the field (installed with the package).
     - src/ugv_nav2_bringup/config/nav2.yaml
@@ -43,12 +45,12 @@ runtime:
     - name: base
       package: controller_manager
       executable: ros2_control_node
-      provides: [cmd_vel, odom, joint_states, /tf]
+      provides: [cmd_vel, odom, joint_states, tf]
       note: ros2_control with diff_drive_controller and joint_state_broadcaster
     - name: description
       package: robot_state_publisher
       executable: robot_state_publisher
-      provides: [/tf_static, /robot_description]
+      provides: [tf_static, robot_description]
       note: the bridge publishes the same description from the manifest's xacro
     - name: lidar
       package: rplidar_ros
@@ -69,22 +71,28 @@ runtime:
   ready:
     # Nav2's lifecycle nodes active, SLAM Toolbox publishing the map and the map -> odom
     # transform (it starts after the first scan; a goal sent before it is aborted by the
-    # planner), the navigation action up.
+    # planner), the navigation action up. Names are relative, so they resolve under the
+    # vehicle's namespace in a fleet (`/ugv1/bt_navigator`) and at the root alone.
     timeout_s: 180
     conditions:
-      - lifecycle: /bt_navigator
-      - lifecycle: /controller_server
-      - lifecycle: /planner_server
-      - lifecycle: /behavior_server
-      - lifecycle: /velocity_smoother
-      - lifecycle: /collision_monitor
-      - lifecycle: /slam_toolbox
-      - topic: /map
+      - lifecycle: bt_navigator
+      - lifecycle: controller_server
+      - lifecycle: planner_server
+      - lifecycle: behavior_server
+      - lifecycle: velocity_smoother
+      - lifecycle: collision_monitor
+      - lifecycle: slam_toolbox
+      - topic: map
         type: nav_msgs/msg/OccupancyGrid
       - tf: map
         child: base_link
-      - action: /navigate_to_pose
+      - action: navigate_to_pose
         type: nav2_msgs/action/NavigateToPose
+  # The vehicle's own DDS profile, as deployed on it: mounted into the container and named to
+  # the RMW (FASTRTPS_DEFAULT_PROFILES_FILE for Fast DDS), see docs/reference/manifest.md.
+  dds_profile: src/ugv_nav2_bringup/config/fastdds.xml
   resources:
+    # cgroup limits of the container (`--cpus`, `--memory`); `cpuset` would pin it to cores and
+    # `pids` cap its processes. A scenario may override any of them per vehicle.
     cpus: 2.0
     memory: 2g

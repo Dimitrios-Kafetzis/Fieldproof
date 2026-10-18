@@ -61,15 +61,34 @@ def test_environment_overrides(tmp_path: Path) -> None:
         "FIELDPROOF_IMAGE_TAG": "sha-abc",
         "FIELDPROOF_RENDER": "software",
         "ROS_DOMAIN_ID": "7",
+        "FIELDPROOF_DISCOVERY": "server",
     }
     config = load_config(start=tmp_path, env=env)
     assert config.image("sim") == "example.test/fp-sim:sha-abc"
     assert config.docker.render == "software"
     assert config.docker.ros_domain_id == 7
+    assert config.docker.discovery == "server"
+    assert load_config(start=tmp_path, env={"ROS_DOMAIN_ID": "auto"}).docker.ros_domain_id == "auto"
     with pytest.raises(ConfigError, match="ROS_DOMAIN_ID"):
         load_config(start=tmp_path, env={"ROS_DOMAIN_ID": "seven"})
+    with pytest.raises(ConfigError, match="ROS_DOMAIN_ID"):
+        load_config(start=tmp_path, env={"ROS_DOMAIN_ID": "300"})
     with pytest.raises(ConfigError):
         load_config(start=tmp_path, env={"FIELDPROOF_RENDER": "vulkan"})
+    with pytest.raises(ConfigError, match="FIELDPROOF_DISCOVERY"):
+        load_config(start=tmp_path, env={"FIELDPROOF_DISCOVERY": "gossip"})
+
+
+def test_domain_and_discovery_defaults(tmp_path: Path) -> None:
+    config = load_config(start=tmp_path, env=NO_ENV)
+    assert config.docker.ros_domain_id == "auto", "a domain per run unless configured"
+    assert config.docker.discovery == "multicast"
+    assert config.timeouts.discovery_s == 60.0
+    assert config.timeouts.contract_s == 180.0
+    (tmp_path / "fieldproof.toml").write_text('[docker]\nros_domain_id = 5\ndiscovery = "server"\n')
+    config = load_config(start=tmp_path, env=NO_ENV)
+    assert config.docker.ros_domain_id == 5
+    assert config.docker.discovery == "server"
 
 
 @pytest.mark.parametrize(
@@ -78,6 +97,9 @@ def test_environment_overrides(tmp_path: Path) -> None:
         ("[docker]\nnetwork = 3\n", "docker.network"),
         ("[docker]\nrender = 'metal'\n", "docker.render"),
         ("[docker]\nros_domain_id = 500\n", "ros_domain_id"),
+        ("[docker]\nros_domain_id = 'any'\n", "ros_domain_id"),
+        ("[docker]\ndiscovery = 'gossip'\n", "docker.discovery"),
+        ("[timeouts]\ncontract_s = 0\n", "timeouts.contract_s"),
         ("[timeouts]\nworld_s = 0\n", "timeouts.world_s"),
         ("[runs]\nfolder = 'x'\n", "runs.folder"),
         ("[unknown]\nkey = 1\n", "unknown"),
