@@ -291,6 +291,35 @@ def test_render_junit_drops_control_characters(tmp_path: Path) -> None:
     assert error.get("message") == "badbyte[0m kept\ttab"
 
 
+def test_video_in_the_reports(run_dir: Path) -> None:
+    (run_dir / "video").mkdir()
+    (run_dir / "video" / "spectator.mp4").write_bytes(b"\x00" * 3072)
+    video = {"camera": "spectator", "file": "video/spectator.mp4", "bytes": 3072, "status": "saved"}
+    report = build_report(record(video=video), run_dir)
+    assert report["video"] == video
+    text = render_markdown(report)
+    assert "- Video from camera `spectator` (3.0 KB): `video/spectator.mp4`" in text
+    assert text.count("video/spectator.mp4") == 1
+    junit = ET.fromstring(render_junit(report))  # noqa: S314 (our own document)
+    assert junit.find("testsuite/properties/property[@name='video']").get("value") == (  # type: ignore[union-attr]
+        "video/spectator.mp4"
+    )
+    failed = {
+        "camera": "spectator",
+        "file": "video/spectator.mp4",
+        "bytes": None,
+        "status": "error",
+        "reason": "the recorder refused to start",
+    }
+    report = build_report(record(video=failed), run_dir)
+    text = render_markdown(report)
+    assert "- No video from camera `spectator`: the recorder refused to start" in text
+    assert "- `video/spectator.mp4`" in text, "a stale file is listed as a plain artefact"
+    properties = ET.fromstring(render_junit(report)).find("testsuite/properties")  # noqa: S314
+    assert properties is not None
+    assert "video" not in {p.get("name") for p in properties}
+
+
 def test_write_and_load(run_dir: Path) -> None:
     report = write_reports(record(), run_dir)
     assert (run_dir / REPORT_JSON).is_file()

@@ -395,6 +395,37 @@
     <include><name>box_workshop_2</name><uri>model://cardboard_box</uri><pose>-2.4 1.5 0.16 0 0 0.4</pose></include>
     <include><name>box_yard_1</name><uri>model://cardboard_box</uri><pose>13.5 -1.5 0.31 0 0 0</pose></include>
 
+    <!-- ============================================================ spectator camera -->
+    <!-- A fixed camera in the yard looking at the roller door, for the demo video (issue #46):
+         frames the loading dock (spawn_dock, inside the door) and the goal 4 m south of it.
+         Gazebo's CameraVideoRecorder system attached to it encodes an mp4 on request: the
+         runner starts and stops it through the service below when a scenario sets
+         outputs.video (docs/reference/scenarios.md). Idle, the sensor renders nothing (it has
+         no subscriber), so the camera costs the world nothing until a video is asked for. -->
+    <model name="spectator_camera">
+      <static>true</static>
+      <pose>12.5 -7.0 4.0 0 0.414 1.881</pose>
+      <link name="link">
+        <sensor name="spectator" type="camera">
+          <topic>spectator/image</topic>
+          <update_rate>15</update_rate>
+          <always_on>true</always_on>
+          <visualize>false</visualize>
+          <camera>
+            <horizontal_fov>1.0</horizontal_fov>
+            <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>60</far></clip>
+          </camera>
+          <plugin filename="gz-sim-camera-video-recorder-system" name="gz::sim::systems::CameraVideoRecorder">
+            <service>/spectator/record_video</service>
+            <use_sim_time>true</use_sim_time>
+            <fps>15</fps>
+            <bitrate>4000000</bitrate>
+          </plugin>
+        </sensor>
+      </link>
+    </model>
+
     <!-- ============================================================ drums, cones, barriers -->
     <!-- 55-gallon drums and jersey barriers from Fuel (cylinder and box collisions), traffic
          cones from fieldproof_worlds/models/traffic_cone. All static. -->

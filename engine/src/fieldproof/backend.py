@@ -114,3 +114,6 @@ class Backend(Protocol):
 
     def find(self, label: str, value: str) -> list[str]:
         """Names of every container carrying `label=value`, running or not."""
+
+    def copy_from(self, name: str, path: str, destination: Path) -> int:
+        """Copy a file out of a container to `destination`; return the bytes written."""

@@ -98,6 +98,20 @@ file. Fuel and package models are included as `model://<dir>`; both kinds are in
 `share/fieldproof_worlds/models`, which the package's environment hook puts on
 `GZ_SIM_RESOURCE_PATH` next to `share/fieldproof_worlds/worlds`.
 
+### The spectator camera
+
+The depot carries one fixed camera sensor, `spectator` (model `spectator_camera`, in the yard
+at (12.5, −7, 4) looking down at the roller door from the south-east, above the chicane),
+framing the loading bay behind the door, `spawn_dock` and the yard in front of it: the course
+of the first scenario. It renders 1280 × 720 at 15 Hz (a 1.0 rad lens), and only while Gazebo's
+`CameraVideoRecorder` system attached to it is recording: idle, it has no subscriber and
+renders nothing, so it costs the world tests and every run without `outputs.video` nothing;
+recording, it roughly halves the simulator's real-time factor on a GPU workstation
+([scenarios.md](scenarios.md#video)). The runner starts and stops the recorder through its
+service `/spectator/record_video` and copies the MP4 into the run directory
+([scenarios.md](scenarios.md#video)). Another world offers the same by declaring a camera
+sensor with the plugin and a `<service>` of `/<sensor name>/record_video`.
+
 ## The asset pipeline
 
 Assets follow the convention of [`assets/README.md`](https://github.com/Dimitrios-Kafetzis/Fieldproof/blob/main/assets/README.md):

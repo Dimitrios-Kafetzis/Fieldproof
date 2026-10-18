@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The M1 demo (task P1-T07; docs/plan/02-roadmap.md, "Milestone demos"): from a fresh clone to
-# `fieldproof run examples/scenarios/ugv_nav_to_goal.yaml` ending with PASS, a report and an
-# MCAP recording to open in Foxglove Studio. The same steps run in CI
+# `fieldproof run examples/scenarios/ugv_nav_to_goal.yaml` ending with PASS, a report, a video
+# of the drive from the depot's spectator camera and an MCAP recording to open in Foxglove
+# Studio. The same steps run in CI
 # (.github/workflows/scenario-tests.yml) on a GitHub-hosted runner.
 #
 # Usage: examples/demo_m1.sh [OPTIONS]
@@ -11,6 +12,8 @@
 #   --no-pull           do not pull the stack images (they are already present)
 #   --rebuild-vehicle   rebuild the example vehicle image even when it is present
 #   --scenario FILE     run FILE instead of examples/scenarios/ugv_nav_to_goal.yaml
+#   --no-video          do not record the video of the drive (`fieldproof run --video` is
+#                       passed otherwise; the camera halves the simulator's speed)
 #   --dry-run           print the commands without running them
 #   --help              this text
 #
@@ -30,6 +33,7 @@ STACK_IMAGES=(base-ros2 sim bridge)
 VEHICLE_MANIFEST="examples/vehicles/ugv_nav2/robot.yaml"
 
 scenario="examples/scenarios/ugv_nav_to_goal.yaml"
+video_flag="--video"
 pull=true
 rebuild_vehicle=false
 dry_run=false
@@ -58,6 +62,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "demo_m1: --scenario needs a file" >&2; exit 2; }
       scenario="$2"
       shift 2
+      ;;
+    --no-video)
+      video_flag="--no-video"
+      shift
       ;;
     --dry-run)
       dry_run=true
@@ -123,7 +131,7 @@ fi
 run_id="m1-demo-$(date -u +%Y%m%dT%H%M%SZ)"
 step "Run the scenario (run id ${run_id})"
 status=0
-run uv run --locked --project engine fieldproof run "$scenario" --run-id "$run_id" || status=$?
+run uv run --locked --project engine fieldproof run "$scenario" --run-id "$run_id" "$video_flag" || status=$?
 if [[ "$dry_run" == true ]]; then
   step "Dry run: nothing was executed"
   exit 0
@@ -142,6 +150,10 @@ for assertion in report["assertions"]:
     print(f"  {assertion['status']:>7}  {assertion['name']} ({assertion['type']}): {assertion['reason'] or '-'}")
 PY
   echo "report:  ${run_dir}/report.md (also report.json and junit.xml)"
+fi
+videos=("$run_dir"/video/*.mp4)
+if [[ -f "${videos[0]}" ]]; then
+  echo "video:   ${videos[*]} (the drive seen from the depot's spectator camera; any player opens it)"
 fi
 mcaps=("$run_dir"/recording/*.mcap)
 if [[ -f "${mcaps[0]}" ]]; then

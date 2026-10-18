@@ -96,7 +96,7 @@ such as `90s`, `1m30s` or `2h`.
 | `time` | [ADR-0006](../adr/0006-sim-time-default-realtime-locked-mode.md): `mode` (`sim` by default; `realtime` validates but is refused by the runner until task P2-T04), `rtf` (target real-time factor, applied to the world's physics after it loads; absent: the world's own setting), `tolerance` (allowed deviation, recorded, enforced in the real-time-locked mode), `timeout_s` (the wall-clock budget of the run from the moment every vehicle is ready; 600 s by default) |
 | `timeline[]` | the actions of the run, in order of `at` (seconds after every vehicle is ready, wall clock in v0). One action in v0: `navigate_to_pose` with `vehicle`, `goal` (a placement in the world), `timeout_s` (300 s) and an optional `name` for the record; the event injection framework of task P2-T03 adds the rest |
 | `assertions[]` | `name` (unique) and `type` (`reach_pose`, `within_time`, `topic_rate`, `no_collision`, `topic_value`) with the parameters of the type ([assertions.md](assertions.md#the-primitives)); a `vehicle` must be one of the scenario's, a `within_time.action` the `name` of a timeline entry, a `topic_value.condition` a valid expression |
-| `outputs` | `directory` (where `runs/<run_id>` goes; the workspace's `runs` by default), `record` (record to MCAP, `false` by default) and `topics` (the allow-list; every topic when empty; the `/fieldproof/*` side channels always, [assertions.md](assertions.md#recording)), `logs` (keep the containers' logs in the run directory, `true` by default) |
+| `outputs` | `directory` (where `runs/<run_id>` goes; the workspace's `runs` by default), `record` (record to MCAP, `false` by default) and `topics` (the allow-list; every topic when empty; the `/fieldproof/*` side channels always, [assertions.md](assertions.md#recording)), `logs` (keep the containers' logs in the run directory, `true` by default), `video` (a video of the run from a camera of the world: `true` for the world's `spectator` camera, or `camera: <sensor name>` and `format: mp4`; `false` by default, see [Video](#video)) |
 
 ### Placements
 
@@ -183,6 +183,35 @@ for a look (`docker rm -f $(docker ps -aq --filter label=io.fieldproof.run)` rem
 `--dry-run` prints the resolved plan (containers, commands, mounts, poses) as JSON without
 touching Docker, `--quiet` hides the output of the commands run in the containers.
 
+### Video
+
+`outputs.video` records the run from a camera of the world (issue #46, the M1 demo video):
+`true` uses the world's `spectator` camera, `camera: <name>` another one. The camera is a
+`<sensor type="camera">` of the world file carrying Gazebo's `CameraVideoRecorder` system,
+whose `<service>` is `/<camera>/record_video` by convention
+([worlds.md](worlds.md#the-spectator-camera)); `fieldproof validate` and `fieldproof run`
+refuse a scenario naming a camera the world does not have. The runner starts the recording
+through that service when the timeline starts and stops it when the timeline ends, whatever
+ended it, waits for the encoder to close the file (`VIDEO_SETTLE_S`, 15 s), copies it out of
+the simulator container into `video/<camera>.mp4` in the run directory and reports it
+(`run.json` `video`, the reports' artefacts, the `video` property of `junit.xml`,
+`fieldproof run`'s last line). The video is best effort: a recorder that refuses to
+start, a file that never appears or a copy that fails is a `video.error` warning in
+`engine.log` and a `status: error` in the record, and the run's verdict is unchanged.
+`fieldproof run --video` and `--no-video` override the scenario: the example scenario leaves
+the video off and the M1 demo (`examples/demo_m1.sh`) turns it on with `--video`.
+
+The recorder encodes in simulation time (`<use_sim_time>`), so the clip plays at the pace
+the robot drove, however slowly the simulator ran. Rendering the camera costs the simulator a
+render pass per frame on top of the GPU lidar's: on a GPU workstation the example's drive takes
+about twice as long in wall-clock time with the video on (the real-time factor falls from about
+0.9 to 0.45 and the GPU lidar, which shares the render queue, from 9 Hz to about 4 Hz of
+simulation time); with software rendering on a two-core CI runner the lidar falls to about
+1 Hz. A video therefore changes what a scenario measures, which is why the example keeps it
+off and a scenario whose assertions watch sensor rates should not ask for one on a host without
+a GPU. A camera with no recording in progress renders nothing, so the cost is only paid when a
+video is asked for.
+
 ### The run directory
 
 `run_id = <scenario-hash>-<timestamp>-<short-uuid>`: the first eight hex digits of the SHA-256
@@ -195,7 +224,8 @@ or `outputs.directory`; `runs/` is git-ignored):
 | `scenario.yaml` | the scenario file as it was run |
 | `run.json` | the record: `run_id`, the scenario's name, path and hash, the engine version, `started_at`, `finished_at`, the current `phase`, the `status` and `reason`, every phase with its start, end and duration, the `vehicles` (name, manifest, namespace, image), the containers with their images, the timeline entries with their status, duration and detail (`goal SUCCEEDED`, `goal ABORTED`, `no result within 300 s`), the `assertions` with their verdict, reason, time and evidence, the `observation` (samples, simulation time covered, problems), the `time` settings and the `stack` (network, render mode, domain id, world, images); rewritten at every phase change and verdict, so a run that died still has a record |
 | `engine.log` | one JSON object per line (`ts`, `t` seconds since the start, `run_id`, `level`, `event`, `message` and the event's fields): the phases, every container started and stopped, the readiness probe's lines, the actions and their results, the verdicts (`assertion.passed`, `assertion.failed`), the teardown, the recording and report written; what the console shows, with the same events |
-| `observe.json`, `samples.jsonl`, `assertions.jsonl`, `recording/`, `report.json`, `report.md` | the observer's plan and stream, the verdicts, the MCAP recording and the report ([assertions.md](assertions.md#the-run-directory)) |
+| `observe.json`, `samples.jsonl`, `assertions.jsonl`, `recording/`, `report.json`, `report.md`, `junit.xml` | the observer's plan and stream, the verdicts, the MCAP recording and the reports ([assertions.md](assertions.md#the-run-directory)) |
+| `video/<camera>.mp4` | the video of the run from the world's camera, when `outputs.video` is set ([Video](#video)) |
 | `logs/sim.log`, `logs/bridge-<vehicle>.log`, `logs/recorder.log`, `logs/vehicle-<vehicle>.log` | the containers' output, saved during the teardown when `outputs.logs` is true |
 
 ### Status and exit codes

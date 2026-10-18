@@ -41,6 +41,10 @@ class FakeClock:
         self.t += seconds
 
 
+FAKE_MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 2040
+"""What the fake simulator's recorder "wrote": an ISO media file header and padding."""
+
+
 @dataclass
 class FakeBackend:
     """A runtime whose answers the tests script."""
@@ -63,6 +67,14 @@ class FakeBackend:
     rtf_result: ExecResult = field(default_factory=lambda: ExecResult(0, "data: true\n"))
     fail_start: dict[str, BaseException] = field(default_factory=dict)
     fail_stop: set[str] = field(default_factory=set)
+    # The world's video recorder: the answers to the start and stop requests, whether the file
+    # exists once stopped, what copying it does.
+    video_start_result: ExecResult = field(default_factory=lambda: ExecResult(0, "data: true\n"))
+    video_stop_result: ExecResult = field(default_factory=lambda: ExecResult(0, "data: true\n"))
+    video_file_polls_needed: int = 1
+    video_file_polls: int = 0
+    fail_copy: bool = False
+    copies: list[tuple[str, str, Path]] = field(default_factory=list)
     exit_on_poll: dict[str, int] = field(default_factory=dict)
     polls: dict[str, int] = field(default_factory=dict)
     # The observer of the recorder container, scripted: the samples written into the run
@@ -128,11 +140,16 @@ class FakeBackend:
                 on_line(line)
         return result
 
-    def _answer(self, container: FakeContainer, argv: tuple[str, ...]) -> ExecResult:
+    def _answer(self, container: FakeContainer, argv: tuple[str, ...]) -> ExecResult:  # noqa: PLR0911
         command = " ".join(argv)
         role = container.spec.role
         if role == "sim" and "set_physics" in command:
             return self.rtf_result
+        if role == "sim" and "record_video" in command:
+            return self.video_stop_result if "stop: true" in command else self.video_start_result
+        if role == "sim" and command.startswith("bash -lc test -s "):
+            self.video_file_polls += 1
+            return ExecResult(0 if self.video_file_polls >= self.video_file_polls_needed else 1, "")
         if role == "sim":
             ready = self.polls[container.spec.name] >= self.world_polls_needed
             return ExecResult(0, WORLD_LIST if ready else "/world/depot/control\n")
@@ -167,3 +184,12 @@ class FakeBackend:
 
     def find(self, label: str, value: str) -> list[str]:
         return [n for n, c in self.containers.items() if c.spec.labels.get(label) == value]
+
+    def copy_from(self, name: str, path: str, destination: Path) -> int:
+        self.copies.append((name, path, destination))
+        if self.fail_copy:
+            raise BackendError(f"{name}: no such container or file {path}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        data = FAKE_MP4
+        destination.write_bytes(data)
+        return len(data)

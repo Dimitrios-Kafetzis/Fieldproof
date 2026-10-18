@@ -18,8 +18,11 @@ Runs after ``test_ugv_nav2.py`` (pytest orders the files by name) against the sa
    container of the run is left behind ("a manual interrupted run leaves no containers
    behind", automated);
 3. ``examples/scenarios/ugv_nav_fails_on_time.yaml``, the same run with one second for the
-   drive: exit code 1, status ``failed`` naming ``arrived_in_time``, the other assertions
-   passed, no recording ("forcing a short timeout yields FAIL with the right assertion named").
+   drive, with ``--video``: exit code 1, status ``failed`` naming ``arrived_in_time``, the other
+   assertions passed, no recording ("forcing a short timeout yields FAIL with the right
+   assertion named"), and the video of the drive from the depot's spectator camera saved
+   (issue #46; the run asserts no sensor rate, so the camera's cost changes nothing it
+   measures).
 
 When the first run fails, the run directory's ``engine.log`` and the containers' logs are
 printed, since CI keeps nothing else of the run.
@@ -152,7 +155,10 @@ def test_01_fieldproof_run_passes(tmp_path: Path) -> None:
     check_observer_files(run_dir, record)
     mcaps = check_recording(run_dir)
     check_reports(run_dir, mcaps)
+    assert record["video"] is None, "the example records no video (see the scenario file)"
+    assert not (run_dir / "video").exists()
     assert "PASS ugv_nav_to_goal" in plain(completed.stdout)
+    assert "video:" not in plain(completed.stdout)
     events = [
         json.loads(line)["event"] for line in (run_dir / "engine.log").read_text().splitlines()
     ]
@@ -262,6 +268,29 @@ def check_reports(run_dir: Path, mcaps: list[Path]) -> None:
     ] == f"recording/{mcaps[0].name}"
 
 
+def check_video(run_dir: Path, record: dict[str, Any]) -> None:
+    """The video from the depot's spectator camera (issue #46): an MP4 file of the drive,
+    written by Gazebo's CameraVideoRecorder and copied out of the simulator. Checked on the
+    failing example, run with ``--video``: that run asserts no sensor rate, so the camera's
+    cost with software rendering (it starves the GPU lidar on a CI runner) changes nothing
+    it measures, and the video of a failed run is kept."""
+    video = run_dir / "video" / "spectator.mp4"
+    assert video.is_file(), list(run_dir.iterdir())
+    size = video.stat().st_size
+    print(f"video: {size} bytes", flush=True)  # noqa: T201
+    assert size > 100_000, "a few seconds of 720p video"
+    assert video.read_bytes()[4:8] == b"ftyp", "an ISO base media file"
+    assert record["video"] == {
+        "camera": "spectator",
+        "file": "video/spectator.mp4",
+        "bytes": size,
+        "status": "saved",
+    }
+    report = json.loads((run_dir / "report.json").read_text())
+    assert report["video"]["status"] == "saved"
+    assert "- Video from camera `spectator`" in (run_dir / "report.md").read_text()
+
+
 def mcap_topics(path: Path) -> dict[str, int]:
     """Topic to message count of an MCAP file; every channel must carry a ROS 2 schema."""
     from mcap.reader import make_reader  # noqa: PLC0415  (a development dependency of the engine)
@@ -336,6 +365,7 @@ def test_03_failing_scenario_names_the_assertion(tmp_path: Path) -> None:
         "--run-id",
         run_id,
         "-q",
+        "--video",
     ]
     print(f"$ {shlex.join(command)}", flush=True)  # noqa: T201
     completed = subprocess.run(  # noqa: S603
@@ -373,3 +403,5 @@ def test_03_failing_scenario_names_the_assertion(tmp_path: Path) -> None:
     assert suite.find("testcase[@name='arrived_in_time']/failure") is not None
     assert "FAIL ugv_nav_fails_on_time" in plain(completed.stdout)
     assert "FAIL arrived_in_time (within_time)" in plain(completed.stdout)
+    check_video(run_dir, record)
+    assert f"video: {run_dir / 'video' / 'spectator.mp4'}" in plain(completed.stdout)

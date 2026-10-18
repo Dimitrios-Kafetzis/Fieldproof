@@ -14,8 +14,22 @@ isolated containers, fed by simulated sensors from a physics engine, orchestrate
 scenario engine, and observed through a browser-based 3D cockpit. Every scenario is an automated
 test with pass/fail assertions, so field testing becomes verification of what already passed.
 
-> Status: Phase 1 (Vertical slice) in progress, towards milestone M1 (the first scenario passes,
-> in CI too). See [docs/plan/STATUS.md](docs/plan/STATUS.md).
+> Status: milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2
+> (the scenario engine) is next. See [docs/plan/STATUS.md](docs/plan/STATUS.md).
+
+## See it run
+
+![The example UGV leaves the depot's loading bay through the roller door and reaches its goal in the yard, seen from the world's spectator camera](docs/media/m1-demo.gif)
+
+The first scenario as Fieldproof itself records it: the example UGV, running an unmodified Nav2
+and SLAM Toolbox stack in its own container, drives from the depot's loading dock through the
+roller door to a goal in the yard while five assertions check the run. The clip comes from a
+camera sensor in the world (`fieldproof run --video`, or `outputs.video` in a scenario),
+encoded headlessly by the simulator and saved into the run directory next to the MCAP
+recording and the reports;
+[the full-resolution MP4](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/download/v0.10.0/fieldproof-m1-demo.mp4)
+is attached to the v0.10.0 release. Every run of the quick start below produces its own under
+`runs/<run_id>/video/`.
 
 ## Quick start
 
@@ -33,9 +47,10 @@ examples/demo_m1.sh      # or: make demo
 The demo pulls the published images (about 7 GB the first time), fetches the pinned Gazebo Fuel
 models, builds the example vehicle image on the published base (a few minutes) and runs
 `fieldproof run examples/scenarios/ugv_nav_to_goal.yaml`. It ends with `PASS`, one line per
-assertion, the report (`runs/<run_id>/report.md`, `report.json`, `junit.xml`) and the MCAP
-recording (`runs/<run_id>/recording/`), which opens in [Foxglove Studio](https://foxglove.dev/) to
-show the robot's path. The same chain runs on every push to `main` and nightly in the
+assertion, the report (`runs/<run_id>/report.md`, `report.json`, `junit.xml`), the video of the
+drive (`runs/<run_id>/video/spectator.mp4`) and the MCAP recording (`runs/<run_id>/recording/`),
+which opens in [Foxglove Studio](https://foxglove.dev/) to show the robot's path. The same chain
+runs on every push to `main` and nightly in the
 [Scenario tests](https://github.com/Dimitrios-Kafetzis/Fieldproof/actions/workflows/scenario-tests.yml)
 workflow ([docs/setup/ci.md](docs/setup/ci.md#scenario-tests)).
 

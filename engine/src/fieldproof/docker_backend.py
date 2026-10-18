@@ -9,8 +9,11 @@ afterwards.
 
 from __future__ import annotations
 
+import io
 import math
+import tarfile
 from collections.abc import Sequence
+from pathlib import Path
 
 import docker
 import requests
@@ -176,6 +179,27 @@ class DockerBackend:
         except (APIError, requests.RequestException) as error:
             raise BackendError(f"cannot list containers: {error}") from error
         return [str(c.name) for c in containers]
+
+    def copy_from(self, name: str, path: str, destination: Path) -> int:
+        """Copy a file out of a container to `destination`; return the bytes written."""
+        try:
+            stream, _stat = self.client.containers.get(name).get_archive(path)
+            archive = io.BytesIO(b"".join(stream))
+        except NotFound as error:
+            raise BackendError(f"{name}: no such container or file {path}") from error
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: cannot copy {path}: {error}") from error
+        with tarfile.open(fileobj=archive) as tar:
+            members = [m for m in tar.getmembers() if m.isfile()]
+            if not members:
+                raise BackendError(f"{name}: {path} is not a file")
+            extracted = tar.extractfile(members[0])
+            if extracted is None:
+                raise BackendError(f"{name}: {path} cannot be read")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            data = extracted.read()
+        destination.write_bytes(data)
+        return len(data)
 
     # ---------------------------------------------------------------------------------- helpers
     @staticmethod

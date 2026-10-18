@@ -118,6 +118,7 @@ def build_report(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         "timeline": list(record.get("timeline") or []),
         "phases": list(record.get("phases") or []),
         "recording": _recording(artifacts),
+        "video": record.get("video"),
         "artifacts": artifacts,
         "run_dir": str(run_dir),
     }
@@ -224,17 +225,35 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines += ["", "## Phases", "", "| Phase | Duration |", "| --- | --- |"]
     for phase in report.get("phases") or []:
         lines.append(f"| {phase.get('name')} | {_fmt(phase.get('duration_s'), ' s')} |")
-    lines += ["", "## Artefacts", ""]
+    lines += ["", "## Artefacts", "", *_artefact_lines(report)]
+    return "\n".join(lines) + "\n"
+
+
+def _artefact_lines(report: dict[str, Any]) -> list[str]:
+    """The artefacts list: the recording, the video, then every other file."""
+    lines = []
     recording = report.get("recording")
     if recording:
         files = ", ".join(f"`{p}`" for p in recording["mcap"]) or f"`{recording['directory']}/`"
         lines.append(f"- Recording (MCAP, {_size(recording['bytes'])}): {files}")
     else:
         lines.append("- No recording (`outputs.record` was off).")
+    video = report.get("video") or {}
+    if video.get("status") == "saved":
+        lines.append(
+            f"- Video from camera `{video['camera']}` ({_size(int(video['bytes'] or 0))}): "
+            f"`{video['file']}`"
+        )
+    elif video:
+        lines.append(
+            f"- No video from camera `{video['camera']}`: {video.get('reason') or video['status']}"
+        )
+    saved_video = video.get("file") if video.get("status") == "saved" else None
     for artifact in report.get("artifacts") or []:
-        if not artifact["path"].startswith(f"{RECORDING_DIR}/"):
-            lines.append(f"- `{artifact['path']}` ({_size(artifact['bytes'])})")
-    return "\n".join(lines) + "\n"
+        path = artifact["path"]
+        if not path.startswith(f"{RECORDING_DIR}/") and path != saved_video:
+            lines.append(f"- `{path}` ({_size(artifact['bytes'])})")
+    return lines
 
 
 def _junit_time(value: Any) -> str:
@@ -289,6 +308,9 @@ def render_junit(report: dict[str, Any]) -> str:
         "timeline_duration_s": report.get("timeline_duration_s"),
         "sim_elapsed_s": report.get("sim_elapsed_s"),
         "recording": ", ".join(recording.get("mcap") or []) or None,
+        "video": (report.get("video") or {}).get("file")
+        if (report.get("video") or {}).get("status") == "saved"
+        else None,
         "run_dir": report.get("run_dir"),
     }
     for key, value in facts.items():

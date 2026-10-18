@@ -189,6 +189,22 @@
           "description": "Keep the containers' logs in the run directory.",
           "title": "Logs",
           "type": "boolean"
+        },
+        "video": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoOutput"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Record a video of the run from a camera of the world (`video/<camera>.mp4` in the run directory); `true` uses the world's `spectator` camera.",
+          "title": "Video"
         }
       },
       "title": "Outputs",
@@ -661,6 +677,28 @@
       "title": "Vehicle",
       "type": "object"
     },
+    "VideoOutput": {
+      "additionalProperties": false,
+      "description": "A video of the run from a camera of the world (issue #46).\n\nThe camera is a `<sensor type=\"camera\">` of the world file with Gazebo's\n`CameraVideoRecorder` system attached; the runner starts the recording when the timeline\nstarts, stops it when the timeline ends and copies the file into the run directory.",
+      "properties": {
+        "camera": {
+          "default": "spectator",
+          "description": "Name of the world's camera sensor (its recorder service is `/<camera>/record_video`).",
+          "minLength": 1,
+          "title": "Camera",
+          "type": "string"
+        },
+        "format": {
+          "const": "mp4",
+          "default": "mp4",
+          "description": "Container format of the file.",
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "title": "VideoOutput",
+      "type": "object"
+    },
     "WithinTime": {
       "additionalProperties": false,
       "description": "A timeline action completes successfully within a duration of its start.",
@@ -799,7 +837,8 @@
         "directory": null,
         "record": false,
         "topics": [],
-        "logs": true
+        "logs": true,
+        "video": null
       }
     }
   },

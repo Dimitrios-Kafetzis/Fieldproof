@@ -20,7 +20,7 @@ import hashlib
 import math
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -34,6 +34,7 @@ from pydantic import (
     PrivateAttr,
     ValidationError,
     WithJsonSchema,
+    field_validator,
     model_validator,
 )
 
@@ -323,6 +324,23 @@ Assertion = Annotated[
 ]
 
 
+class VideoOutput(Strict):
+    """A video of the run from a camera of the world (issue #46).
+
+    The camera is a `<sensor type="camera">` of the world file with Gazebo's
+    `CameraVideoRecorder` system attached; the runner starts the recording when the timeline
+    starts, stops it when the timeline ends and copies the file into the run directory.
+    """
+
+    camera: str = Field(
+        default="spectator",
+        min_length=1,
+        description="Name of the world's camera sensor (its recorder service is "
+        "`/<camera>/record_video`).",
+    )
+    format: Literal["mp4"] = Field(default="mp4", description="Container format of the file.")
+
+
 class Outputs(Strict):
     """What the run writes."""
 
@@ -338,6 +356,20 @@ class Outputs(Strict):
         description="Topics to record (all if empty; the `/fieldproof/*` side channels always).",
     )
     logs: bool = Field(default=True, description="Keep the containers' logs in the run directory.")
+    video: VideoOutput | bool | None = Field(
+        default=None,
+        description="Record a video of the run from a camera of the world (`video/<camera>.mp4` "
+        "in the run directory); `true` uses the world's `spectator` camera.",
+    )
+
+    @field_validator("video", mode="after")
+    @classmethod
+    def _video_from_bool(cls, value: VideoOutput | bool | None) -> VideoOutput | None:
+        if value is True:
+            return VideoOutput()
+        if value is False:
+            return None
+        return value
 
 
 class Scenario(Strict):
@@ -477,10 +509,19 @@ class WorldInfo:
     file: Path
     name: str
     frames: dict[str, Pose]
+    cameras: dict[str, str] = field(default_factory=dict)
+    """Camera sensors with a `CameraVideoRecorder` plugin: sensor name to its service."""
+
+
+VIDEO_RECORDER_PLUGIN = "gz::sim::systems::CameraVideoRecorder"
 
 
 def read_world(file: Path) -> WorldInfo:
-    """The world's name and named frames (`<frame name="..."><pose>x y z r p y</pose>`)."""
+    """The world's name, its named frames and the cameras a video can be recorded from.
+
+    Frames are `<frame name="..."><pose>x y z r p y</pose>`; cameras are the `<sensor
+    type="camera">` elements carrying a `CameraVideoRecorder` plugin (`outputs.video`).
+    """
     try:
         root = ET.parse(file).getroot()  # noqa: S314  (a world file of the workspace)
     except (OSError, ET.ParseError) as error:
@@ -495,7 +536,14 @@ def read_world(file: Path) -> WorldInfo:
         if name and len(values) == 6:
             x, y, z, _roll, _pitch, yaw = (float(v) for v in values)
             frames[name] = Pose(x, y, z, yaw)
-    return WorldInfo(file, str(world.get("name")), frames)
+    cameras: dict[str, str] = {}
+    for sensor in world.iter("sensor"):
+        if sensor.get("type") != "camera" or not sensor.get("name"):
+            continue
+        for plugin in sensor.findall("plugin"):
+            if plugin.get("name") == VIDEO_RECORDER_PLUGIN and plugin.findtext("service"):
+                cameras[str(sensor.get("name"))] = str(plugin.findtext("service")).strip()
+    return WorldInfo(file, str(world.get("name")), frames, cameras)
 
 
 def place(placement: Placement, world: WorldInfo, what: str) -> Pose:
