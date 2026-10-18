@@ -128,7 +128,7 @@ def test_example_loads(example: Scenario) -> None:
     assert example.outputs.logs is True
     assert example.outputs.record is True
     assert "/clock" in example.outputs.topics
-    assert example.outputs.video == VideoOutput(camera="spectator", format="mp4")
+    assert example.outputs.video is None, "the demo turns it on with --video"
 
 
 def test_video_output_forms(data: dict[str, Any]) -> None:

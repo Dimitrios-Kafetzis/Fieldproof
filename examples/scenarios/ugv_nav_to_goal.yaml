@@ -68,7 +68,10 @@ assertions:
 outputs:
   logs: true
   record: true # recording/*.mcap in the run directory (opens in Foxglove Studio)
-  video: true # video/spectator.mp4 from the depot's spectator camera (the demo video)
+  # video: true records the drive from the depot's spectator camera (video/spectator.mp4), as
+  # the M1 demo does with `fieldproof run --video`; off here because rendering the camera
+  # halves the simulator's speed and starves the lidar with software rendering, which would
+  # change what the assertions measure (docs/reference/scenarios.md#video).
   topics: # the allow-list; the /fieldproof/* side channels are always recorded
     - /clock
     - /tf

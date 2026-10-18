@@ -104,6 +104,15 @@ def clock() -> FakeClock:
     return FakeClock()
 
 
+@pytest.fixture
+def filmed(config: Config, tmp_path: Path) -> Plan:
+    """The example with `outputs.video: true`, as `fieldproof run --video` runs it."""
+    scenario = scenario_variant(lambda d: d["outputs"].update({"video": True}))
+    return plan(
+        scenario, config, runs_dir=tmp_path / "runs", render="software", now=NOW, token=SUFFIX
+    )
+
+
 def scenario_variant(mutate: Callable[[dict[str, Any]], None]) -> Scenario:
     """The example with a change, as if loaded from the example's path."""
     text = EXAMPLE.read_text()
@@ -584,7 +593,8 @@ def test_recording_is_reported(config: Config, clock: FakeClock, tmp_path: Path)
 
 
 # ------------------------------------------------------------------------------------ video
-def test_video_is_recorded_and_saved(resolved: Plan, clock: FakeClock) -> None:
+def test_video_is_recorded_and_saved(filmed: Plan, clock: FakeClock) -> None:
+    resolved = filmed
     assert resolved.video is not None
     assert resolved.video.camera == "spectator"
     assert resolved.video.service == "/spectator/record_video"
@@ -632,7 +642,8 @@ def test_video_is_recorded_and_saved(resolved: Plan, clock: FakeClock) -> None:
     )
 
 
-def test_video_start_refused_is_a_warning(resolved: Plan, clock: FakeClock) -> None:
+def test_video_start_refused_is_a_warning(filmed: Plan, clock: FakeClock) -> None:
+    resolved = filmed
     backend = ready_backend(resolved)
     backend.video_start_result = ExecResult(1, "Service call timed out\n")
     record, log = execute(resolved, backend, clock)
@@ -650,7 +661,8 @@ def test_video_start_refused_is_a_warning(resolved: Plan, clock: FakeClock) -> N
     )
 
 
-def test_video_copy_failure_is_a_warning(resolved: Plan, clock: FakeClock) -> None:
+def test_video_copy_failure_is_a_warning(filmed: Plan, clock: FakeClock) -> None:
+    resolved = filmed
     backend = ready_backend(resolved)
     backend.fail_copy = True
     record, log = execute(resolved, backend, clock)
@@ -661,7 +673,8 @@ def test_video_copy_failure_is_a_warning(resolved: Plan, clock: FakeClock) -> No
     assert "video.error" in [e["event"] for e in log.events]
 
 
-def test_video_never_written_is_a_warning(resolved: Plan, clock: FakeClock) -> None:
+def test_video_never_written_is_a_warning(filmed: Plan, clock: FakeClock) -> None:
+    resolved = filmed
     backend = ready_backend(resolved)
     backend.video_file_polls_needed = 10_000
     record, _log = execute(resolved, backend, clock)
@@ -672,7 +685,8 @@ def test_video_never_written_is_a_warning(resolved: Plan, clock: FakeClock) -> N
     assert backend.copies == []
 
 
-def test_video_stops_when_the_action_fails(resolved: Plan, clock: FakeClock) -> None:
+def test_video_stops_when_the_action_fails(filmed: Plan, clock: FakeClock) -> None:
+    resolved = filmed
     backend = ready_backend(resolved)
     backend.goal_result = ExecResult(0, "Goal finished with status: ABORTED\n")
     record, _log = execute(resolved, backend, clock)
@@ -681,10 +695,8 @@ def test_video_stops_when_the_action_fails(resolved: Plan, clock: FakeClock) -> 
     assert record.video["status"] == "saved", "the video of a failed run is kept"
 
 
-def test_without_video(config: Config, clock: FakeClock, tmp_path: Path) -> None:
-    scenario = scenario_variant(lambda d: d["outputs"].pop("video"))
-    resolved = plan(scenario, config, runs_dir=tmp_path, render="software", token=SUFFIX)
-    assert resolved.video is None
+def test_without_video(resolved: Plan, clock: FakeClock) -> None:
+    assert resolved.video is None, "the example records no video"
     assert resolved.to_dict()["video"] is None
     backend = ready_backend(resolved)
     record, log = execute(resolved, backend, clock)

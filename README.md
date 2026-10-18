@@ -24,8 +24,9 @@ test with pass/fail assertions, so field testing becomes verification of what al
 The first scenario as Fieldproof itself records it: the example UGV, running an unmodified Nav2
 and SLAM Toolbox stack in its own container, drives from the depot's loading dock through the
 roller door to a goal in the yard while five assertions check the run. The clip comes from a
-camera sensor in the world (`outputs.video` in the scenario), encoded headlessly by the
-simulator and saved into the run directory next to the MCAP recording and the reports;
+camera sensor in the world (`fieldproof run --video`, or `outputs.video` in a scenario),
+encoded headlessly by the simulator and saved into the run directory next to the MCAP
+recording and the reports;
 [the full-resolution MP4](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/download/v0.10.0/fieldproof-m1-demo.mp4)
 is attached to the v0.10.0 release. Every run of the quick start below produces its own under
 `runs/<run_id>/video/`.

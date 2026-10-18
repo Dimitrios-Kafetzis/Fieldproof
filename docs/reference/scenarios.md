@@ -198,16 +198,19 @@ the simulator container into `video/<camera>.mp4` in the run directory and repor
 `fieldproof run`'s last line). The video is best effort: a recorder that refuses to
 start, a file that never appears or a copy that fails is a `video.error` warning in
 `engine.log` and a `status: error` in the record, and the run's verdict is unchanged.
-`fieldproof run --video` and `--no-video` override the scenario (for a host where rendering
-the camera is too dear, or to film a scenario that does not ask for it).
+`fieldproof run --video` and `--no-video` override the scenario: the example scenario leaves
+the video off and the M1 demo (`examples/demo_m1.sh`) turns it on with `--video`.
 
 The recorder encodes in simulation time (`<use_sim_time>`), so the clip plays at the pace
 the robot drove, however slowly the simulator ran. Rendering the camera costs the simulator a
 render pass per frame on top of the GPU lidar's: on a GPU workstation the example's drive takes
 about twice as long in wall-clock time with the video on (the real-time factor falls from about
 0.9 to 0.45 and the GPU lidar, which shares the render queue, from 9 Hz to about 4 Hz of
-simulation time), and software rendering pays more. A camera with no recording in progress
-renders nothing, so the cost is only paid when a video is asked for.
+simulation time); with software rendering on a two-core CI runner the lidar falls to about
+1 Hz. A video therefore changes what a scenario measures, which is why the example keeps it
+off and a scenario whose assertions watch sensor rates should not ask for one on a host without
+a GPU. A camera with no recording in progress renders nothing, so the cost is only paid when a
+video is asked for.
 
 ### The run directory
 

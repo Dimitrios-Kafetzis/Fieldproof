@@ -12,6 +12,8 @@
 #   --no-pull           do not pull the stack images (they are already present)
 #   --rebuild-vehicle   rebuild the example vehicle image even when it is present
 #   --scenario FILE     run FILE instead of examples/scenarios/ugv_nav_to_goal.yaml
+#   --no-video          do not record the video of the drive (`fieldproof run --video` is
+#                       passed otherwise; the camera halves the simulator's speed)
 #   --dry-run           print the commands without running them
 #   --help              this text
 #
@@ -31,6 +33,7 @@ STACK_IMAGES=(base-ros2 sim bridge)
 VEHICLE_MANIFEST="examples/vehicles/ugv_nav2/robot.yaml"
 
 scenario="examples/scenarios/ugv_nav_to_goal.yaml"
+video_flag="--video"
 pull=true
 rebuild_vehicle=false
 dry_run=false
@@ -59,6 +62,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "demo_m1: --scenario needs a file" >&2; exit 2; }
       scenario="$2"
       shift 2
+      ;;
+    --no-video)
+      video_flag="--no-video"
+      shift
       ;;
     --dry-run)
       dry_run=true
@@ -124,7 +131,7 @@ fi
 run_id="m1-demo-$(date -u +%Y%m%dT%H%M%SZ)"
 step "Run the scenario (run id ${run_id})"
 status=0
-run uv run --locked --project engine fieldproof run "$scenario" --run-id "$run_id" || status=$?
+run uv run --locked --project engine fieldproof run "$scenario" --run-id "$run_id" "$video_flag" || status=$?
 if [[ "$dry_run" == true ]]; then
   step "Dry run: nothing was executed"
   exit 0
