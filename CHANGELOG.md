@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.11.0...v0.12.0) (2026-10-18)
+
+
+### Features
+
+* **engine:** orchestrate fleets of vehicles with namespaces, isolation and budgets ([#49](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/49)) ([8dae9b3](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/8dae9b38d3769ee5bb93f6d0d233810436861790))
+
 ## [0.11.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.10.0...v0.11.0) (2026-10-18)
 
 
