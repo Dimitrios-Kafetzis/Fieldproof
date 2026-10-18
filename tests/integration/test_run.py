@@ -9,7 +9,8 @@ Runs after ``test_ugv_nav2.py`` (pytest orders the files by name) against the sa
    scenario, ``run.json`` with status ``passed``, the goal ``SUCCEEDED`` and the five assertions
    ``passed`` with evidence, the observer's stream, an MCAP recording that the ``mcap`` library
    reads back with the recorded topics and the three ``/fieldproof/*`` side channels, the
-   reports, ``engine.log`` and the four containers' logs, and no container of the run is left
+   reports (the JUnit document of task P1-T07 included), ``engine.log`` and the four
+   containers' logs, and no container of the run is left
    (the P1-T06 definition of done: "the UGV scenario reports PASS with per-assertion evidence",
    "MCAP opens in Foxglove Studio" by way of a valid MCAP with ROS 2 schemas);
 2. a second run is interrupted with SIGINT while the stack is coming up (as soon as its
@@ -39,6 +40,7 @@ import signal
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -240,6 +242,24 @@ def check_reports(run_dir: Path, mcaps: list[Path]) -> None:
     assert markdown.startswith("# Fieldproof run report: ugv_nav_to_goal")
     assert "**PASS**" in markdown
     assert "| `reached_goal` | `reach_pose` | PASS |" in markdown
+    # The JUnit document (task P1-T07): five assertions, the drive and the run, nothing failed.
+    suite = ET.parse(run_dir / "junit.xml").getroot().find("testsuite")  # noqa: S314 (our own document)
+    assert suite is not None
+    assert suite.get("name") == "ugv_nav_to_goal"
+    assert (
+        suite.get("tests"),
+        suite.get("failures"),
+        suite.get("errors"),
+        suite.get("skipped"),
+    ) == (
+        "7",
+        "0",
+        "0",
+        "0",
+    )
+    assert {p.get("name"): p.get("value") for p in suite.find("properties")}[  # type: ignore[union-attr]
+        "recording"
+    ] == f"recording/{mcaps[0].name}"
 
 
 def mcap_topics(path: Path) -> dict[str, int]:
@@ -347,5 +367,9 @@ def test_03_failing_scenario_names_the_assertion(tmp_path: Path) -> None:
     assert report["exit_code"] == 1
     assert report["recording"] is None
     assert "| `arrived_in_time` | `within_time` | FAIL |" in (run_dir / "report.md").read_text()
+    suite = ET.parse(run_dir / "junit.xml").getroot().find("testsuite")  # noqa: S314 (our own document)
+    assert suite is not None
+    assert suite.get("failures") == "2", "the assertion and the run"
+    assert suite.find("testcase[@name='arrived_in_time']/failure") is not None
     assert "FAIL ugv_nav_fails_on_time" in plain(completed.stdout)
     assert "FAIL arrived_in_time (within_time)" in plain(completed.stdout)

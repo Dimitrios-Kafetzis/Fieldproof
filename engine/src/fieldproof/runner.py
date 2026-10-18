@@ -61,7 +61,7 @@ from fieldproof.backend import Backend, BackendError, ContainerSpec, ExecResult,
 from fieldproof.config import Config
 from fieldproof.manifest import RobotManifest
 from fieldproof.observer import FileTail
-from fieldproof.report import REPORT_JSON, REPORT_MD, write_reports
+from fieldproof.report import REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
 from fieldproof.scenario import (
     Assertion,
     NavigateToPose,
@@ -1259,7 +1259,7 @@ class Run:
         self.log.event("teardown.done", f"{removed} container(s) removed", removed=removed)
 
     def write_report(self) -> None:
-        """`report.json` and `report.md` from the record and the run directory."""
+        """`report.json`, `report.md` and `junit.xml` from the record and the run directory."""
         try:
             report = write_reports(self.record.to_dict(), self.plan.run_dir)
         except OSError as error:
@@ -1278,7 +1278,11 @@ class Run:
                 ", ".join(recording["mcap"]) + f" ({recording['bytes']} bytes)",
                 files=recording["mcap"],
             )
-        self.log.event("report.written", f"{REPORT_MD}, {REPORT_JSON}", verdict=report["verdict"])
+        self.log.event(
+            "report.written",
+            f"{REPORT_MD}, {REPORT_JSON}, {REPORT_JUNIT}",
+            verdict=report["verdict"],
+        )
 
 
 def goal_status(result: ExecResult) -> str | None:

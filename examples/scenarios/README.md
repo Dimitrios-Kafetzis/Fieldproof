@@ -14,4 +14,9 @@ Scenario files (`apiVersion: fieldproof.dev/v0alpha1`, `kind: Scenario`,
 uv run --project engine fieldproof validate examples/scenarios/ugv_nav_to_goal.yaml
 uv run --project engine fieldproof run examples/scenarios/ugv_nav_to_goal.yaml    # make run
 uv run --project engine fieldproof report runs/<run_id>                           # the report again
+examples/demo_m1.sh   # make demo: the images, the assets, the vehicle image, then the run
 ```
+
+`ugv_nav_to_goal.yaml` also runs on every push to `main`, nightly and on demand in the Scenario
+tests workflow, against the published images with software rendering
+([ci.md](../../docs/setup/ci.md#scenario-tests)).

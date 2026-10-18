@@ -1,8 +1,9 @@
-"""Tests of the run reports (task P1-T06)."""
+"""Tests of the run reports (task P1-T06) and their JUnit form (task P1-T07)."""
 
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -10,10 +11,12 @@ import pytest
 
 from fieldproof.report import (
     REPORT_JSON,
+    REPORT_JUNIT,
     REPORT_MD,
     ReportError,
     build_report,
     load_record,
+    render_junit,
     render_markdown,
     write_reports,
 )
@@ -162,10 +165,139 @@ def test_render_markdown(run_dir: Path) -> None:
     assert "|" not in text.split("## Artefacts")[1], "artefacts are a list"
 
 
+def test_render_junit(run_dir: Path) -> None:
+    text = render_junit(
+        build_report(record(status="failed", reason="assertion x <failed>"), run_dir)
+    )
+    assert text.startswith('<?xml version="1.0" encoding="utf-8"?>\n<testsuites ')
+    root = ET.fromstring(text)  # noqa: S314 (our own document)
+    assert root.tag == "testsuites"
+    (suite,) = list(root.findall("testsuite"))
+    assert suite.get("name") == "ugv_nav_to_goal"
+    assert suite.get("timestamp") == "2026-10-18T12:00:00.000+00:00"
+    # Three assertions, one timeline entry and the run itself.
+    assert {k: suite.get(k) for k in ("tests", "failures", "errors", "skipped", "time")} == {
+        "tests": "5",
+        "failures": "2",
+        "errors": "0",
+        "skipped": "1",
+        "time": "90.500",
+    }
+    assert {k: root.get(k) for k in ("tests", "failures", "errors", "skipped")} == {
+        "tests": "5",
+        "failures": "2",
+        "errors": "0",
+        "skipped": "1",
+    }
+    properties = {p.get("name"): p.get("value") for p in suite.find("properties")}  # type: ignore[union-attr]
+    assert properties["verdict"] == "FAIL"
+    assert properties["exit_code"] == "1"
+    assert properties["reason"] == "assertion x <failed>"
+    assert properties["recording"] == "recording/recording_0.mcap"
+    assert properties["world"] == "depot"
+    assert properties["sim_elapsed_s"] == "30.5"
+    cases = {(c.get("classname"), c.get("name")): c for c in suite.findall("testcase")}
+    reached = cases[("ugv_nav_to_goal.assertions", "reached_goal")]
+    assert reached.get("time") == "18.200"
+    assert reached.get("type") == "reach_pose"
+    assert list(reached) == [], "a passed assertion has no child element"
+    speed = cases[("ugv_nav_to_goal.assertions", "speed_limit")]
+    (failure,) = list(speed)
+    assert failure.tag == "failure"
+    assert failure.get("type") == "topic_value"
+    assert failure.get("message") == "/cmd_vel linear.x = 1.8 at 3.0 s violates 'value <= 1.5'"
+    assert json.loads(failure.text or "")["violation"] == {"t_s": 3.0, "value": 1.8}
+    late = cases[("ugv_nav_to_goal.assertions", "late")]
+    (skipped,) = list(late)
+    assert skipped.tag == "skipped"
+    assert skipped.get("message") == "ended"
+    assert late.get("time") == "0.000"
+    drive = cases[("ugv_nav_to_goal.timeline", "drive_ahead")]
+    assert drive.get("time") == "22.100"
+    assert drive.get("type") == "navigate_to_pose"
+    assert list(drive) == []
+    run = cases[("ugv_nav_to_goal", "run")]
+    (run_failure,) = list(run)
+    assert run_failure.tag == "failure"
+    assert run_failure.get("message") == "assertion x <failed>"
+    assert run_failure.get("type") == "failed"
+    assert run_failure.text == "FAIL: exit code 1"
+
+
+def test_render_junit_of_a_passed_run(run_dir: Path) -> None:
+    passed = record()
+    passed["assertions"] = [a for a in passed["assertions"] if a["status"] == "passed"]
+    suite = ET.fromstring(render_junit(build_report(passed, run_dir))).find("testsuite")  # noqa: S314 (our own document)
+    assert suite is not None
+    assert (
+        suite.get("tests"),
+        suite.get("failures"),
+        suite.get("errors"),
+        suite.get("skipped"),
+    ) == (
+        "3",
+        "0",
+        "0",
+        "0",
+    )
+    assert all(list(case) == [] for case in suite.findall("testcase"))
+
+
+def test_render_junit_of_a_run_without_verdict(tmp_path: Path) -> None:
+    """A run that ended early: the run case carries an error, a timeline entry that did not
+    complete a failure, pending assertions are skipped."""
+    minimal = {
+        "run_id": "r",
+        "status": "interrupted",
+        "reason": "SIGINT",
+        "timeline": [{"name": "drive", "action": "navigate_to_pose", "status": "interrupted"}],
+        "assertions": [{"name": "a", "type": "reach_pose", "status": "pending", "reason": None}],
+    }
+    root = ET.fromstring(render_junit(build_report(minimal, tmp_path / "missing")))  # noqa: S314 (our own document)
+    suite = root.find("testsuite")
+    assert suite is not None
+    assert suite.get("name") == "r"
+    assert suite.get("timestamp") is None
+    assert (
+        suite.get("tests"),
+        suite.get("failures"),
+        suite.get("errors"),
+        suite.get("skipped"),
+    ) == (
+        "3",
+        "1",
+        "1",
+        "1",
+    )
+    assert root.get("errors") == "1"
+    by_name = {c.get("name"): c for c in suite.findall("testcase")}
+    assert by_name["a"].find("skipped").get("message") == "pending"  # type: ignore[union-attr]
+    assert by_name["drive"].find("failure").get("message") == "interrupted"  # type: ignore[union-attr]
+    error = by_name["run"].find("error")
+    assert error is not None
+    assert error.get("message") == "SIGINT"
+    assert error.get("type") == "interrupted"
+    assert error.text == "INTERRUPTED: exit code 130"
+    names = {p.get("name") for p in suite.find("properties")}  # type: ignore[union-attr]
+    assert "recording" not in names, "absent facts are absent"
+    assert "world" not in names
+
+
+def test_render_junit_drops_control_characters(tmp_path: Path) -> None:
+    broken = {"run_id": "r", "status": "error", "reason": "bad\x00byte\x1b[0m kept\ttab"}
+    text = render_junit(build_report(broken, tmp_path))
+    error = ET.fromstring(text).find("testsuite/testcase/error")  # noqa: S314 (our own document)
+    assert error is not None
+    assert error.get("message") == "badbyte[0m kept\ttab"
+
+
 def test_write_and_load(run_dir: Path) -> None:
     report = write_reports(record(), run_dir)
     assert (run_dir / REPORT_JSON).is_file()
     assert (run_dir / REPORT_MD).read_text() == render_markdown(report)
+    assert (run_dir / REPORT_JUNIT).read_text() == render_junit(report)
+    root = ET.parse(run_dir / REPORT_JUNIT).getroot()  # noqa: S314 (our own document)
+    assert root.tag == "testsuites"
     assert json.loads((run_dir / REPORT_JSON).read_text())["run_id"] == report["run_id"]
     again = build_report(record(), run_dir)
     assert [a["path"] for a in again["artifacts"]] == [a["path"] for a in report["artifacts"]], (

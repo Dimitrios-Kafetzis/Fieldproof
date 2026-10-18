@@ -189,14 +189,25 @@ compute budgets of Phase 6.
 
 ## Reports
 
-At the end of every run, whatever its status, the runner writes `report.json` and `report.md`
-into the run directory from the record: the verdict and exit code, the scenario, world and
-vehicles, start, end and durations (wall clock, the timeline, the simulation time it covered),
-every assertion with its reason and evidence, the timeline, the phases and the artefacts (the
-MCAP recording first, with its size). `fieldproof report RUN [--format md|json] [--write]`
-renders the same from a run directory, its `run.json` or a run id under the workspace's runs
-directory; `--write` rewrites the two files. JUnit output for CI arrives with task P1-T07, HTML
-with the run database of P2-T06.
+At the end of every run, whatever its status, the runner writes `report.json`, `report.md` and
+`junit.xml` into the run directory from the record: the verdict and exit code, the scenario,
+world and vehicles, start, end and durations (wall clock, the timeline, the simulation time it
+covered), every assertion with its reason and evidence, the timeline, the phases and the
+artefacts (the MCAP recording first, with its size). `fieldproof report RUN [--format
+md|json|junit] [--write]` renders the same from a run directory, its `run.json` or a run id
+under the workspace's runs directory; `--write` rewrites the three files.
+
+The JUnit document (task P1-T07) is the report for CI: one `testsuite` named after the scenario
+with the run's facts as properties (`run_id`, `verdict`, `status`, `exit_code`, `reason`, the
+scenario's path and digest, the world, the engine version, the durations, the MCAP path) and
+one `testcase` per assertion (class `<scenario>.assertions`, its `time` the verdict's `t_s`: a
+`failure` with the reason and the evidence when it failed, `skipped` when it was skipped or
+still pending), per timeline entry (class `<scenario>.timeline`: a `failure` unless its status
+is `ok`) and for the run itself (class `<scenario>`, name `run`: a `failure` when the run
+failed, an `error` when it timed out, errored or was interrupted). The suite's `tests`,
+`failures`, `errors` and `skipped` counts are what a test reporter sums; the Scenario tests
+workflow uploads the document with the run ([ci.md](../setup/ci.md#scenario-tests)). HTML
+arrives with the run database of P2-T06.
 
 ## The run directory
 
@@ -208,7 +219,7 @@ In addition to the files of task P1-T05 ([scenarios.md](scenarios.md#the-run-dir
 | `samples.jsonl` | the observer's stream, one JSON object per line: `kind`, `wall` (epoch seconds), `sim` (simulation seconds or null) and the sample's fields; also `ready`, `subscribed`, `recording`, `error` and `stopped` lines |
 | `assertions.jsonl` | the verdicts in the order they resolved |
 | `recording/` | the MCAP recording and rosbag2's `metadata.yaml`, when `outputs.record` is on |
-| `report.json`, `report.md` | the report |
+| `report.json`, `report.md`, `junit.xml` | the report, as data, as Markdown and as a JUnit document |
 | `logs/recorder.log` | the observer's and `ros2 bag record`'s output |
 
 ## Writing a failing scenario
@@ -226,11 +237,13 @@ It is what a regression looks like, and the integration test runs it.
   of the example recorded in `engine/tests/fixtures/` (the five assertions pass; with a
   one-second `within_time`, exactly that one fails); `test_observer.py`: the pure parts (field
   extraction, rate windows, the file tail, the recorder process) and the observer's loop on fake
-  ROS and Gazebo adapters; `test_report.py`: the report and its Markdown; `test_runner.py`: the
+  ROS and Gazebo adapters; `test_report.py`: the report, its Markdown and its JUnit document
+  (the counts, a failure with its evidence, skipped and pending assertions, a run that ended
+  without a verdict, control characters dropped); `test_runner.py`: the
   recorder container and phase, the assertions on the fake backend (passing, failing, several
   failing, the failing example, skipped when the run ends early, observer errors, the observer
   never ready or exiting), the reports; `test_scenario_cli.py`: the verdicts printed, the exit
-  code of a failed assertion, `fieldproof report`.
+  code of a failed assertion, `fieldproof report` in its three formats.
 - `tests/integration/test_run.py` (`make test-integration`): the example passes against the
   real stack with the five assertions and their evidence, the MCAP read back with the `mcap`
   library (the allow-listed topics and the side channels, ROS 2 schemas on every channel), the

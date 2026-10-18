@@ -10,7 +10,8 @@ Makefile targets.
 
 | Workflow | File | Runs on | Does |
 | --- | --- | --- | --- |
-| CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-layout`, `make test-docs`, `make test-engine`, `make test-cockpit` (plus the Vite build), `make test-host`, and when the change touches the images or the ROS workspaces: build `base-ros2`, `sim`, `dev` from the GHCR layer cache, run `make test-images`, `make test-ros`, `make tidy`, `make test-worlds` and `make test-vehicles` (the example vehicle image built on `base-ros2`) against them |
+| CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-layout`, `make test-docs`, `make test-engine`, `make test-cockpit` (plus the Vite build), `make test-host`, and when the change touches the images or the ROS workspaces: build `base-ros2`, `sim`, `dev` from the GHCR layer cache, run `make test-images`, `make test-ros`, `make tidy`, `make test-worlds`, `make test-vehicles` (the example vehicle image built on `base-ros2`) and `make test-integration` against them |
+| Scenario tests | `.github/workflows/scenario-tests.yml` | push to `main`, nightly, manual (an image tag and a scenario), pull requests that touch the workflow, `tools/ci/scenario-run.sh`, `examples/`, `engine/`, `fieldproof.toml` or the `Makefile` | pull the published `base-ros2`, `sim` and `bridge` images, build the example vehicle image on them, fetch the Fuel models, run the UGV scenario headless with software rendering under the flaky-run policy (one retry, flagged), upload the run (MCAP, reports, JUnit, logs) as artefacts; see [Scenario tests](#scenario-tests) |
 | PR title | `.github/workflows/pr-title.yml` | pull request opened, edited, synchronised | the title must be a Conventional Commit (`make lint-title`), see [Pull request titles](#pull-request-titles) |
 | Images | `.github/workflows/images.yml` | push to `main`, called by Release, manual | build and push `sha-<short>` tags, syft SBOM and Trivy scan per image, then tag `main` (or `vX.Y.Z`) |
 | Release | `.github/workflows/release.yml` | push to `main` | release-please keeps the release pull request current; when it merges, tags `vX.Y.Z`, creates the GitHub release and calls Images |
@@ -70,6 +71,52 @@ write neither. A cold build on a runner takes 10 to 20 minutes depending on the 
 (see [containers.md](containers.md)); with a warm cache the job spends most of its time loading
 the images and running the tests. `tools/ci/free-disk.sh` removes unused runner toolchains
 first, because the images and their cache need about 12 GB.
+
+## Scenario tests
+
+Task P1-T07's proof that the chain is reproducible away from the maintainer's machine:
+`.github/workflows/scenario-tests.yml` runs `examples/scenarios/ugv_nav_to_goal.yaml` on a
+GitHub-hosted `ubuntu-24.04` runner (two cores, no GPU) the way a fresh clone does, from the
+registry rather than from a build:
+
+1. `tools/ci/free-disk.sh`, the Fuel archive cache and uv, as in the image job;
+2. `docker pull` of the published `base-ros2`, `sim` and `bridge` images at
+   `FIELDPROOF_IMAGE_TAG` (`main` by default: the last push to `main` whose images passed the
+   scan; a manual run can name `vX.Y.Z` or `sha-<short>`);
+3. `make assets` and `make vehicle-image`: the example vehicle image built on the published base
+   image (a few minutes, Nav2 from the apt snapshots);
+4. `fieldproof validate`, then `tools/ci/scenario-run.sh --runs-dir runs --render software` on
+   the scenario (a manual run can name another file);
+5. the run directory (`runs/`: every attempt's `run.json`, `engine.log`, the containers' logs,
+   `report.md`, `report.json`, `junit.xml` and `recording/*.mcap`) as the artefact
+   `scenario-run-<run number>-<attempt>` and the final attempt's JUnit document as
+   `scenario-junit-<run number>-<attempt>`, uploaded whatever the outcome and kept 14 days;
+   then a check that no container with the `io.fieldproof.run` label is left on the runner.
+
+**Flaky-run policy.** `tools/ci/scenario-run.sh` runs the scenario once and, when the attempt
+exits with anything but 0, 130 (interrupted) or 2 (usage error), prints a `::warning::`
+annotation and runs it once more (`--retries N` changes the count, `0` disables it); the
+attempts are the run ids `scenario-<name>-attempt1` and `-attempt2`. A run that passes on its
+second attempt is green but flagged: the annotation `Flaky scenario`, the job summary (*Flaky:
+passed on attempt 2 of 2*) and the step output `flaky=true`; both attempts' run directories are
+in the artefact, so the first attempt's logs can be read (the lifecycle stall of issue #32 is
+the known cause). The outcome of the step is the last attempt's: its exit code, its
+`junit.xml`, `report.md` and `report.json` copied to the top of `runs/`, and the outputs
+`run_id`, `run_dir`, `verdict`, `exit_code` and `attempts`. The job summary carries the final
+attempt's report (verdict, assertions with evidence, timeline, phases, artefacts).
+
+**JUnit.** `junit.xml` is written with every run
+([assertions.md](../reference/assertions.md#reports)): one test suite per run with one test
+case per assertion, per timeline entry and for the run itself, so a JUnit consumer (the
+artefact, a test reporter) names the assertion that failed a scenario.
+
+The workflow is not a required status check: a flaky run never blocks a merge, the `CI`
+workflow's image job covers a change to the images themselves (it builds them and runs
+`make test-integration` against the result), and the milestone's definition of done asks for
+three consecutive green runs on `main` instead; the nightly schedule (`20 4 * * *` UTC) adds
+one a day. On a workstation `examples/demo_m1.sh` (`make demo`) is the same chain with the GPU
+when there is one, and `tools/ci/scenario-run.sh examples/scenarios/ugv_nav_to_goal.yaml` the
+same policy.
 
 ## Published images
 
@@ -174,6 +221,7 @@ but never fails the check, because any timestamp is a valid snapshot and it move
 | `make test-images IMAGE_TEST_FLAGS="--quick --no-build"` | the image job's tests against images already built |
 | `make test-vehicles` | the image job's vehicle step: manifests, the generated Dockerfile, the example vehicle image built on the local `base-ros2` and started on a Docker network ([manifest.md](../reference/manifest.md)) |
 | `make test-integration` | the image job's last step: the simulator, the bridge container and the vehicle in the depot, `fieldproof vehicle wait` until Nav2 is active, a `NavigateToPose` goal reached ([manifest.md](../reference/manifest.md#the-integration-test)); then `fieldproof run` of the example scenario with its assertions, MCAP recording and report, an interrupted run, and the failing example scenario ([scenarios.md](../reference/scenarios.md#tests), [assertions.md](../reference/assertions.md#tests)) |
+| `FIELDPROOF_IMAGE_TAG=main tools/ci/scenario-run.sh examples/scenarios/ugv_nav_to_goal.yaml`, `make demo` | the run step of the Scenario tests workflow against the published images, with its flaky-run policy; the demo without it ([Scenario tests](#scenario-tests)) |
 | `make lint-title TITLE="..."` | the PR title check |
 | `make branch-protection` / `tools/ci/branch-protection.sh --check` | the required checks wiring |
 
@@ -182,8 +230,11 @@ schema hooks pass, every action is SHA-pinned with a version comment, permission
 and timeouts are declared, the required check names exist, the gate job depends on every other
 job, the layer test jobs call their Makefile targets, the path filter and cache helpers behave in
 a scratch repository, the release-please and Dependabot configurations agree with `version.txt`
-and commitlint and watch existing directories, `docker buildx bake` reads the compose file, and
-(when the base image is built locally) the Trivy policy passes.
+and commitlint and watch existing directories, `docker buildx bake` reads the compose file,
+(when the base image is built locally) the Trivy policy passes, the scenario workflow pulls the
+published images and uploads the run whatever the outcome, `tools/ci/scenario-run.sh` applies
+the flaky-run policy against a stub `fieldproof`, and `examples/demo_m1.sh` prints the quick
+start's commands in a dry run.
 
 ## Troubleshooting
 

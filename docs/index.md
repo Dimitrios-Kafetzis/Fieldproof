@@ -10,8 +10,29 @@ automated test with pass/fail assertions, so field testing becomes verification 
 passed.
 
 !!! note "Status"
-    Phase 0 (Foundations) is in progress. The [status board](plan/STATUS.md) is updated at the end
-    of every working session; the [roadmap](plan/02-roadmap.md) lists the milestones.
+    Phase 1 (Vertical slice) is in progress, towards milestone M1: the first scenario passes, in
+    CI too. The [status board](plan/STATUS.md) is updated at the end of every working session;
+    the [roadmap](plan/02-roadmap.md) lists the milestones.
+
+## Quick start
+
+On an Ubuntu 24.04 workstation with Docker ([host setup](setup/host.md)):
+
+```bash
+git clone https://github.com/Dimitrios-Kafetzis/Fieldproof.git
+cd Fieldproof
+tools/host-setup.sh      # once: Docker, Node, uv, pre-commit (asks for sudo); log out and back in
+examples/demo_m1.sh      # or: make demo
+```
+
+The demo pulls the published images, fetches the pinned Gazebo Fuel models, builds the example
+vehicle image and runs `fieldproof run examples/scenarios/ugv_nav_to_goal.yaml`: the example UGV
+(Nav2 and SLAM Toolbox, unmodified, in its own container) drives to a goal in the depot world
+while five [assertions](reference/assertions.md) check the run and its topics are recorded to
+MCAP. It ends with `PASS`, the report and the recording, which opens in Foxglove Studio. The
+same chain runs on every push to `main` in the [Scenario tests](setup/ci.md#scenario-tests)
+workflow. The [scenario reference](reference/scenarios.md) says how to write your own, the
+[vehicle manifest](reference/manifest.md) how to bring your own vehicle.
 
 ## The core principle
 

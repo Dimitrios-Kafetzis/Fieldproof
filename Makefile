@@ -20,6 +20,8 @@
 # Scenarios (task P1-T05): `scenario-schema` exports the scenario JSON Schema, `run` runs a
 # scenario with `fieldproof run` (SCENARIO=..., the example by default); `test-integration`
 # also runs the example scenario end to end; see docs/reference/scenarios.md.
+# The M1 demo (task P1-T07): `demo` runs examples/demo_m1.sh, the quick start of the README
+# (the published images, the vehicle image, the example scenario, the report and the MCAP).
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -euo pipefail -c
@@ -107,7 +109,7 @@ IMAGE_TEST_FLAGS ?= --quick
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
 	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
 	test-vehicles test-integration tidy docs docs-serve docs-links branch-protection clean pins assets images \
-	manifest-schema scenario-schema vehicle-image run up down shell prune
+	manifest-schema scenario-schema vehicle-image run demo up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -230,6 +232,11 @@ scenario-schema: ## Export the scenario JSON Schema (engine/schemas/scenario.sch
 run: assets ## Run a scenario end to end with the Docker backend (SCENARIO=examples/scenarios/ugv_nav_to_goal.yaml, RUN_FLAGS=)
 	$(UV) sync --locked --project engine
 	$(FIELDPROOF) run $(SCENARIO) $(RUN_FLAGS)
+
+# The M1 demo from a fresh clone: pulls the published stack images (DEMO_FLAGS=--local uses
+# `make images` instead), fetches the assets, builds the vehicle image and runs the scenario.
+demo: ## Run the M1 demo: examples/demo_m1.sh (DEMO_FLAGS=--local|--no-pull|--rebuild-vehicle|--dry-run)
+	examples/demo_m1.sh $(DEMO_FLAGS)
 
 vehicle-image: ## Build the example vehicle image from its manifest (VEHICLE_MANIFEST, on VEHICLE_BASE_IMAGE)
 	$(UV) sync --locked --project engine

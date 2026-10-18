@@ -17,6 +17,14 @@
 #    three image targets the workflows build.
 # 5. Trivy policy: when the base-ros2 image is present locally, the pinned Trivy container with
 #    docker/trivy-policy.rego reports no fixed CRITICAL vulnerability (skipped otherwise).
+# 6. Scenario tests (task P1-T07): scenario-tests.yml runs on main, nightly, on manual dispatch
+#    with an image tag, pulls the published images, runs tools/ci/scenario-run.sh and uploads the
+#    run whatever the outcome; scenario-run.sh against a stub `fieldproof`: a pass needs one
+#    attempt, a failure is retried once and flagged as flaky when the retry passes, a second
+#    failure fails, an interrupted run and a usage error are not retried, --retries 0 disables
+#    the retry, the final attempt's report files and the step outputs land where the workflow
+#    reads them; examples/demo_m1.sh prints its usage and, in a dry run, the commands of the
+#    quick start with the image tag asked for.
 #
 # Needs pre-commit, Docker and python3 on the host, as installed by tools/host-setup.sh.
 set -euo pipefail
@@ -28,7 +36,7 @@ trap 'rm -rf "$SCRATCH"' EXIT
 SHELLCHECK_IMAGE="koalaman/shellcheck:v0.10.0@sha256:2097951f02e735b613f4a34de20c40f937a6c8f18ecb170612c88c34517221fb"
 TRIVY_IMAGE="aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
 SCRIPTS=(tools/ci/changed-areas.sh tools/ci/bake-cache.sh tools/ci/free-disk.sh tools/ci/branch-protection.sh
-  tests/ci/test_workflows.sh)
+  tools/ci/scenario-run.sh examples/demo_m1.sh tests/ci/test_workflows.sh)
 WORKFLOWS=(.github/workflows/*.yml)
 
 PASSED=0
@@ -160,6 +168,33 @@ assert jobs["scan"]["strategy"]["matrix"]["image"] == ["base-ros2", "sim", "dev"
 assert "workflow_call" in (doc[True] if True in doc else doc["on"])
 PY
 then pass "images.yml: sha tag pushed first, floating tag only after the scan"; else fail "images.yml job order"; fi
+
+if python3 - <<'PY'
+import yaml
+doc = yaml.safe_load(open(".github/workflows/scenario-tests.yml"))
+on = doc[True] if True in doc else doc["on"]
+assert on["push"]["branches"] == ["main"], on["push"]
+assert "schedule" in on and "workflow_dispatch" in on, on.keys()
+assert on["workflow_dispatch"]["inputs"]["image-tag"]["default"] == "main"
+assert ".github/workflows/scenario-tests.yml" in on["pull_request"]["paths"]
+assert "examples/**" in on["pull_request"]["paths"]
+(job,) = doc["jobs"].values()
+assert job["runs-on"] == "ubuntu-24.04"
+steps = job["steps"]
+runs = "\n".join(str(s.get("run", "")) for s in steps)
+assert "docker pull" in runs and "FIELDPROOF_IMAGE_TAG" in runs, "pulls the published images"
+assert "make assets" in runs and "make vehicle-image" in runs
+assert "tools/ci/scenario-run.sh" in runs and "--render software" in runs
+uploads = [s for s in steps if "upload-artifact" in str(s.get("uses", ""))]
+assert len(uploads) == 2 and all(str(s.get("if", "")).strip() == "always()" for s in uploads)
+paths = sorted(s["with"]["path"] for s in uploads)
+assert paths == ["runs", "runs/junit.xml"], paths
+assert any(
+    "io.fieldproof.run" in str(s.get("run", "")) and str(s.get("if", "")).strip() == "always()"
+    for s in steps
+), "checks nothing is left"
+PY
+then pass "scenario-tests.yml: main, nightly and dispatch; published images, scenario-run.sh, artefacts always uploaded"; else fail "scenario-tests.yml rules"; fi
 
 # ---------------------------------------------------------------------------------------------
 section "3. Helpers"
@@ -334,6 +369,171 @@ if docker image inspect "$base_image" >/dev/null 2>&1; then
 else
   skip "trivy policy ($base_image is not built locally; run make images first)"
 fi
+
+# ---------------------------------------------------------------------------------------------
+section "6. Scenario tests (scenario-run.sh with a stub fieldproof, demo_m1.sh dry run)"
+stub_dir="$SCRATCH/stub"
+mkdir -p "$stub_dir"
+# The stub takes the exit code of each call from STUB_EXITS (one per attempt) and writes the
+# three report files the runner would, so the wrapper has a verdict to read.
+cat >"$stub_dir/fieldproof" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == run ]] || exit 2
+shift
+scenario="$1"
+shift
+runs_dir=""
+run_id=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --runs-dir) runs_dir="$2"; shift 2 ;;
+    --run-id) run_id="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+n="$(cat "$STUB_COUNT" 2>/dev/null || echo 0)"
+n=$((n + 1))
+echo "$n" >"$STUB_COUNT"
+read -r -a exits <<<"$STUB_EXITS"
+rc="${exits[$((n - 1))]}"
+mkdir -p "$runs_dir/$run_id"
+case "$rc" in 0) v=PASS ;; 1) v=FAIL ;; 130) v=INTERRUPTED ;; *) v=ERROR ;; esac
+printf '{"verdict": "%s", "exit_code": %s}\n' "$v" "$rc" >"$runs_dir/$run_id/report.json"
+printf '# Fieldproof run report: %s\n\n**%s**\n' "$(basename "$scenario")" "$v" >"$runs_dir/$run_id/report.md"
+echo "<testsuites name=\"$v\"/>" >"$runs_dir/$run_id/junit.xml"
+exit "$rc"
+STUB
+chmod +x "$stub_dir/fieldproof"
+scenario_run="$REPO/tools/ci/scenario-run.sh"
+scenario_file="$REPO/examples/scenarios/ugv_nav_to_goal.yaml"
+# attempt EXITS NAME [ARGS...]: runs the wrapper in a fresh directory with the stub's exit codes;
+# sets RC, OUT (the step outputs), SUMMARY, LOG and ATTEMPT_DIR.
+attempt() {
+  local exits="$1" name="$2"
+  shift 2
+  local dir="$SCRATCH/attempt-$name"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  rm -f "$stub_dir/count"
+  RC=0
+  FIELDPROOF="$stub_dir/fieldproof" STUB_COUNT="$stub_dir/count" STUB_EXITS="$exits" \
+    GITHUB_OUTPUT="$dir/output" GITHUB_STEP_SUMMARY="$dir/summary" \
+    "$scenario_run" --runs-dir "$dir/runs" "$@" "$scenario_file" >"$dir/log" 2>&1 || RC=$?
+  OUT="$(cat "$dir/output" 2>/dev/null || true)"
+  SUMMARY="$(cat "$dir/summary" 2>/dev/null || true)"
+  LOG="$(cat "$dir/log")"
+  ATTEMPT_DIR="$dir"
+}
+
+attempt "0" pass
+if [[ "$RC" -eq 0 ]] && grep -q '^attempts=1$' <<<"$OUT" && grep -q '^flaky=false$' <<<"$OUT" \
+  && grep -q '^verdict=PASS$' <<<"$OUT" && ! grep -q '::warning' <<<"$LOG" \
+  && grep -q '^## Scenario .ugv_nav_to_goal.: PASS' <<<"$SUMMARY" && ! grep -q 'Flaky' <<<"$SUMMARY" \
+  && [[ "$(cat "$ATTEMPT_DIR/runs/junit.xml")" == '<testsuites name="PASS"/>' ]] \
+  && [[ -f "$ATTEMPT_DIR/runs/report.md" && -f "$ATTEMPT_DIR/runs/report.json" ]]; then
+  pass "scenario-run: a pass takes one attempt, no warning, the report files copied to the runs directory"
+else
+  fail "scenario-run: a pass takes one attempt"
+  printf '%s\n' "$LOG" "$OUT" | sed 's/^/        /' | tail -n 20
+fi
+
+attempt "1 0" flaky
+if [[ "$RC" -eq 0 ]] && grep -q '^attempts=2$' <<<"$OUT" && grep -q '^flaky=true$' <<<"$OUT" \
+  && grep -q '^run_id=scenario-ugv_nav_to_goal-attempt2$' <<<"$OUT" \
+  && grep -q '::warning title=Scenario ugv_nav_to_goal retried::' <<<"$LOG" \
+  && grep -q '::warning title=Flaky scenario ugv_nav_to_goal::' <<<"$LOG" \
+  && grep -q '\*\*Flaky:\*\* passed on attempt 2 of 2' <<<"$SUMMARY" \
+  && grep -q '^- attempt 1: FAIL (scenario-ugv_nav_to_goal-attempt1)$' <<<"$SUMMARY" \
+  && grep -q '^- attempt 2: PASS (scenario-ugv_nav_to_goal-attempt2)$' <<<"$SUMMARY" \
+  && [[ -d "$ATTEMPT_DIR/runs/scenario-ugv_nav_to_goal-attempt1" ]] \
+  && [[ "$(cat "$ATTEMPT_DIR/runs/junit.xml")" == '<testsuites name="PASS"/>' ]]; then
+  pass "scenario-run: a failure is retried once; a passing retry is green and flagged flaky, both attempts kept"
+else
+  fail "scenario-run: flaky run policy"
+  printf '%s\n' "$LOG" "$OUT" "$SUMMARY" | sed 's/^/        /' | tail -n 30
+fi
+
+attempt "1 1" fail
+if [[ "$RC" -eq 1 ]] && grep -q '^attempts=2$' <<<"$OUT" && grep -q '^flaky=false$' <<<"$OUT" \
+  && grep -q '^verdict=FAIL$' <<<"$OUT" && grep -q '::error title=Scenario ugv_nav_to_goal FAIL::' <<<"$LOG" \
+  && [[ "$(cat "$ATTEMPT_DIR/runs/junit.xml")" == '<testsuites name="FAIL"/>' ]]; then
+  pass "scenario-run: two failures fail with the last attempt's exit code and report"
+else
+  fail "scenario-run: two failures fail (got $RC)"
+  printf '%s\n' "$LOG" "$OUT" | sed 's/^/        /' | tail -n 20
+fi
+
+attempt "130 0" interrupted
+if [[ "$RC" -eq 130 ]] && grep -q '^attempts=1$' <<<"$OUT" && grep -q '^verdict=INTERRUPTED$' <<<"$OUT"; then
+  pass "scenario-run: an interrupted run (130) is not retried"
+else
+  fail "scenario-run: an interrupted run is not retried (got $RC)"
+fi
+
+attempt "2 0" usage
+if [[ "$RC" -eq 2 ]] && grep -q '^attempts=1$' <<<"$OUT"; then
+  pass "scenario-run: a usage error (2) is not retried"
+else
+  fail "scenario-run: a usage error is not retried (got $RC)"
+fi
+
+attempt "1 0" noretry --retries 0
+if [[ "$RC" -eq 1 ]] && grep -q '^attempts=1$' <<<"$OUT"; then
+  pass "scenario-run: --retries 0 disables the retry"
+else
+  fail "scenario-run: --retries 0 disables the retry (got $RC)"
+fi
+
+attempt "1 1 0" tworetries --retries 2 --run-id custom
+if [[ "$RC" -eq 0 ]] && grep -q '^attempts=3$' <<<"$OUT" && grep -q '^run_id=custom-attempt3$' <<<"$OUT"; then
+  pass "scenario-run: --retries 2 allows a third attempt; --run-id names the attempts"
+else
+  fail "scenario-run: --retries 2 and --run-id (got $RC)"
+fi
+
+status=0
+"$scenario_run" >/dev/null 2>&1 || status=$?
+if [[ "$status" -eq 2 ]]; then pass "scenario-run: no scenario exits 2"; else fail "scenario-run: no scenario exits 2 (got $status)"; fi
+status=0
+"$scenario_run" --bogus "$scenario_file" >/dev/null 2>&1 || status=$?
+if [[ "$status" -eq 2 ]]; then pass "scenario-run: unknown option exits 2"; else fail "scenario-run: unknown option exits 2 (got $status)"; fi
+if "$scenario_run" --help | grep -q '^Usage: tools/ci/scenario-run.sh'; then
+  pass "scenario-run --help"
+else
+  fail "scenario-run --help"
+fi
+
+demo="$REPO/examples/demo_m1.sh"
+if "$demo" --help | grep -q '^Usage: examples/demo_m1.sh'; then pass "demo_m1 --help"; else fail "demo_m1 --help"; fi
+if dry="$(cd "$REPO" && "$demo" --dry-run 2>&1)" \
+  && grep -q '^+ docker pull --quiet ghcr.io/dimitrios-kafetzis/fieldproof-sim:main$' <<<"$dry" \
+  && grep -q '^+ docker pull --quiet ghcr.io/dimitrios-kafetzis/fieldproof-bridge:main$' <<<"$dry" \
+  && grep -q '^+ docker pull --quiet ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2:main$' <<<"$dry" \
+  && grep -q '^+ make assets$' <<<"$dry" && grep -q '^+ make vehicle-image$' <<<"$dry" \
+  && grep -q '^+ uv run --locked --project engine fieldproof run examples/scenarios/ugv_nav_to_goal.yaml --run-id m1-demo-' <<<"$dry" \
+  && grep -q 'Dry run: nothing was executed' <<<"$dry"; then
+  pass "demo_m1 --dry-run: pulls the published images, fetches the assets, builds the vehicle image, runs the scenario"
+else
+  fail "demo_m1 --dry-run"
+  printf '%s\n' "$dry" | sed 's/^/        /' | tail -n 20
+fi
+if dry="$(cd "$REPO" && FIELDPROOF_IMAGE_TAG=v0.9.0 "$demo" --dry-run --scenario examples/scenarios/ugv_nav_fails_on_time.yaml 2>&1)" \
+  && grep -q '^+ docker pull --quiet ghcr.io/dimitrios-kafetzis/fieldproof-sim:v0.9.0$' <<<"$dry" \
+  && grep -q 'fieldproof run examples/scenarios/ugv_nav_fails_on_time.yaml' <<<"$dry"; then
+  pass "demo_m1 --dry-run: FIELDPROOF_IMAGE_TAG and --scenario are honoured"
+else
+  fail "demo_m1 --dry-run: FIELDPROOF_IMAGE_TAG and --scenario"
+fi
+if dry="$(cd "$REPO" && "$demo" --dry-run --local 2>&1)" && ! grep -q 'docker pull' <<<"$dry" \
+  && grep -q 'Using the stack images already present (tag local)' <<<"$dry"; then
+  pass "demo_m1 --dry-run --local: no pull, the local tag"
+else
+  fail "demo_m1 --dry-run --local"
+fi
+status=0
+"$demo" --scenario >/dev/null 2>&1 || status=$?
+if [[ "$status" -eq 2 ]]; then pass "demo_m1: --scenario without a file exits 2"; else fail "demo_m1: --scenario without a file exits 2 (got $status)"; fi
 
 # ---------------------------------------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
