@@ -157,8 +157,9 @@ sent, one line to `network.jsonl` in the run directory: probes sent, replies, th
 squares, minimum and maximum of the round trips. The observer relays the file onto
 `/fieldproof/network` (`std_msgs/msg/String` with the JSON line), so the MCAP holds it.
 
-The runner splits the windows into **periods**, one per profile in force (from one change to the
-next; a window that straddles a change counts for neither), and estimates for each:
+The runner splits the windows into **periods**, one per profile in force (a period ends when the
+holder starts applying the next profile and the next begins once it has; a window of probes sent
+in between, or straddling a change, counts for neither), and estimates for each:
 
 - one-way latency: half the mean round trip;
 - jitter: the round trips' standard deviation over √2 (two independent delays);

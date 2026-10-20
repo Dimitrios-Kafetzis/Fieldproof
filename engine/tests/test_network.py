@@ -269,6 +269,17 @@ def test_monitor_assigns_windows_to_periods() -> None:
     assert [p["from_s"] for p in summary[0]["periods"]] == [-5.0, 5.5, 26.0]
     assert summary[0]["periods"][1]["status"] == PASSED
     assert summary[1]["periods"][0]["status"] == FAILED
+    # A change that took a while (the holder's exec): the old period ends when it began, the new
+    # one starts when it was done, and a window in between counts for neither.
+    slow = LinkMonitor({"ugv1": "lte_rural"})
+    slow.change("ugv1", "lte_rural", LTE, 100.0, "initial")
+    slow.change("ugv1", "drop", DROP_PROFILE, 105.6, "cut", since=105.0)
+    before, after = slow.links["ugv1"].periods
+    assert (before.end, after.start) == (105.0, 105.6)
+    slow.feed(window(104.0, [120.0] * 10))
+    slow.feed(window(105.0, [120.0] * 5, sent=10))  # sent while the script ran
+    slow.feed(window(106.0, [], sent=10))
+    assert (len(before.windows), len(after.windows)) == (1, 1)
     empty = LinkMonitor({"ugv3": "lte_rural"})
     assert empty.to_dict() == [
         {"vehicle": "ugv3", "profile": "lte_rural", "current": None, "periods": []}

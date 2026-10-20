@@ -1778,6 +1778,9 @@ class Run:
         links = self._links()
         profile = links.profile(profile_name)
         holder = links.holders[vehicle]
+        # The profile changes somewhere during the exec, which can take a while on a loaded host:
+        # the previous period ends when the exec starts, the new one begins when it returns.
+        since = self.wall()
         result = self.backend.exec(
             holder.name, ("bash", "-c", link_script(self._addresses[vehicle], profile))
         )
@@ -1789,7 +1792,7 @@ class Run:
         device = result.output.strip().splitlines()[0] if result.output.strip() else "?"
         with self._lock:
             if self.monitor is not None:
-                self.monitor.change(vehicle, profile_name, profile, self.wall(), cause)
+                self.monitor.change(vehicle, profile_name, profile, self.wall(), cause, since=since)
         self.log.event(
             "link.applied",
             f"{vehicle}: {profile_name} ({profile.summary()}) on {device} of {holder.name}",

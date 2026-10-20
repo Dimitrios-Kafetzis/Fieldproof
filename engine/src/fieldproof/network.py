@@ -431,12 +431,23 @@ class LinkMonitor:
         """Wall-clock time the timeline started (period times in the record are relative)."""
 
     def change(
-        self, vehicle: str, profile_name: str, profile: LinkProfile, wall: float, cause: str
+        self,
+        vehicle: str,
+        profile_name: str,
+        profile: LinkProfile,
+        wall: float,
+        cause: str,
+        *,
+        since: float | None = None,
     ) -> LinkPeriod:
-        """A new profile is in force on the vehicle's link from `wall` on."""
+        """A new profile is in force on the vehicle's link from `wall` on.
+
+        `since` is when the change began (before the holder ran its script): the previous profile
+        held until then, and windows between the two times count for neither.
+        """
         link = self.links[vehicle]
         if link.current is not None and link.current.end is None:
-            link.current.end = wall
+            link.current.end = wall if since is None else min(since, wall)
         period = LinkPeriod(vehicle, profile_name, profile, wall, cause)
         link.periods.append(period)
         return period
