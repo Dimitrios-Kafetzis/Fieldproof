@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>fieldproof_worlds</name>
-  <version>0.12.1</version>
+  <version>0.13.0</version>
   <description>Gazebo Harmonic worlds for Fieldproof scenarios and the Fuel models they include</description>
   <maintainer email="dimitrioskafetzis@gmail.com">Dimitris Kafetzis</maintainer>
   <license>Apache-2.0</license>
