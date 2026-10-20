@@ -15,8 +15,9 @@ scenario engine, and observed through a browser-based 3D cockpit. Every scenario
 test with pass/fail assertions, so field testing becomes verification of what already passed.
 
 > Status: milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2
-> (the scenario engine) is under way with fleets of vehicles (P2-T01) and radio links between
-> the vehicles and a ground station (P2-T02). See
+> (the scenario engine) is under way with fleets of vehicles (P2-T01), radio links between
+> the vehicles and a ground station (P2-T02) and the event injection framework (P2-T03: the
+> timeline DSL, the event plugins and the engine-side events in its first session). See
 > [docs/plan/STATUS.md](docs/plan/STATUS.md).
 
 ## See it run

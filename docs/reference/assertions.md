@@ -182,7 +182,7 @@ The side channels are `std_msgs/msg/String` messages carrying JSON:
 
 | Topic | Contents |
 | --- | --- |
-| `/fieldproof/events` | every line of `engine.log` as the engine writes it (the phases, containers, the readiness probe's lines, the actions, the verdicts) |
+| `/fieldproof/events` | every line of `engine.log` as the engine writes it (the phases, containers, the readiness probe's lines, the verdicts, and every occurrence of a timeline entry as `action.start` and `action.end` lines carrying its record: action, vehicle, trigger, occurrence, parameters, status, detail, [events.md](events.md#the-record)) |
 | `/fieldproof/assertions` | every verdict as it resolves: `run_id`, `name`, `type`, `status`, `reason`, `t_s`, `sim_s`, `evidence` |
 | `/fieldproof/metrics` | once a second: `wall`, `sim` (simulation time), `rtf` (the real-time factor over the last second), `rates_hz` per watched topic, `poses` of the vehicles, `recording` |
 
