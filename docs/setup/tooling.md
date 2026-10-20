@@ -79,6 +79,9 @@ the `commit-msg` hook:
 - **subject**: imperative, lower-case start, no trailing full stop, header at most 100 characters.
 - Breaking changes carry `!` after the scope: `feat(engine)!: rename the scenario apiVersion`.
 - Body and footer lines wrap at 100 characters. Reference the task in the body: `Task: P0-T04`.
+  Dependabot's commits are exempt from the line limit (their bodies carry release notes and
+  compare links, and its `Signed-off-by: dependabot[bot]` trailer is the mark); their headers
+  follow the rules like any other.
 - Squash-merge commits carry the pull request title, so titles follow the same rules and are
   checked by CI ([ci.md](ci.md#pull-request-titles)). The four squash commits that predate the
   rule (`P0-T04 Developer tooling and quality gates (#3)`) stay exempt.

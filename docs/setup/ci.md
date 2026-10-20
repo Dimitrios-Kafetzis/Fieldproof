@@ -206,8 +206,12 @@ commitlint keeps exempting that exact shape so `make lint-commits` stays clean o
 documentation toolchain, `uv.lock`) and `engine/` (`uv.lock`), and npm in `cockpit/`
 (`pnpm-lock.yaml`). A bump of an engine dependency must also update the mypy hook in
 `.pre-commit-config.yaml`, and a TypeScript bump the eslint hook; `make test-layout` says which.
-Hook pins themselves are updated by hand with `pre-commit autoupdate`
-([tooling.md](tooling.md#updating-the-hooks)).
+Major versions of `typescript` and `@types/node` are ignored in the npm entry: the cockpit
+follows Node 22 and TypeScript stays where `typescript-eslint` supports it, so those bumps are
+made by hand together with the hook. Dependabot's commit bodies (release notes and compare links
+past 100 characters) are exempt from commitlint's line limit
+([tooling.md](tooling.md#commit-messages)). Hook pins themselves are updated by hand with
+`pre-commit autoupdate` ([tooling.md](tooling.md#updating-the-hooks)).
 
 The container images are not covered by Dependabot (issue #9): every base image is referenced
 through a build argument (`FROM ubuntu:24.04@${UBUNTU_DIGEST}`, `FROM ${UV_IMAGE}`) and the apt

@@ -64,3 +64,11 @@ updates:
     groups:
       node:
         patterns: ["*"]
+    # The cockpit follows Node 22 (.nvmrc), so its type stubs stay on that major; TypeScript 7
+    # (the Go rewrite) waits until typescript-eslint supports it, and the eslint hook of
+    # .pre-commit-config.yaml must move with it (make test-layout checks they agree).
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]

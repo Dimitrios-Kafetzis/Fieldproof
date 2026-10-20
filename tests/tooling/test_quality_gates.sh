@@ -128,6 +128,15 @@ for msg in \
   "wip(engine): unknown type"; do
   if commitlint_msg "$msg"; then fail "rejects '$msg'"; else pass "rejects '$msg'"; fi
 done
+# Body lines wrap at 100 characters, except in Dependabot's commits (its sign-off is the mark):
+# their release notes and compare links are longer, and nobody wraps them by hand.
+long_line="$(printf 'x%.0s' $(seq 1 140))"
+dependabot=$'build(deps): bump the actions group with 2 updates\n\nBumps the actions group: '"$long_line"$'\n\nSigned-off-by: dependabot[bot] <support@github.com>'
+if commitlint_msg "$dependabot"; then pass "accepts a Dependabot commit with a 160-character body line"; else fail "accepts a Dependabot commit with a long body line"; fi
+long_body=$'feat(engine): add a loader\n\nA line nobody wrapped: '"$long_line"$'\n\nTask: P0-T04'
+if commitlint_msg "$long_body"; then fail "rejects a long body line in an ordinary commit"; else pass "rejects a long body line in an ordinary commit"; fi
+bad_dependabot=$'build(deps): Bump the actions group.\n\nSigned-off-by: dependabot[bot] <support@github.com>'
+if commitlint_msg "$bad_dependabot"; then fail "rejects a Dependabot header breaking the subject rules"; else pass "rejects a Dependabot header breaking the subject rules"; fi
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
