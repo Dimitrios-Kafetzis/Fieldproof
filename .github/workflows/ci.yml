@@ -261,6 +261,10 @@ jobs:
           cache-dependency-glob: engine/uv.lock
       - name: Vehicle tests (tests/vehicles, manifests, generated Dockerfile, example image build and smoke)
         run: make test-vehicles
+      # The radio links of tests/integration/test_radio_links.py shape traffic with netem and an ifb
+      # device; load both modules rather than rely on the runner's kernel loading them on demand.
+      - name: Load the netem and ifb kernel modules (radio links)
+        run: sudo modprobe sch_netem ifb && lsmod | grep -E '^(sch_netem|ifb) '
       # The vertical slice (task P1-T04): the simulator with the depot, the bridge container and
       # the vehicle image just built; Nav2 reaches active, a NavigateToPose goal is reached.
       # Software rendering keeps the simulator below real time, so the test's limits are in
