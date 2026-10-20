@@ -227,9 +227,8 @@ class AnnounceEvent(Event):
   stays unknown to the schema. The built-ins are registered the same way by the engine's own
   `pyproject.toml`, and loaded directly as well.
 
-`examples/plugins/example_events/` is this example in full, with its tests
-([README](https://github.com/Dimitrios-Kafetzis/Fieldproof/tree/main/examples/plugins/example_events));
-the engine's development environment installs it, so `fieldproof events` lists
+`examples/plugins/example_events/` is this example in full, with its tests and a README; the
+engine's development environment installs it, so `fieldproof events` lists
 `example.announce` next to the built-ins and `examples/scenarios/ugv_events.yaml` validates.
 The committed JSON Schema (`engine/schemas/scenario.schema.json`, `make scenario-schema`) is
 exported from that environment, the example plugin included.
