@@ -29,9 +29,9 @@ timeline:
     node: link_monitor
     parameter: loss_timeout_s
     value: 5.0
-  - name: freeze_stack                    # one second after the drive ends, for 3 s
+  - name: freeze_stack                    # one second after both have ended, for 3 s
     vehicle: ugv1
-    after: drive_ahead
+    after: [drive_ahead, tighten_failsafe]
     at: 1s
     action: container.pause
     duration_s: 3s
@@ -50,7 +50,7 @@ rest of the entry says when it runs:
 | Field | Meaning |
 | --- | --- |
 | `at` | offset from the entry's trigger, as a duration (`30s`, `1m`; 0 by default): seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds |
-| `after` | the `name` of another entry: this one is triggered when that entry ends `ok` (a repeated entry cannot be named, nor the entry itself; chains are allowed, cycles are not) |
+| `after` | the `name` of another entry, or a list of names: this one is triggered when that entry ends `ok` (when every one of the list has; it is skipped when any of them does not); a repeated entry cannot be named, nor the entry itself; chains are allowed, cycles are not |
 | `when` | a [condition](#conditions) of the run: the entry is triggered by the first sample of the observer's stream that satisfies it (`after` and `when` are exclusive) |
 | `within_s` | with `when`: how long after the timeline starts the condition may still trigger the entry; the entry is `skipped` once that passes (without it: as long as the rest of the timeline runs) |
 | `every` | repeat the entry at this period from its first start (a positive duration); the record labels the occurrences `<name>`, `<name>#2`, `<name>#3`, ...; occurrences never overlap: one that overruns its period delays the next until it ends; `every` does not combine with `when` |
@@ -119,8 +119,9 @@ parameters. The built-ins of this session:
 | `param.set` | `vehicle`, `node` (relative to the vehicle's namespace, or absolute), `parameter`, `value` (a boolean, a number or a string, which stays a string however it looks), `timeout_s` (30 s) | `ros2 param set` inside the vehicle's container; `ok` when the node accepted the value, `failed` when it refused it (a parameter callback) or is not found within `timeout_s` (the CLI's graph lags behind the stack for a few seconds, so the event asks again once a second), `timeout` when the node does not answer. Whether the node *uses* a value changed at run time is the node's business, as in the field |
 
 A `param.set` or a `navigate_to_pose` aimed at a killed or paused container fails (`ros2`
-cannot run there), so a scenario orders such entries with `after`. The world and sensor events
-of the backlog (`spawn_object`, `remove_object`, `teleport`, `set_wind`, `gps.deny`,
+cannot run there), and a command still running in a container when it is paused freezes with
+it, so a scenario orders such entries with `after` (a list waits for all of them). The world
+and sensor events of the backlog (`spawn_object`, `remove_object`, `teleport`, `set_wind`, `gps.deny`,
 `gps.offset`, `imu.bias`, `sensor.dropout`, `sensor.freeze`, `battery.drain`,
 `actuator.limit`) arrive with the second session of the task, on a Gazebo-side plugin and
 fault-injector nodes between the bridge and the vehicle ([Known limits](#known-limits)).
@@ -242,8 +243,9 @@ change the triggers (they are the DSL's).
 `examples/scenarios/ugv_events.yaml` is the timeline above on the example vehicle `ugv_nav2`:
 the vehicle drives 4 m ahead from the loading dock while `say_hello` publishes three times from
 its container, `tighten_failsafe` sets a parameter of the stack's link monitor once the vehicle
-has moved a metre, `freeze_stack` pauses the container for 3 s after the drive and `stop_stack`
-kills it. Seven assertions check the drive and, through `within_time`, that each event ran.
+has moved a metre, `freeze_stack` pauses the container for 3 s once both have ended and
+`stop_stack` kills it. Seven assertions check the drive and, through `within_time`, that each
+event ran.
 
 ```bash
 uv run --project engine fieldproof events
