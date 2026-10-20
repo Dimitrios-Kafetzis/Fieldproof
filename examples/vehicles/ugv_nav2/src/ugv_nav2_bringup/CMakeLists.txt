@@ -1,10 +1,12 @@
-# Bringup package of the example UGV (task P1-T04): launch files and parameters only.
+# Bringup package of the example UGV (task P1-T04): launch files, parameters and the
+# loss-of-link failsafe (task P2-T02, scripts/link_monitor).
 cmake_minimum_required(VERSION 3.22)
 project(ugv_nav2_bringup NONE)
 
 find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+install(PROGRAMS scripts/link_monitor DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

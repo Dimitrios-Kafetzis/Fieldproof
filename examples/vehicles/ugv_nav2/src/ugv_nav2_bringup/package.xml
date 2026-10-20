@@ -3,7 +3,7 @@
 <package format="3">
   <name>ugv_nav2_bringup</name>
   <version>0.1.0</version>
-  <description>Bringup of the example UGV: Nav2 with SLAM Toolbox, parameters and the field drivers</description>
+  <description>Bringup of the example UGV: Nav2 with SLAM Toolbox, parameters, the field drivers and the loss-of-link failsafe</description>
   <maintainer email="dimitrioskafetzis@gmail.com">Dimitris Kafetzis</maintainer>
   <license>Apache-2.0</license>
   <url type="repository">https://github.com/Dimitrios-Kafetzis/Fieldproof</url>
@@ -13,6 +13,7 @@
   <!-- The navigation stack, as on the vehicle: the Nav2 servers navigation.launch.py starts
        (not the nav2_bringup metapackage, whose demo launch files pull in Gazebo, the TurtleBot
        models and the rviz plugins) and SLAM Toolbox. -->
+  <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>nav2_behaviors</exec_depend>
@@ -28,7 +29,9 @@
   <exec_depend>nav2_smoother</exec_depend>
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>rclpy</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
 
   <!-- Hardware drivers: only when the package is built for the vehicle (UGV_TARGET=field).
        In Fieldproof the bridge provides their topics (robot.yaml, runtime.drivers), so a

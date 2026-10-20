@@ -7,10 +7,12 @@ The vehicle's own navigation launch (what nav2_bringup's navigation_launch.py do
 TurtleBot demos, without the demo's simulation and visualisation dependencies): one process per
 server, all under the lifecycle manager, with the parameters of config/nav2.yaml. Topics are
 remapped exactly as Nav2 expects: the controller and the behaviours publish `cmd_vel_nav`, the
-velocity smoother reads it and publishes `cmd_vel_smoothed`, the collision monitor publishes the
-vehicle's `cmd_vel`. Under a `namespace` the parameter file is rewritten with the namespace as
-its root key (nav2_common's RewrittenYaml, as nav2_bringup does): a ROS 2 parameter file names
-its nodes, and `controller_server:` reaches `/controller_server` only, not
+velocity smoother reads it and publishes `cmd_vel_smoothed`, the collision monitor publishes
+`cmd_vel_safe`, and the vehicle's loss-of-link failsafe (`link_monitor`, outside the lifecycle
+manager) publishes the vehicle's `cmd_vel`: it holds the vehicle in place while the ground
+station's heartbeat is missing. Under a `namespace` the parameter file is rewritten with the
+namespace as its root key (nav2_common's RewrittenYaml, as nav2_bringup does): a ROS 2 parameter
+file names its nodes, and `controller_server:` reaches `/controller_server` only, not
 `/ugv1/controller_server`.
 """
 
@@ -85,6 +87,15 @@ def generate_launch_description() -> LaunchDescription:
         )
         for package, executable, name, extra in SERVERS
     ]
+    link_monitor = Node(
+        package="ugv_nav2_bringup",
+        executable="link_monitor",
+        name="link_monitor",
+        output="screen",
+        parameters=[params],
+        arguments=["--ros-args", "--log-level", log_level],
+        remappings=[("cmd_vel_in", "cmd_vel_safe"), ("cmd_vel_out", "cmd_vel")],
+    )
     lifecycle_manager = Node(
         package="nav2_lifecycle_manager",
         executable="lifecycle_manager",
@@ -100,6 +111,7 @@ def generate_launch_description() -> LaunchDescription:
             PushRosNamespace(namespace),
             SetParameter("use_sim_time", use_sim_time),
             *nodes,
+            link_monitor,
             lifecycle_manager,
         ]
     )
