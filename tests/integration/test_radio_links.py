@@ -11,7 +11,7 @@ profile's rate, less its loss and the packets' headers, within 10 %). Then the l
 reply), comes back (replies again), and loses its shaping.
 
 ``test_02``: ``fieldproof run examples/scenarios/ugv_link_loss.yaml``, the scenario of the
-definition of done: the example vehicle drives across the depot's yard over a rural LTE link
+definition of done: the example vehicle drives along the depot's hall over a rural LTE link
 that drops for 20 s. Exit code 0; the seven assertions passed (the vehicle reports the link
 lost, holds position and commands zero while it is down, reports it back, and reaches its
 goal); every link period the ground station measured passed against its profile (the run
