@@ -100,6 +100,12 @@ gates would time out, so the fleet is verified by `tests/integration/test_fleet.
 workstation (eight cores or more; CI's image job runs the test too and it skips itself on the
 runner). A manual dispatch may still name it as the scenario input on a larger runner.
 
+The radio-link example (`examples/scenarios/ugv_link_loss.yaml`, task P2-T02) is run by the
+image job's integration tests (`tests/integration/test_radio_links.py`, after the job loads the
+`sch_netem` and `ifb` modules), against the images that job builds, since the published bridge
+image only carries `tc` from the release after the task; a manual dispatch here can name it once
+`main` has it.
+
 **Flaky-run policy.** `tools/ci/scenario-run.sh` runs the scenario once and, when the attempt
 exits with anything but 0, 130 (interrupted) or 2 (usage error), prints a `::warning::`
 annotation and runs it once more (`--retries N` changes the count, `0` disables it); the

@@ -25,7 +25,7 @@ what CI does after building them with `docker buildx bake`).
 | `ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2` | `docker/base-ros2/Dockerfile` | Ubuntu 24.04, ROS 2 Jazzy `ros-base`, `tini`, non-root user `fieldproof` (uid 1000) | 0.9 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-sim` | `docker/sim/Dockerfile` | base + `ros-jazzy-ros-gz` (Gazebo Harmonic via the Jazzy vendor packages), `xacro` for the vehicle descriptions, Mesa EGL stack, headless defaults | 3.2 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-dev` | `docker/dev/Dockerfile` | sim + build-essential, cmake, ninja, clang/clang-format/clang-tidy/clangd, gdb, colcon with mixins, rosdep, vcstool, uv, passwordless sudo | 4.1 GB |
-| `ghcr.io/dimitrios-kafetzis/fieldproof-bridge` | `docker/bridge/Dockerfile` | sim + the repository's `fieldproof_bridge` and `fieldproof_robots` packages built into `/opt/fieldproof_bridge` (two stages: colcon in the first, nothing but the install space in the second); default command `fieldproof-bridge`, the bridge launch on `FIELDPROOF_MANIFEST` ([bridge.md](../reference/bridge.md#the-bridge-container)) | 3.3 GB |
+| `ghcr.io/dimitrios-kafetzis/fieldproof-bridge` | `docker/bridge/Dockerfile` | sim + the repository's `fieldproof_bridge` and `fieldproof_robots` packages built into `/opt/fieldproof_bridge` (two stages: colcon in the first, the install space and the network tools `iproute2`, `iperf3` and `iputils-ping` in the second); default command `fieldproof-bridge`, the bridge launch on `FIELDPROOF_MANIFEST` ([bridge.md](../reference/bridge.md#the-bridge-container)) | 3.3 GB |
 | `ghcr.io/dimitrios-kafetzis/fieldproof-apt-lists` | `docker/base-ros2/Dockerfile`, stage `apt-lists` | only `/var/lib/apt/lists` of the base image, tagged `<APT_SNAPSHOT>-<ROS_SNAPSHOT>`; seeds later builds (see [Package lists](#package-lists-from-ghcr)) | 46 MB |
 
 Local builds are tagged `:local`. CI pushes `sha-<short>`, `main` and `vX.Y.Z` tags after a
@@ -164,7 +164,11 @@ docker compose -f docker/compose.yaml --profile bridge up -d bridge
 The bridge image is also what `fieldproof run` starts as the **recorder** of a run (task P1-T06,
 [assertions.md](../reference/assertions.md#how-a-run-is-observed)): the engine's observer script
 and the run directory bind-mounted, `ros2 bag record` to MCAP and the `/fieldproof/*` side
-channels; not a compose service, labelled `io.fieldproof.role=recorder`.
+channels; not a compose service, labelled `io.fieldproof.role=recorder`. With radio links
+(task P2-T02, [network.md](../reference/network.md)) it is also each vehicle's **link holder**
+(`sleep infinity` as root with `NET_ADMIN`, whose network namespace the vehicle shares and on
+which `tc` applies the link's profile; role `link`) and the **ground station** (the engine's
+`ground.py` mounted like the observer; role `ground`).
 `fieldproof run` (task P1-T05) starts the same three kinds of container itself through the
 Docker API, with the same mounts, environment and network, from a scenario file
 ([scenarios.md](../reference/scenarios.md#running-a-scenario)); the compose stack remains the
