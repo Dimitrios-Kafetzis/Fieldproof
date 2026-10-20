@@ -77,6 +77,8 @@ class Context:
         self.events: list[tuple[str, str, dict[str, Any]]] = []
         self.ros2_calls: list[tuple[str, tuple[str, ...], float]] = []
         self.ros2_result = ExecResult(0, "")
+        self.ros2_results: list[ExecResult] = []
+        """Answers in order before `ros2_result`."""
         self.links: list[tuple[str, str, str]] = []
         self.exits: set[str] = set()
         self.paused: dict[str, bool] = {}
@@ -102,10 +104,11 @@ class Context:
         on_line: LineSink | None = None,
     ) -> ExecResult:
         self.ros2_calls.append((vehicle.container_name, tuple(argv), timeout_s))
+        result = self.ros2_results.pop(0) if self.ros2_results else self.ros2_result
         if on_line is not None:
-            for line in self.ros2_result.output.splitlines():
+            for line in result.output.splitlines():
                 on_line(line)
-        return self.ros2_result
+        return result
 
     def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:
         self.events.append((event, message, {"level": level, **fields}))
@@ -469,6 +472,28 @@ def test_param_set() -> None:
         rec = record()
         event.apply(entry, {**resolved, "limit_s": 100.0}, context, rec)
         assert (rec.status, rec.detail) == (status, detail)
+    # The CLI's graph lags behind the stack: `Node not found` is asked again once a second.
+    context.ros2_results = [ExecResult(1, "Node not found\n"), ExecResult(1, "Node not found\n")]
+    context.ros2_result = ExecResult(0, "Set parameter successful\n")
+    context.ros2_calls.clear()
+    context.held.clear()
+    rec = record()
+    event.apply(entry, {**resolved, "limit_s": 100.0}, context, rec)
+    assert (rec.status, rec.detail) == ("ok", "/ugv1/link_monitor loss_timeout_s = 5.0")
+    assert len(context.ros2_calls) == 3
+    assert context.held == [1.0, 1.0]
+    assert [round(c[2]) for c in context.ros2_calls] == [30, 29, 28]
+    context.ros2_result = ExecResult(1, "Node not found\n")
+    context.ros2_calls.clear()
+    rec = record()
+    event.apply(entry, {**resolved, "limit_s": 3.0}, context, rec)
+    assert (rec.status, rec.detail) == ("failed", "/ugv1/link_monitor not found within 3 s")
+    assert len(context.ros2_calls) == 3
+    context.stop_after_hold = True
+    rec = record()
+    event.apply(entry, {**resolved, "limit_s": 100.0}, context, rec)
+    assert rec.status == "failed"
+    context.stop_after_hold = False
     assert value_text(True) == "true"
     assert value_text(3) == "3"
     assert value_text(0.5) == "0.5"

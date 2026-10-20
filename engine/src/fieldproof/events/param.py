@@ -3,7 +3,9 @@
 `ros2 param set` runs inside the vehicle's container against a node of its stack; the entry
 ends `ok` when the node accepted the value (a node may refuse one through its parameter
 callback, which ends the entry `failed`). Whether the node *uses* a changed value at run
-time is the node's business, as in the field.
+time is the node's business, as in the field. The CLI answers ``Node not found`` while the
+graph its daemon holds is still catching up with the stack (the first calls into a container,
+a node that just started), so the event asks again once a second until its ``timeout_s``.
 """
 
 from __future__ import annotations
@@ -19,6 +21,8 @@ from fieldproof.events import FAILED, OK, TIMEOUT, ActionRecord, Event, EventCon
 from fieldproof.manifest import Name
 
 PARAM_SET_OK = "Set parameter successful"
+NODE_MISSING = "Node not found"
+RETRY_S = 1.0
 # A node name: relative to the vehicle's namespace (`controller_server`) or absolute.
 NODE_PATTERN = r"^/?[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*)*$"
 PARAM_PATTERN = r"^[A-Za-z_][A-Za-z0-9_./]*$"
@@ -73,18 +77,26 @@ class ParamSetEvent(Event):
         vehicle = context.vehicle(entry.vehicle)
         node, value = str(resolved["node"]), str(resolved["value"])
         limit_s = min(entry.timeout_s, float(resolved.get("limit_s", entry.timeout_s)))
-        result = context.ros2(
-            vehicle,
-            ("param", "set", node, entry.parameter, value),
-            timeout_s=limit_s,
-            on_line=lambda line: context.log(
-                "action.output", line.rstrip(), level="debug", action=record.name
-            ),
-        )
+        deadline = context.clock() + limit_s
+        while True:
+            result = context.ros2(
+                vehicle,
+                ("param", "set", node, entry.parameter, value),
+                timeout_s=max(deadline - context.clock(), 1.0),
+                on_line=lambda line: context.log(
+                    "action.output", line.rstrip(), level="debug", action=record.name
+                ),
+            )
+            missing = NODE_MISSING in result.output
+            if not missing or context.clock() + RETRY_S >= deadline or not context.hold(RETRY_S):
+                break
         if result.exit_code == 124:
             record.status, record.detail = TIMEOUT, f"{node} did not answer within {limit_s:.0f} s"
         elif result.ok and PARAM_SET_OK in result.output:
             record.status, record.detail = OK, f"{node} {entry.parameter} = {value}"
+        elif missing:
+            record.status = FAILED
+            record.detail = f"{node} not found within {limit_s:.0f} s"
         else:
             record.status = FAILED
             record.detail = f"{node} refused {entry.parameter} (exit {result.exit_code}): " + (
