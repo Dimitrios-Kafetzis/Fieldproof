@@ -213,7 +213,7 @@ def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
         ("assertions.4.condition", "speed < 1", "unknown name 'speed'"),
         ("assertions.4.condition", "import os", "not an expression"),
         ("assertions.4.mode", "sometimes", "mode"),
-        ("assertions.4.within_s", 5, "within_s applies to mode eventually"),
+        ("assertions.4.within_s", 0, "within_s must be later than after_s"),
         ("outputs.format", "md", "outputs.format"),
     ],
 )

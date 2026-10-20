@@ -1,4 +1,4 @@
-"""Tests of the Docker backend against a stub of the SDK's client (task P1-T05)."""
+"""Tests of the Docker backend against a stub of the SDK's client (tasks P1-T05, P2-T02)."""
 
 from __future__ import annotations
 
@@ -93,20 +93,51 @@ class StubCollection:
 
 
 class StubNetwork:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, labels: dict[str, str] | None = None) -> None:
         self.name = name
+        self.labels = labels or {}
+        self.connected: list[tuple[str, list[str]]] = []
+        self.removed = False
+
+    def connect(self, container: StubContainer, aliases: list[str]) -> None:
+        if self.name == "refuses":
+            raise APIError("no room")
+        self.connected.append((container.name, aliases))
+
+    def remove(self) -> None:
+        if self.name == "busy":
+            raise APIError("has active endpoints")
+        self.removed = True
 
 
 class StubNetworks:
     def __init__(self) -> None:
         self.items = [StubNetwork("fieldproof")]
         self.created: list[str] = []
+        self.labels: dict[str, dict[str, str]] = {}
 
-    def list(self, names: list[str]) -> list[StubNetwork]:
-        return [n for n in self.items if names[0] in n.name]
+    def list(
+        self, names: list[str] | None = None, filters: dict[str, str] | None = None
+    ) -> list[StubNetwork]:
+        if filters is not None:
+            key, value = filters["label"].split("=", 1)
+            if key == "api-error":
+                raise APIError("boom")
+            return [n for n in self.items if n.labels.get(key) == value]
+        return [n for n in self.items if names and names[0] in n.name]
 
-    def create(self, name: str, driver: str) -> None:
+    def get(self, name: str) -> StubNetwork:
+        if name == "api-error":
+            raise APIError("boom")
+        found = next((n for n in self.items if n.name == name), None)
+        if found is None:
+            raise NotFound(name)
+        return found
+
+    def create(self, name: str, driver: str, labels: dict[str, str]) -> None:
         self.created.append(name)
+        self.labels[name] = labels
+        self.items.append(StubNetwork(name, labels))
 
 
 class StubApi:
@@ -114,6 +145,9 @@ class StubApi:
         self.output = output
         self.code = code
         self.calls: list[Any] = []
+
+    def create_endpoint_config(self, aliases: list[str]) -> dict[str, Any]:
+        return {"Aliases": aliases}
 
     def exec_create(self, name: str, cmd: list[str]) -> dict[str, str]:
         if name == "gone":
@@ -180,6 +214,80 @@ def test_images_and_network(backend: DockerBackend, client: StubClient) -> None:
     assert client.networks.created == []
     backend.ensure_network("lab")
     assert client.networks.created == ["lab"]
+    assert client.networks.labels["lab"] == {}
+    backend.ensure_network("radio", {"io.fieldproof.run": "abc"})
+    assert client.networks.labels["radio"] == {"io.fieldproof.run": "abc"}
+
+
+def test_networks_of_a_run(backend: DockerBackend, client: StubClient) -> None:
+    backend.ensure_network("abc-radio", {"io.fieldproof.run": "abc"})
+    backend.ensure_network("abc-onboard", {"io.fieldproof.run": "abc"})
+    backend.ensure_network("other", {"io.fieldproof.run": "zzz"})
+    assert backend.find_networks("io.fieldproof.run", "abc") == ["abc-radio", "abc-onboard"]
+    with pytest.raises(BackendError, match="cannot list networks"):
+        backend.find_networks("api-error", "x")
+    backend.remove_network("abc-radio")
+    assert client.networks.get("abc-radio").removed
+    backend.remove_network("never-made")
+    client.networks.items.append(StubNetwork("busy"))
+    with pytest.raises(BackendError, match="network busy: cannot remove it"):
+        backend.remove_network("busy")
+
+
+def test_address(backend: DockerBackend, client: StubClient) -> None:
+    client.containers.items["h"] = StubContainer(
+        "h", {"NetworkSettings": {"Networks": {"radio": {"IPAddress": "172.20.0.2"}}}}
+    )
+    assert backend.address("h", "radio") == "172.20.0.2"
+    with pytest.raises(BackendError, match="no address on network onboard"):
+        backend.address("h", "onboard")
+    with pytest.raises(BackendError, match="no such container"):
+        backend.address("gone", "radio")
+    with pytest.raises(BackendError, match="cannot inspect"):
+        backend.address("api-error", "radio")
+
+
+def test_start_behind_a_link(backend: DockerBackend, client: StubClient) -> None:
+    client.networks.items += [StubNetwork("onboard"), StubNetwork("radio")]
+    backend.start(
+        ContainerSpec(
+            name="holder",
+            image="present:1",
+            role="link",
+            network="onboard",
+            networks=("radio",),
+            aliases=("ugv1",),
+            hostname="ugv1",
+            cap_add=("NET_ADMIN",),
+        )
+    )
+    created = client.containers.created[-1]
+    assert created["network"] == "onboard"
+    assert created["hostname"] == "ugv1"
+    assert created["cap_add"] == ["NET_ADMIN"]
+    assert created["networking_config"] == {"onboard": {"Aliases": ["ugv1"]}}
+    assert client.networks.get("radio").connected == [("holder", ["ugv1"])]
+    backend.start(
+        ContainerSpec(
+            name="vehicle",
+            image="present:1",
+            role="vehicle",
+            network="ignored",
+            hostname="ignored",
+            network_mode="container:holder",
+        )
+    )
+    created = client.containers.created[-1]
+    assert created["network_mode"] == "container:holder"
+    assert "network" not in created
+    assert "hostname" not in created
+    assert created["cap_add"] is None
+    client.networks.items.append(StubNetwork("refuses"))
+    with pytest.raises(BackendError, match="cannot join network refuses: no room"):
+        backend.start(
+            ContainerSpec(name="c9", image="present:1", role="link", networks=("refuses",))
+        )
+    assert ("remove", {"force": True, "v": True}) in client.containers.items["c9"].calls
 
 
 def test_start_maps_the_spec(backend: DockerBackend, client: StubClient) -> None:

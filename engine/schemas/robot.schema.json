@@ -545,6 +545,28 @@
       "title": "Frames",
       "type": "object"
     },
+    "Heartbeat": {
+      "additionalProperties": false,
+      "description": "The ground station's heartbeat the vehicle listens for (`std_msgs/msg/Header`).",
+      "properties": {
+        "topic": {
+          "description": "Topic of the heartbeat (relative: under the vehicle's namespace).",
+          "minLength": 1,
+          "title": "Topic",
+          "type": "string"
+        },
+        "rate_hz": {
+          "default": 2.0,
+          "description": "How often the ground station sends it.",
+          "exclusiveMinimum": 0,
+          "title": "Rate Hz",
+          "type": "number"
+        }
+      },
+      "required": ["topic"],
+      "title": "Heartbeat",
+      "type": "object"
+    },
     "JointStates": {
       "additionalProperties": false,
       "description": "Joint states; `gz_rate` names a faster Gazebo rate the bridge throttles.",
@@ -691,6 +713,32 @@
       },
       "required": ["lifecycle"],
       "title": "LifecycleCondition",
+      "type": "object"
+    },
+    "Link": {
+      "additionalProperties": false,
+      "description": "The vehicle's radio link to its ground station (task P2-T02).\n\nIn a scenario with radio links (`network`) the ground station sends the heartbeat over the\nlink, so a dropped link stops it, and the scenario's assertions check the behaviour\n`loss_behaviour` documents.",
+      "properties": {
+        "heartbeat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Heartbeat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The heartbeat the ground station sends (absent: none)."
+        },
+        "loss_behaviour": {
+          "default": "",
+          "description": "What the vehicle does when the link is lost, and when it comes back.",
+          "title": "Loss Behaviour",
+          "type": "string"
+        }
+      },
+      "title": "Link",
       "type": "object"
     },
     "Metadata": {
@@ -1063,6 +1111,18 @@
           "description": "Extra environment of the container.",
           "title": "Env",
           "type": "object"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Link"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The radio link to the ground station."
         }
       },
       "required": ["image", "entrypoint"],

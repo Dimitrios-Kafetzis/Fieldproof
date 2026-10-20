@@ -2,6 +2,242 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/scenario.schema.json",
   "$defs": {
+    "LinkDrop": {
+      "additionalProperties": false,
+      "description": "Drop a vehicle's radio link: nothing gets through either way.\n\nWith `duration_s` the entry restores the link's configured profile after that long and ends\nthen; without it the link stays down until a `link.restore` or `link.set`.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "When, after the vehicles are ready (`30s`, `1m`).",
+          "title": "At"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: the action).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose link drops.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "action": {
+          "const": "link.drop",
+          "title": "Action",
+          "type": "string"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Restore the link after this long (absent: stay down).",
+          "title": "Duration S"
+        }
+      },
+      "required": ["vehicle", "action"],
+      "title": "LinkDrop",
+      "type": "object"
+    },
+    "LinkProfile": {
+      "additionalProperties": false,
+      "description": "How a radio link behaves: each direction delays, varies, loses, reorders and paces.",
+      "properties": {
+        "description": {
+          "default": "",
+          "description": "What the profile stands for.",
+          "title": "Description",
+          "type": "string"
+        },
+        "latency_ms": {
+          "default": 0.0,
+          "description": "One-way delay, milliseconds.",
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "number"
+        },
+        "jitter_ms": {
+          "default": 0.0,
+          "description": "Standard deviation of the delay (normal distribution), milliseconds.",
+          "minimum": 0,
+          "title": "Jitter Ms",
+          "type": "number"
+        },
+        "loss_pct": {
+          "default": 0.0,
+          "description": "Packets lost in each direction, percent.",
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Loss Pct",
+          "type": "number"
+        },
+        "reorder_pct": {
+          "default": 0.0,
+          "description": "Packets sent at once, ahead of the delayed ones, percent (needs a latency).",
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Reorder Pct",
+          "type": "number"
+        },
+        "rate_kbit": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Throughput of each direction, kbit/s (absent: unlimited).",
+          "title": "Rate Kbit"
+        }
+      },
+      "title": "LinkProfile",
+      "type": "object"
+    },
+    "LinkRestore": {
+      "additionalProperties": false,
+      "description": "Bring back the profile the scenario configures for a vehicle's link.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "When, after the vehicles are ready (`30s`, `1m`).",
+          "title": "At"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: the action).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose link is restored.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "action": {
+          "const": "link.restore",
+          "title": "Action",
+          "type": "string"
+        }
+      },
+      "required": ["vehicle", "action"],
+      "title": "LinkRestore",
+      "type": "object"
+    },
+    "LinkSet": {
+      "additionalProperties": false,
+      "description": "Put another profile on a vehicle's radio link (`network.profiles` or a preset).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "When, after the vehicles are ready (`30s`, `1m`).",
+          "title": "At"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: the action).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose link changes.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "action": {
+          "const": "link.set",
+          "title": "Action",
+          "type": "string"
+        },
+        "profile": {
+          "description": "The profile from now on.",
+          "title": "Profile",
+          "type": "string"
+        }
+      },
+      "required": ["vehicle", "action", "profile"],
+      "title": "LinkSet",
+      "type": "object"
+    },
     "Metadata": {
       "additionalProperties": false,
       "description": "What the scenario is.",
@@ -100,6 +336,55 @@
       },
       "required": ["vehicle", "action", "goal"],
       "title": "NavigateToPose",
+      "type": "object"
+    },
+    "Network": {
+      "additionalProperties": false,
+      "description": "Radio links between the vehicles and the ground (task P2-T02).\n\nWith this section every vehicle talks to the ground station and to the other vehicles over\nits own radio link, shaped by a profile (latency, jitter, loss, reordering, rate), while its\nbridge and the run's recorder reach it unimpaired; the timeline changes a link with\n`link.set`, `link.drop` and `link.restore`. Without it the vehicles share the run's network\nas they always did.",
+      "properties": {
+        "profile": {
+          "default": "wifi_good",
+          "description": "Profile of every vehicle's link: a preset (`wifi_good`, `lte_rural`, `rf_900mhz_5km`) or a name under `profiles`.",
+          "title": "Profile",
+          "type": "string"
+        },
+        "links": {
+          "description": "Profile of a vehicle's link instead of `profile` (vehicle name to profile).",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "string"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "minLength": 1
+          },
+          "title": "Links",
+          "type": "object"
+        },
+        "profiles": {
+          "description": "Profiles of this scenario, by name.",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/LinkProfile"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "minLength": 1
+          },
+          "title": "Profiles",
+          "type": "object"
+        },
+        "verify": {
+          "default": "warn",
+          "description": "What a link whose measured latency is not within 10 % of its profile does: nothing, a warning, or fails the run.",
+          "enum": ["off", "warn", "fail"],
+          "title": "Verify",
+          "type": "string"
+        }
+      },
+      "title": "Network",
       "type": "object"
     },
     "NoCollision": {
@@ -580,7 +865,7 @@
     },
     "TopicValue": {
       "additionalProperties": false,
-      "description": "A condition over a field of a ROS topic's messages.\n\n`condition` is an expression over `value`, the field of each message (`value < 1.5`,\n`abs(value) <= 0.2`, `0 < value and value < 2`); `mode` says whether every message after\n`after_s` must satisfy it (`always`, fails at the first that does not) or one must\n(`eventually`, passes at the first that does, fails at `within_s` or the end).",
+      "description": "A condition over a field of a ROS topic's messages.\n\n`condition` is an expression over `value`, the field of each message (`value < 1.5`,\n`abs(value) <= 0.2`, `0 < value and value < 2`); `mode` says whether every message after\n`after_s` must satisfy it (`always`, fails at the first that does not, passes at `within_s`\nor the end) or one must (`eventually`, passes at the first that does, fails at `within_s`\nor the end). `after_s` and `within_s` make a window: \"the vehicle is stopped from 12 s to\n27 s\" is `mode: always`, `after_s: 12s`, `within_s: 27s`.",
       "properties": {
         "name": {
           "description": "Assertion name: lower case, digits and underscores.",
@@ -667,7 +952,7 @@
             }
           ],
           "default": null,
-          "description": "Deadline for `eventually` (absent: the end of the timeline).",
+          "description": "End of the window: the deadline of `eventually`, the end of `always` (absent: the end of the timeline).",
           "title": "Within S"
         },
         "message_type": {
@@ -876,6 +1161,18 @@
       "title": "Vehicles",
       "type": "array"
     },
+    "network": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Network"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Radio links between the vehicles and the ground (absent: one shared network, no shaping)."
+    },
     "time": {
       "$ref": "#/$defs/Time",
       "default": {
@@ -887,7 +1184,29 @@
     },
     "timeline": {
       "items": {
-        "$ref": "#/$defs/NavigateToPose"
+        "discriminator": {
+          "mapping": {
+            "link.drop": "#/$defs/LinkDrop",
+            "link.restore": "#/$defs/LinkRestore",
+            "link.set": "#/$defs/LinkSet",
+            "navigate_to_pose": "#/$defs/NavigateToPose"
+          },
+          "propertyName": "action"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/NavigateToPose"
+          },
+          {
+            "$ref": "#/$defs/LinkSet"
+          },
+          {
+            "$ref": "#/$defs/LinkDrop"
+          },
+          {
+            "$ref": "#/$defs/LinkRestore"
+          }
+        ]
       },
       "title": "Timeline",
       "type": "array"

@@ -119,6 +119,9 @@ class Timeouts(Strict):
     contract_s: PositiveFloat = Field(
         default=180.0, description="A vehicle's bridge contract check (`--check-contracts`)."
     )
+    ground_s: PositiveFloat = Field(
+        default=60.0, description="The ground station reporting ready (radio links)."
+    )
     teardown_s: PositiveFloat = Field(default=10.0, description="Grace period of a container stop.")
 
 

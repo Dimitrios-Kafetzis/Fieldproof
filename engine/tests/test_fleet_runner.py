@@ -188,8 +188,9 @@ def test_fleet_plan_isolates_the_vehicles(resolved: Plan, config: Config) -> Non
         "ugv2_along_hall",
         "ugv3_across_yard",
     ]
-    assert resolved.actions[1].goal_map.x == pytest.approx(4.0)
-    assert resolved.actions[2].goal_map.x == pytest.approx(4.0)
+    goals = [a.goal_map for a in resolved.actions]
+    assert all(goal is not None for goal in goals)
+    assert [g.x for g in goals if g is not None][1:] == [pytest.approx(4.0), pytest.approx(4.0)]
     by_name = {a.name: a for a in resolved.assertions}
     assert by_name["ugv2_speed_limit"].topic == "/ugv2/cmd_vel"
     assert by_name["ugv3_no_collision"].topic == "/ugv3/contacts"

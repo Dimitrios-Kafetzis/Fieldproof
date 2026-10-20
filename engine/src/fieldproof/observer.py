@@ -12,9 +12,11 @@ and starts it on ``observe.json`` (:func:`fieldproof.assertions.observe_plan`). 
   the vehicles' contact sensors), and appends one JSON line per observation to ``samples.jsonl``
   for the runner's evaluator;
 - publishes the side channels: ``/fieldproof/events`` (the engine's log lines as they are
-  written), ``/fieldproof/assertions`` (every verdict the runner writes) and
-  ``/fieldproof/metrics`` (once a second: simulation time, real-time factor, rates, poses), all
-  as ``std_msgs/msg/String`` carrying JSON, so the recording holds the whole run.
+  written), ``/fieldproof/assertions`` (every verdict the runner writes),
+  ``/fieldproof/metrics`` (once a second: simulation time, real-time factor, rates, poses) and
+  ``/fieldproof/network`` (the ground station's link measurements, task P2-T02, when the run has
+  radio links), all as ``std_msgs/msg/String`` carrying JSON, so the recording holds the whole
+  run.
 
 It writes ``{"kind": "ready"}`` once everything is up, and stops cleanly on SIGTERM (the
 recorder is sent SIGINT and waited for, so the MCAP is finalised). Like the readiness probe, it
@@ -433,7 +435,11 @@ class Observer:
         channels = self.config.get("side_channels", {})
         for key, topic in channels.items():
             self.publishers[key] = self.ros.publisher(topic)
-        for key, file_key in (("events", "events_file"), ("assertions", "assertions_file")):
+        for key, file_key in (
+            ("events", "events_file"),
+            ("assertions", "assertions_file"),
+            ("network", "network_file"),
+        ):
             if key in self.publishers and self.config.get(file_key):
                 self.tails[key] = FileTail(Path(self.config[file_key]))
         if self.gz is not None:

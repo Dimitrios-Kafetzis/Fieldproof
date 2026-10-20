@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fieldproof.expression import ExpressionError, compile_condition
+from fieldproof.network import NETWORK_FILE
 from fieldproof.scenario import (
     Assertion,
     NoCollision,
@@ -44,6 +45,7 @@ SIDE_CHANNELS = {
     "events": "/fieldproof/events",
     "assertions": "/fieldproof/assertions",
     "metrics": "/fieldproof/metrics",
+    "network": "/fieldproof/network",
 }
 # Files of the run directory the observer reads and writes.
 SAMPLES_FILE = "samples.jsonl"
@@ -519,6 +521,9 @@ class TopicValueChecker(Checker):
             return
         if t < self.assertion.after_s:
             return
+        if self.assertion.within_s is not None and t > self.assertion.within_s:
+            self.on_tick(t)  # the window closed before this message
+            return
         value = sample.data.get("value")
         self.count += 1
         self.last = value
@@ -554,7 +559,11 @@ class TopicValueChecker(Checker):
     def on_tick(self, t: float) -> None:
         """See :meth:`Checker.on_tick`."""
         deadline = self.assertion.within_s
-        if self.assertion.mode == "eventually" and deadline is not None and t >= deadline:
+        if self.done or deadline is None or t < deadline:
+            return
+        if self.assertion.mode == "always":
+            self._settle_always(t, f"from {self.assertion.after_s:g} s to {deadline:g} s")
+        else:
             self.resolve(
                 FAILED,
                 f"{self.planned.topic} {self.assertion.field} never satisfied "
@@ -563,20 +572,32 @@ class TopicValueChecker(Checker):
                 **self._stats(),
             )
 
+    def _settle_always(self, t: float, window: str | None = None) -> None:
+        """The window of an `always` closed: passed if it held for at least one message."""
+        if self.count == 0:
+            when = window or f"after {self.assertion.after_s:g} s"
+            self.resolve(FAILED, f"no message of {self.planned.topic} {when}", t, **self._stats())
+            return
+        where = f"{self.planned.topic} {self.assertion.field}"
+        self.resolve(
+            PASSED,
+            f"{where} satisfied {self.assertion.condition!r} in all {self.count} message(s)"
+            + (f" {window}" if window else ""),
+            t,
+            **self._stats(),
+        )
+
     def on_finish(self, t: float) -> None:
         """See :meth:`Checker.on_finish`."""
+        if self.done:
+            return
         where = f"{self.planned.topic} {self.assertion.field}"
-        if self.count == 0:
+        if self.assertion.mode == "always":
+            self._settle_always(t)
+        elif self.count == 0:
             self.resolve(
                 FAILED,
                 f"no message of {self.planned.topic} after {self.assertion.after_s:g} s",
-                t,
-                **self._stats(),
-            )
-        elif self.assertion.mode == "always":
-            self.resolve(
-                PASSED,
-                f"{where} satisfied {self.assertion.condition!r} in all {self.count} message(s)",
                 t,
                 **self._stats(),
             )
@@ -766,5 +787,6 @@ def observe_plan(
         "side_channels": dict(SIDE_CHANNELS),
         "events_file": f"{run_dir}/engine.log",
         "assertions_file": f"{run_dir}/{ASSERTIONS_FILE}",
+        "network_file": f"{run_dir}/{NETWORK_FILE}",
         "samples_file": f"{run_dir}/{SAMPLES_FILE}",
     }
