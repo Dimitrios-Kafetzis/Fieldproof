@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.12.0...v0.12.1) (2026-10-20)
+
+
+### Build and dependencies
+
+* **deps:** bump the actions group across 1 directory with 2 updates ([#53](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/53)) ([2d38f13](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/2d38f137dad0ca042052f1aef250e57643f58636))
+
 ## [0.12.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.11.0...v0.12.0) (2026-10-18)
 
 
