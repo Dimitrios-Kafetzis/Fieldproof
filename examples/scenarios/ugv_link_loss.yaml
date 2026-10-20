@@ -98,7 +98,10 @@ assertions:
 outputs:
   logs: true
   record: true
-  topics: # the /fieldproof/* side channels (the link measurements included) are always recorded
+  # The recorder sees the vehicle on its onboard network, not the ground station on the radio
+  # (so not the heartbeat it sends); the link measurements are on /fieldproof/network, a side
+  # channel, always recorded.
+  topics:
     - /clock
     - /tf
     - /tf_static
@@ -106,7 +109,6 @@ outputs:
     - /cmd_vel
     - /cmd_vel_safe
     - /link_state
-    - /gcs/heartbeat
     - /scan
     - /map
     - /plan

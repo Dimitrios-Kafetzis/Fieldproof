@@ -65,7 +65,10 @@ flowchart LR
   engine's user, on the radio network only. It sends each vehicle the heartbeat its manifest
   asks for and probes every link ([Measurement](#measurement)).
 - **The recorder** joins every onboard network, so what it records and what the assertions see
-  is the vehicles' truth, not the ground station's view of them.
+  is the vehicles' truth, not the ground station's view of them. It is not on the radio network
+  (its subscriptions would pull every recorded topic over the links), so it does not hear the
+  ground station itself: the heartbeat is visible through what the vehicle does with it
+  (`link_state` in the example), the link through `/fieldproof/network`.
 - **Vehicle to vehicle** traffic crosses the sender's link and the receiver's (a star through
   the radio network, as through a base station or a mesh relay): ugv1's onboard network and
   ugv2's share no member that would carry it otherwise.
@@ -287,8 +290,8 @@ a discovery burst on its slowest link, or a heartbeat that does not share its qu
   10 % of the profile from 100 pings, UDP throughput within 10 % of the rate both ways, a drop
   answering nothing, the restore answering again; then **`fieldproof run
   examples/scenarios/ugv_link_loss.yaml`** end to end: exit 0, the seven assertions passed, every
-  measured period passed (latency within 10 % of 60 ms, the drop unanswered), `/link_state`,
-  `/gcs/heartbeat` and `/fieldproof/network` in the MCAP, no container or network left.
+  measured period passed (latency within 10 % of 60 ms, the drop unanswered), `/link_state` and
+  `/fieldproof/network` in the MCAP, no container or network left.
 
 ## Known limits
 

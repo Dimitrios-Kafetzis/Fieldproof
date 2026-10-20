@@ -3,21 +3,20 @@
 ``test_01``: ping and iperf containers on a link the engine shapes. The engine's own Docker
 backend and netem scripts (:mod:`fieldproof.network`) build what a run builds for one vehicle: an
 onboard and a radio network, a link holder with ``NET_ADMIN`` on both, a "vehicle" container in
-the holder's network namespace running ``iperf3 -s``, and a "ground" container on the radio
-network. For every preset the ground pings the vehicle (the probes the ground station sends: the
-measured one-way latency, half the mean round trip, must be within 10 % of the profile, the
-definition of done) and runs ``iperf3`` over UDP both ways faster than the link's rate (the
-received throughput must be the profile's rate, less its loss and the packets' headers, within
-10 %). Then the link drops (no reply), comes back (replies again), and loses its shaping.
+the holder's network namespace, and a "ground" container on the radio network. For every preset
+the ground pings the vehicle (the probes the ground station sends: the measured one-way latency,
+half the mean round trip, must be within 10 % of the profile, the definition of done) and runs
+``iperf3`` over UDP both ways faster than the link's rate (the received throughput must be the
+profile's rate, less its loss and the packets' headers, within 10 %). Then the link drops (no
+reply), comes back (replies again), and loses its shaping.
 
 ``test_02``: ``fieldproof run examples/scenarios/ugv_link_loss.yaml``, the scenario of the
 definition of done: the example vehicle drives across the depot's yard over a rural LTE link
 that drops for 20 s. Exit code 0; the seven assertions passed (the vehicle reports the link
 lost, holds position and commands zero while it is down, reports it back, and reaches its
 goal); every link period the ground station measured passed against its profile (the run
-verifies with ``network.verify: fail``); the MCAP holds ``/link_state``, ``/gcs/heartbeat`` and
-the ``/fieldproof/network`` side channel; and neither a container nor a network of the run is
-left.
+verifies with ``network.verify: fail``); the MCAP holds ``/link_state`` and the
+``/fieldproof/network`` side channel; and neither a container nor a network of the run is left.
 
 Needs a kernel with the ``sch_netem`` and ``ifb`` modules (loaded on demand on Ubuntu; CI loads
 them explicitly), the stack images (``make images``: the bridge image carries ``tc``, ``ping``
@@ -64,6 +63,7 @@ UDP_PAYLOAD = 1200
 UDP_OVERDRIVE = 1.25
 UDP_SECONDS = 6
 UDP_ATTEMPTS = 3
+UDP_FIRST_PORT = 5301
 # What a datagram weighs at the qdisc (Ethernet, IPv4, UDP headers), where netem's rate applies.
 UDP_WIRE = 14 + 20 + 8 + UDP_PAYLOAD
 
@@ -111,7 +111,7 @@ class Link:
             name=f"fieldproof-it-{self.token}-vehicle",
             image=image,
             role="vehicle",
-            command=("iperf3", "--server"),
+            command=("sleep", "infinity"),
             labels=self.labels,
             network_mode=f"container:{self.holder.name}",
         )
@@ -120,13 +120,14 @@ class Link:
             name=f"fieldproof-it-{self.token}-ground",
             image=image,
             role="ground",
-            command=("iperf3", "--server"),
+            command=("sleep", "infinity"),
             labels=self.labels,
             network=self.radio,
             hostname="ground",
             user="0:0",
         )
         self.address = ""
+        self.port = UDP_FIRST_PORT
 
     def up(self) -> None:
         for network in (self.onboard, self.radio):
@@ -161,17 +162,26 @@ class Link:
         return int(received.group(1)), float(rtt.group(1)) if rtt else None
 
     def udp(self, rate_kbit: float, reverse: bool) -> dict[str, Any]:
-        """iperf3 over UDP from the ground to the vehicle (or back with `reverse`)."""
-        argv = [
-            "iperf3", "--client", "vehicle", "--udp", "--json",
-            "--bitrate", f"{rate_kbit * UDP_OVERDRIVE:.0f}K", "--length", str(UDP_PAYLOAD),
-            "--time", str(UDP_SECONDS),
-        ]  # fmt: skip
-        if reverse:
-            argv.append("--reverse")
-        # iperf3 opens a UDP test with a handshake datagram, which a lossy link can lose ("unable
-        # to read from stream socket"): the tool's flake, not the link's, so try again.
+        """iperf3 over UDP from the ground to the vehicle (or back with `reverse`).
+
+        iperf3 opens a UDP test with a handshake datagram, which a lossy link can lose ("unable
+        to read from stream socket"): the tool's flake, not the link's. A server stays busy with
+        the failed test for a while, so every attempt gets a one-off server on a port of its own.
+        """
         for _attempt in range(UDP_ATTEMPTS):
+            self.port += 1
+            server = self.backend.exec(
+                self.vehicle.name,
+                ("iperf3", "--server", "--one-off", "--daemon", "--port", str(self.port)),
+            )
+            assert server.ok, server.output
+            argv = [
+                "iperf3", "--client", "vehicle", "--port", str(self.port), "--udp", "--json",
+                "--bitrate", f"{rate_kbit * UDP_OVERDRIVE:.0f}K", "--length", str(UDP_PAYLOAD),
+                "--time", str(UDP_SECONDS),
+            ]  # fmt: skip
+            if reverse:
+                argv.append("--reverse")
             result = self.backend.exec(self.ground.name, argv)
             if result.ok:
                 break
@@ -308,7 +318,6 @@ def test_02_link_loss_scenario(tmp_path: Path) -> None:
     (mcap,) = sorted((run_dir / "recording").glob("*.mcap"))
     topics = mcap_topics(mcap)
     assert topics.get("/link_state", 0) >= 10
-    assert topics.get("/gcs/heartbeat", 0) >= 10
     assert topics.get("/fieldproof/network", 0) >= 20, "a window a second while the run lasted"
     left = docker("ps", "-aq", "--filter", f"label={RUN_LABEL}={record['run_id']}").stdout.split()
     assert left == [], "no container of the run is left"
