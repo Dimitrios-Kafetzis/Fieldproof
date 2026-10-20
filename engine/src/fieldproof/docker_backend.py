@@ -231,6 +231,7 @@ class DockerBackend:
             running=running,
             exit_code=None if running else state.get("ExitCode"),
             health=str(health) if health else None,
+            paused=bool(state.get("Paused")),
         )
 
     def logs(self, name: str) -> str:
@@ -250,6 +251,27 @@ class DockerBackend:
             return
         except (APIError, requests.RequestException) as error:
             raise BackendError(f"{name}: cannot stop the container: {error}") from error
+
+    def pause(self, name: str) -> None:
+        """Freeze every process of the container."""
+        try:
+            self.client.containers.get(name).pause()
+        except (NotFound, APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: cannot pause the container: {error}") from error
+
+    def unpause(self, name: str) -> None:
+        """Thaw a paused container."""
+        try:
+            self.client.containers.get(name).unpause()
+        except (NotFound, APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: cannot resume the container: {error}") from error
+
+    def kill(self, name: str, signal: str) -> None:
+        """Send a signal to the container's main process."""
+        try:
+            self.client.containers.get(name).kill(signal=signal)
+        except (NotFound, APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: cannot kill the container: {error}") from error
 
     def remove(self, name: str) -> None:
         """Remove the container (forced)."""

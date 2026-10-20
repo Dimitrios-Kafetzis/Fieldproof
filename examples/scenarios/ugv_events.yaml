@@ -1,0 +1,115 @@
+# A tour of the timeline DSL and the engine-side events (task P2-T03, docs/reference/events.md)
+# on the example vehicle ugv_nav2. The vehicle drives 4 m ahead from the loading dock as in
+# ugv_nav_to_goal.yaml while the timeline, instead of a list of times, uses every trigger:
+#
+#   at + every + count   say_hello publishes a message from the vehicle's container at 2 s,
+#                        7 s and 12 s (example.announce, the example plugin of examples/plugins);
+#   when + within_s      tighten_failsafe sets a parameter of the stack's link monitor the
+#                        first time the vehicle's ground truth is more than 1 m from its spawn;
+#   after + at           freeze_stack pauses the vehicle's container 1 s after the drive ends,
+#                        for 3 s (the simulator goes on, the stack stands still);
+#   after                stop_stack kills the container once the pause is over; the run then
+#                        expects the container gone and ends the timeline.
+#
+# Every occurrence is in run.json (timeline[]) and on /fieldproof/events in the recording, with
+# its trigger and parameters. The assertions check the drive and, through within_time, that each
+# event ran (a when entry whose condition never holds ends skipped, which within_time fails).
+# Times are wall clock from the start of the timeline (runner v0); the pose the `when` reads is
+# the simulator's ground truth.
+#
+#   fieldproof validate examples/scenarios/ugv_events.yaml
+#   fieldproof run examples/scenarios/ugv_events.yaml
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: ugv_events
+  description: The example UGV drives 4 m while the timeline exercises every trigger and the engine-side events
+  tags: [events, nav, ugv]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    spawn:
+      frame: spawn_dock
+time:
+  mode: sim
+  timeout_s: 10m
+timeline:
+  - at: 0s
+    name: drive_ahead
+    vehicle: ugv1
+    action: navigate_to_pose
+    goal: { x: 10.0, y: -1.0, yaw: -1.5708 } # 4 m ahead of spawn_dock, in the lidar's view
+    timeout_s: 5m
+  - name: say_hello
+    vehicle: ugv1
+    at: 2s
+    every: 5s
+    count: 3
+    action: example.announce # examples/plugins/example_events
+    text: fieldproof says hello
+    subscribers: 1 # the recorder subscribes (outputs.topics below), so the message is recorded
+  - name: tighten_failsafe
+    vehicle: ugv1
+    when: # the first ground-truth sample more than 1 m from the spawn
+      metric: distance_to
+      target: { frame: spawn_dock }
+      condition: value > 1.0
+    within_s: 4m # skipped (and failsafe_tightened fails) if it never holds
+    action: param.set
+    node: link_monitor # /link_monitor at the root namespace
+    parameter: loss_timeout_s
+    value: 5.0
+  - name: freeze_stack
+    vehicle: ugv1
+    after: drive_ahead
+    at: 1s # one second after the drive ends
+    action: container.pause
+    duration_s: 3s
+  - name: stop_stack
+    vehicle: ugv1
+    after: freeze_stack
+    action: container.kill
+assertions:
+  - name: reached_goal
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: 10.0, y: -1.0 }
+    tolerance_m: 0.5
+  - name: arrived_in_time
+    type: within_time
+    action: drive_ahead
+    max_s: 4m
+  - name: said_hello # the first occurrence of say_hello
+    type: within_time
+    action: say_hello
+    max_s: 1m
+  - name: failsafe_tightened
+    type: within_time
+    action: tighten_failsafe
+    max_s: 1m
+  - name: stack_frozen
+    type: within_time
+    action: freeze_stack
+    max_s: 30s
+  - name: stack_stopped
+    type: within_time
+    action: stop_stack
+    max_s: 30s
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+outputs:
+  logs: true
+  record: true
+  topics:
+    - /clock
+    - /tf
+    - /tf_static
+    - /odom
+    - /cmd_vel
+    - /announce
+    - /scan
+    - /plan
+    - /rosout

@@ -302,6 +302,8 @@ class WithinTimeChecker(Checker):
             self.started_t = t
             return
         if self.started_t is None:
+            if status in ("skipped", "cancelled"):
+                self.resolve(FAILED, f"{label} was {status} before it started", t)
             return
         took = t - self.started_t
         evidence = {"started_t_s": _round(self.started_t), "duration_s": _round(took)}
@@ -749,14 +751,22 @@ def observe_plan(
     topics: Sequence[str],
     run_dir: str,
     pose_hz: float = 10.0,
+    conditions: Sequence[Any] = (),
 ) -> dict[str, Any]:
-    """What the observer must watch and record (`observe.json`), from the planned assertions.
+    """What the observer must watch and record (`observe.json`).
 
-    `run_dir` is the run directory as the recorder container sees it.
+    From the planned assertions and the timeline's `when` conditions (task P2-T03: their topic
+    fields are watched too). `run_dir` is the run directory as the recorder container sees it.
     """
     rates: list[dict[str, Any]] = []
     values: list[dict[str, Any]] = []
     contacts: list[dict[str, Any]] = []
+    for condition in conditions:
+        when = condition.when
+        if condition.topic is not None:
+            entry = {"topic": condition.topic, "field": when.field, "type": when.message_type}
+            if entry not in values:
+                values.append(entry)
     for item in planned:
         a = item.assertion
         if isinstance(a, TopicRate):

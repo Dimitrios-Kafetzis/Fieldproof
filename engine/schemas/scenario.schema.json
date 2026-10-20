@@ -2,10 +2,31 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/scenario.schema.json",
   "$defs": {
-    "LinkDrop": {
+    "Announce": {
       "additionalProperties": false,
-      "description": "Drop a vehicle's radio link: nothing gets through either way.\n\nWith `duration_s` the entry restores the link's configured profile after that long and ends\nthen; without it the link stays down until a `link.restore` or `link.set`.",
+      "description": "Publish a text once on a topic of the vehicle.",
       "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose container publishes.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -18,9 +39,164 @@
             }
           ],
           "default": 0.0,
-          "description": "When, after the vehicles are ready (`30s`, `1m`).",
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
           "title": "At"
         },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "example.announce",
+          "title": "Action",
+          "type": "string"
+        },
+        "topic": {
+          "default": "announce",
+          "description": "The topic (relative to the vehicle's namespace, or absolute with `/`).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "text": {
+          "description": "The text of the `std_msgs/msg/String` message.",
+          "title": "Text",
+          "type": "string"
+        },
+        "subscribers": {
+          "default": 0,
+          "description": "Wait for this many subscribers before publishing (0: publish at once; 1 when the topic is recorded, so the recording holds the message).",
+          "minimum": 0,
+          "title": "Subscribers",
+          "type": "integer"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 30.0,
+          "description": "Give up after this long.",
+          "title": "Timeout S"
+        }
+      },
+      "required": ["vehicle", "action", "text"],
+      "title": "Announce",
+      "type": "object"
+    },
+    "ContainerKill": {
+      "additionalProperties": false,
+      "description": "Kill the vehicle's container with a signal; the run expects it gone from then on.",
+      "properties": {
         "name": {
           "anyOf": [
             {
@@ -31,7 +207,511 @@
             }
           ],
           "default": null,
-          "description": "Label in the run record (default: the action).",
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose container is killed.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "container.kill",
+          "title": "Action",
+          "type": "string"
+        },
+        "signal": {
+          "default": "SIGKILL",
+          "description": "The signal sent to the container.",
+          "enum": ["SIGKILL", "SIGTERM", "SIGINT", "SIGHUP"],
+          "title": "Signal",
+          "type": "string"
+        }
+      },
+      "required": ["vehicle", "action"],
+      "title": "ContainerKill",
+      "type": "object"
+    },
+    "ContainerPause": {
+      "additionalProperties": false,
+      "description": "Pause the vehicle's container (every process of the stack freezes).\n\nWith `duration_s` the entry resumes the container after that long and ends then; without\nit the container stays paused until a `container.resume` (or the teardown).",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose container pauses.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "container.pause",
+          "title": "Action",
+          "type": "string"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resume after this long (absent: stay paused).",
+          "title": "Duration S"
+        }
+      },
+      "required": ["vehicle", "action"],
+      "title": "ContainerPause",
+      "type": "object"
+    },
+    "ContainerResume": {
+      "additionalProperties": false,
+      "description": "Resume the vehicle's paused container.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose container resumes.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "container.resume",
+          "title": "Action",
+          "type": "string"
+        }
+      },
+      "required": ["vehicle", "action"],
+      "title": "ContainerResume",
+      "type": "object"
+    },
+    "LinkDrop": {
+      "additionalProperties": false,
+      "description": "Drop a vehicle's radio link: nothing gets through either way.\n\nWith `duration_s` the entry restores the link's configured profile after that long and ends\nthen; without it the link stays down until a `link.restore` or `link.set`.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
           "title": "Name"
         },
         "vehicle": {
@@ -41,6 +721,129 @@
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Vehicle",
           "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
         },
         "action": {
           "const": "link.drop",
@@ -137,6 +940,27 @@
       "additionalProperties": false,
       "description": "Bring back the profile the scenario configures for a vehicle's link.",
       "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose link is restored.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -149,10 +973,10 @@
             }
           ],
           "default": 0.0,
-          "description": "When, after the vehicles are ready (`30s`, `1m`).",
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
           "title": "At"
         },
-        "name": {
+        "after": {
           "anyOf": [
             {
               "type": "string"
@@ -162,16 +986,103 @@
             }
           ],
           "default": null,
-          "description": "Label in the run record (default: the action).",
-          "title": "Name"
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
         },
-        "vehicle": {
-          "description": "The vehicle whose link is restored.",
-          "maxLength": 63,
-          "minLength": 1,
-          "pattern": "^[a-z][a-z0-9_]*$",
-          "title": "Vehicle",
-          "type": "string"
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
         },
         "action": {
           "const": "link.restore",
@@ -187,6 +1098,27 @@
       "additionalProperties": false,
       "description": "Put another profile on a vehicle's radio link (`network.profiles` or a preset).",
       "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose link changes.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -199,10 +1131,10 @@
             }
           ],
           "default": 0.0,
-          "description": "When, after the vehicles are ready (`30s`, `1m`).",
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
           "title": "At"
         },
-        "name": {
+        "after": {
           "anyOf": [
             {
               "type": "string"
@@ -212,16 +1144,103 @@
             }
           ],
           "default": null,
-          "description": "Label in the run record (default: the action).",
-          "title": "Name"
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
         },
-        "vehicle": {
-          "description": "The vehicle whose link changes.",
-          "maxLength": 63,
-          "minLength": 1,
-          "pattern": "^[a-z][a-z0-9_]*$",
-          "title": "Vehicle",
-          "type": "string"
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
         },
         "action": {
           "const": "link.set",
@@ -273,6 +1292,27 @@
       "additionalProperties": false,
       "description": "Send a Nav2 `NavigateToPose` goal to a vehicle and wait for its result.",
       "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle the goal goes to.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -285,10 +1325,10 @@
             }
           ],
           "default": 0.0,
-          "description": "When, after the vehicles are ready (`30s`, `1m`).",
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
           "title": "At"
         },
-        "name": {
+        "after": {
           "anyOf": [
             {
               "type": "string"
@@ -298,16 +1338,103 @@
             }
           ],
           "default": null,
-          "description": "Label in the run record (default: the action).",
-          "title": "Name"
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
         },
-        "vehicle": {
-          "description": "The vehicle the goal goes to.",
-          "maxLength": 63,
-          "minLength": 1,
-          "pattern": "^[a-z][a-z0-9_]*$",
-          "title": "Vehicle",
-          "type": "string"
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
         },
         "action": {
           "const": "navigate_to_pose",
@@ -493,6 +1620,209 @@
         }
       },
       "title": "Outputs",
+      "type": "object"
+    },
+    "ParamSet": {
+      "additionalProperties": false,
+      "description": "Set a parameter of a node of the vehicle's stack with `ros2 param set`.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "description": "The vehicle whose node gets the parameter.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "param.set",
+          "title": "Action",
+          "type": "string"
+        },
+        "node": {
+          "description": "The node (relative to the vehicle's namespace, or absolute with `/`).",
+          "pattern": "^/?[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*)*$",
+          "title": "Node",
+          "type": "string"
+        },
+        "parameter": {
+          "description": "The parameter's name.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_./]*$",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "The value (a string stays a string, however it looks).",
+          "title": "Value"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 30.0,
+          "description": "Give up on the node after this long.",
+          "title": "Timeout S"
+        }
+      },
+      "required": ["vehicle", "action", "node", "parameter", "value"],
+      "title": "ParamSet",
       "type": "object"
     },
     "Placement": {
@@ -1078,6 +2408,101 @@
       "title": "VideoOutput",
       "type": "object"
     },
+    "When": {
+      "additionalProperties": false,
+      "description": "A condition of the run that triggers a timeline entry the first time it holds.\n\nEither a field of a ROS topic's messages (`topic`, `field`, like a `topic_value`\nassertion) or a `metric` of the run: `sim_time` (the simulator's clock, in seconds; the\none trigger in simulation time), `rtf` (the measured real-time factor), or the vehicle's\nground-truth `x`, `y`, `z`, `yaw` (radians) and `distance_to` a `target` placement\n(metres). `condition` is an expression over `value` (`value > 0.3`, `value < 2.0`).\n`vehicle` says whose topic or ground truth; it defaults to the entry's vehicle.",
+      "properties": {
+        "topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A ROS topic (relative to the vehicle's namespace when there is a vehicle).",
+          "title": "Topic"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Field of the message (`twist.twist.linear.x`, `data`).",
+          "title": "Field"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (`nav_msgs/msg/Odometry`; absent: discovered).",
+          "title": "Message Type"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "enum": ["sim_time", "rtf", "x", "y", "z", "yaw", "distance_to"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A metric of the run instead of a topic: `sim_time`, `rtf`, or the vehicle's `x`, `y`, `z`, `yaw`, `distance_to`.",
+          "title": "Metric"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The placement `distance_to` measures to (in the world)."
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle (default: the entry's) the topic or metric is of.",
+          "title": "Vehicle"
+        },
+        "condition": {
+          "description": "Expression over `value` (comparisons, arithmetic, abs).",
+          "title": "Condition",
+          "type": "string"
+        }
+      },
+      "required": ["condition"],
+      "title": "When",
+      "type": "object"
+    },
     "WithinTime": {
       "additionalProperties": false,
       "description": "A timeline action completes successfully within a duration of its start.",
@@ -1186,10 +2611,15 @@
       "items": {
         "discriminator": {
           "mapping": {
+            "container.kill": "#/$defs/ContainerKill",
+            "container.pause": "#/$defs/ContainerPause",
+            "container.resume": "#/$defs/ContainerResume",
+            "example.announce": "#/$defs/Announce",
             "link.drop": "#/$defs/LinkDrop",
             "link.restore": "#/$defs/LinkRestore",
             "link.set": "#/$defs/LinkSet",
-            "navigate_to_pose": "#/$defs/NavigateToPose"
+            "navigate_to_pose": "#/$defs/NavigateToPose",
+            "param.set": "#/$defs/ParamSet"
           },
           "propertyName": "action"
         },
@@ -1205,6 +2635,21 @@
           },
           {
             "$ref": "#/$defs/LinkRestore"
+          },
+          {
+            "$ref": "#/$defs/ContainerPause"
+          },
+          {
+            "$ref": "#/$defs/ContainerResume"
+          },
+          {
+            "$ref": "#/$defs/ContainerKill"
+          },
+          {
+            "$ref": "#/$defs/ParamSet"
+          },
+          {
+            "$ref": "#/$defs/Announce"
           }
         ]
       },

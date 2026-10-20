@@ -250,6 +250,7 @@ def test_link_loss_topology(resolved: Plan) -> None:  # noqa: PLR0915
         "at_s": 5.0,
         "vehicle": "ugv1",
         "action": "link.drop",
+        "trigger": {"at_s": 5.0},
         "duration_s": 20.0,
     }
     holder_dict = next(c for c in data["containers"] if c["role"] == "link")
