@@ -208,10 +208,13 @@ false (`std_msgs/msg/Bool`, transient local, also once a second) and sends zero 
 20 Hz, dropping Nav2's commands; at the next heartbeat it publishes `link_state` true and passes
 Nav2's commands through again. Nav2 keeps its goal: its progress checker (10 s) and the behaviour
 tree's recoveries see a vehicle that does not move, and once the link is back it carries on.
-`ugv_link_loss.yaml` asserts exactly that: `link_state` false within 5 s of the drop, wheel
-odometry below 0.05 m/s and `cmd_vel` zero from 4 s after the drop to just before the restore
+`ugv_link_loss.yaml` asserts exactly that: `link_state` false within 10 s of the drop, wheel
+odometry below 0.05 m/s and `cmd_vel` zero from 8 s after the drop to just before the restore
 (`topic_value` with `mode: always` between `after_s` and `within_s`), `link_state` true within
-15 s of the restore, the goal reached, no collision.
+15 s of the restore, the goal reached, no collision. The failsafe's timeout is simulation time
+and the windows are wall clock (runner v0, sim-time deadlines are task P2-T04's), so they leave
+room for a simulation below real time: on the CI runner, with software rendering, the vehicle
+reported the link lost 4.4 s after the drop.
 
 ## DDS over a radio link
 

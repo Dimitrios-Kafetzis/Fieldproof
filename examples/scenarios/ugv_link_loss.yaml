@@ -5,7 +5,11 @@
 # ground station's heartbeat it reports the link lost and holds position; when the heartbeat
 # returns it reports the link back and resumes the mission. The assertions check exactly that,
 # and `network.verify: fail` fails the run if the measured latency of the link is not within
-# 10 % of the profile. Schema: docs/reference/scenarios.md; links: docs/reference/network.md.
+# 10 % of the profile. The failsafe's 2 s are simulation time while the timeline and the
+# assertion windows are wall clock (runner v0), so the windows leave room for a simulation
+# running well below real time (software rendering on a CI runner: the vehicle reported the
+# link lost 4.4 s after the drop there). Schema: docs/reference/scenarios.md; links:
+# docs/reference/network.md.
 #
 #   fieldproof validate examples/scenarios/ugv_link_loss.yaml
 #   fieldproof run examples/scenarios/ugv_link_loss.yaml
@@ -44,7 +48,7 @@ timeline:
     action: link.drop
     duration_s: 20s # then lte_rural again
 assertions:
-  # The vehicle notices: link_state false within 2 s of the heartbeat's timeout.
+  # The vehicle notices: link_state false within 10 s of the drop (2 s of simulation time).
   - name: reports_link_lost
     type: topic_value
     topic: link_state
@@ -53,9 +57,9 @@ assertions:
     condition: not value
     mode: eventually
     after_s: 5s
-    within_s: 10s
+    within_s: 15s
   # It holds position while the link is down (wheel odometry from the simulator: the speed the
-  # vehicle actually has), from 4 s after the drop until just before the restore.
+  # vehicle actually has), from 8 s after the drop until just before the restore.
   - name: holds_while_lost
     type: topic_value
     topic: odom
@@ -63,7 +67,7 @@ assertions:
     field: twist.twist.linear.x
     condition: abs(value) < 0.05
     mode: always
-    after_s: 9s
+    after_s: 13s
     within_s: 24s
   # Its failsafe commands nothing but zero during the same window.
   - name: commands_zero_while_lost
@@ -73,7 +77,7 @@ assertions:
     field: linear.x
     condition: value == 0
     mode: always
-    after_s: 9s
+    after_s: 13s
     within_s: 24s
   # The heartbeat comes back over the restored link and the vehicle reports it.
   - name: reports_link_back

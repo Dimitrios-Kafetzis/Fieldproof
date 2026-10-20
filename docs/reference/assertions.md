@@ -135,7 +135,7 @@ A condition over a field of a topic's messages.
 `always` fails at the first message that violates the condition and passes at `within_s` (or
 the end) if at least one message was seen; `eventually` passes at the first message that
 satisfies it and fails at `within_s` or the end. `after_s` and `within_s` make a window, so "the
-vehicle stands still while its link is down" is `mode: always`, `after_s: 9s`, `within_s: 24s`
+vehicle stands still while its link is down" is `mode: always`, `after_s: 13s`, `within_s: 24s`
 over the odometry's speed ([network.md](network.md#a-vehicle-on-a-link)). A field that does not
 exist fails the assertion with the observer's message. Evidence: `samples`, `lowest`, `highest`,
 `last`, and the `violation` or `satisfied` sample.
