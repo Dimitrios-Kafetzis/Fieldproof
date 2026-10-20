@@ -145,9 +145,22 @@ class StubApi:
         self.output = output
         self.code = code
         self.calls: list[Any] = []
+        self.collection = StubCollection({})
 
     def create_endpoint_config(self, aliases: list[str]) -> dict[str, Any]:
         return {"Aliases": aliases}
+
+    def containers(self, all: bool, filters: dict[str, str]) -> list[dict[str, Any]]:  # noqa: A002
+        """The list call: names and labels only, nothing inspected."""
+        if filters["label"] == "api-error=x":
+            raise APIError("boom")
+        listed = [
+            {"Names": [f"/{c.name}"], "Labels": c.attrs.get("labels", [])}
+            for c in self.collection.items.values()
+            if all or c.attrs.get("State", {}).get("Running")
+        ]
+        listed.append({"Names": [], "Labels": [filters["label"]]})  # a container without a name
+        return [c for c in listed if filters["label"] in c["Labels"]]
 
     def exec_create(self, name: str, cmd: list[str]) -> dict[str, str]:
         if name == "gone":
@@ -168,6 +181,7 @@ class StubClient:
         self.networks = StubNetworks()
         self.containers = StubCollection({})
         self.api = StubApi([b"line 1\nli", b"ne 2\n", b"tail"])
+        self.api.collection = self.containers
         self.info_error: Exception | None = None
 
     def info(self) -> dict[str, Any]:
@@ -407,6 +421,8 @@ def test_state_logs_stop_remove_find(backend: DockerBackend, client: StubClient)
     backend.remove("nope")
     assert sorted(backend.find("io.fieldproof.run", "abc")) == ["e", "r"]
     assert backend.find("io.fieldproof.run", "zzz") == []
+    with pytest.raises(BackendError, match="cannot list containers: boom"):
+        backend.find("api-error", "x")
 
 
 def test_from_env_failure(monkeypatch: pytest.MonkeyPatch) -> None:

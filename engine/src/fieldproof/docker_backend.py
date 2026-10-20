@@ -259,14 +259,17 @@ class DockerBackend:
             return
 
     def find(self, label: str, value: str) -> list[str]:
-        """Names of every container carrying `label=value`, running or not."""
+        """Names of every container carrying `label=value`, running or not.
+
+        Through the low-level list call, whose answer carries the names: the high-level one
+        inspects every container it lists, which fails when one is removed in between (a
+        spawn's worker removing its one-shot container during an interrupted run, #56).
+        """
         try:
-            containers = self.client.containers.list(
-                all=True, filters={"label": f"{label}={value}"}
-            )
+            containers = self.client.api.containers(all=True, filters={"label": f"{label}={value}"})
         except (APIError, requests.RequestException) as error:
             raise BackendError(f"cannot list containers: {error}") from error
-        return [str(c.name) for c in containers]
+        return [str(c["Names"][0]).lstrip("/") for c in containers if c.get("Names")]
 
     def copy_from(self, name: str, path: str, destination: Path) -> int:
         """Copy a file out of a container to `destination`; return the bytes written."""
