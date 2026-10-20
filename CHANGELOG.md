@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.12.1...v0.13.0) (2026-10-20)
+
+
+### Features
+
+* **engine:** emulate radio links between the vehicles and a ground station ([#57](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/57)) ([9b3e988](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/9b3e988320318475060adad744163b0d012b9479))
+
 ## [0.12.1](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.12.0...v0.12.1) (2026-10-20)
 
 
