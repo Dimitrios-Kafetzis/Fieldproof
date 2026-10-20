@@ -7,10 +7,11 @@ the strict model base, names, durations, placements, and the **timeline DSL**: t
 say *when* an entry runs.
 
 An entry's trigger is one of three: the start of the timeline (the default), the end of another
-entry (``after: <name>``) or the first moment a condition holds (``when:``, a :class:`When` over
-a topic field or a metric of the run). ``at`` is an offset from the trigger, so ``at: 5s`` alone
-is five seconds into the timeline and ``at: 5s`` with ``after: drive`` is five seconds after the
-drive ends. ``every`` repeats the entry at that period from its first start, bounded by
+entry (``after: <name>``, or every entry of a list of names) or the first moment a condition
+holds (``when:``, a :class:`When` over a topic field or a metric of the run). ``at`` is an
+offset from the trigger, so ``at: 5s`` alone is five seconds into the timeline and ``at: 5s``
+with ``after: drive`` is five seconds after the drive ends. ``every`` repeats the entry at that
+period from its first start, bounded by
 ``count`` or ``until_s`` or by the rest of the timeline; ``within_s`` is how long a ``when``
 waits for its condition. Every time is wall clock, counted from the start of the timeline, as
 the assertions' deadlines are in runner v0 (sim-time scheduling is task P2-T04's); the one
@@ -190,10 +191,10 @@ class TimelineBase(Strict):
         description="Offset from the trigger: seconds after the timeline starts, after the "
         "`after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
     )
-    after: str | None = Field(
+    after: str | list[str] | None = Field(
         default=None,
-        description="Start when the timeline entry with this `name` has ended successfully "
-        "(a repeated entry cannot be named).",
+        description="Start when the timeline entry with this `name` has ended successfully, "
+        "or every entry of a list of names (a repeated entry cannot be named).",
     )
     when: When | None = Field(
         default=None, description="Start the first time this condition of the run holds."
@@ -222,7 +223,10 @@ class TimelineBase(Strict):
     def _one_trigger(self) -> TimelineBase:
         if self.after is not None and self.when is not None:
             raise ValueError("after and when are exclusive: one trigger per entry")
-        if self.after is not None and self.name is not None and self.after == self.name:
+        names = self.after_names
+        if isinstance(self.after, list) and (not names or len(set(names)) != len(names)):
+            raise ValueError("after: a non-empty list of distinct entry names")
+        if self.name is not None and self.name in names:
             raise ValueError("after: an entry cannot follow itself")
         if self.within_s is not None and self.when is None:
             raise ValueError("within_s goes with when")
@@ -231,6 +235,13 @@ class TimelineBase(Strict):
         if self.every is not None and self.when is not None:
             raise ValueError("every cannot repeat a when entry (give it at or after)")
         return self
+
+    @property
+    def after_names(self) -> list[str]:
+        """The entries this one follows (`after` as a list, empty without it)."""
+        if self.after is None:
+            return []
+        return [self.after] if isinstance(self.after, str) else list(self.after)
 
     @property
     def action_name(self) -> str:

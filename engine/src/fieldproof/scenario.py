@@ -531,15 +531,14 @@ class Scenario(Strict):
     def _check_after(
         entry: TimelineBase, where: str, labels: list[str], by_label: dict[str, TimelineBase]
     ) -> None:
-        if entry.after is None:
-            return
-        if entry.after not in by_label:
-            known = ", ".join(labels) or "none"
-            raise ValueError(f"{where}.after: {entry.after!r} is not a timeline entry ({known})")
-        if by_label[entry.after] is entry:
-            raise ValueError(f"{where}.after: an entry cannot follow itself")
-        if by_label[entry.after].repeated:
-            raise ValueError(f"{where}.after: {entry.after!r} is a repeated entry (every)")
+        for name in entry.after_names:
+            if name not in by_label:
+                known = ", ".join(labels) or "none"
+                raise ValueError(f"{where}.after: {name!r} is not a timeline entry ({known})")
+            if by_label[name] is entry:
+                raise ValueError(f"{where}.after: an entry cannot follow itself")
+            if by_label[name].repeated:
+                raise ValueError(f"{where}.after: {name!r} is a repeated entry (every)")
 
     def _check_link_entry(self, entry: TimelineBase, where: str) -> None:
         if entry.action_name in LINK_ACTIONS and self.network is None:
@@ -554,14 +553,15 @@ class Scenario(Strict):
 
     @staticmethod
     def _check_after_cycles(by_label: dict[str, TimelineBase]) -> None:
-        for label, entry in by_label.items():
-            chain, current = [label], entry
-            while current.after is not None:
-                if current.after in chain:
-                    cycle = " -> ".join((*chain[chain.index(current.after) :], current.after))
+        def visit(label: str, chain: list[str]) -> None:
+            for name in by_label[label].after_names:
+                if name in chain:
+                    cycle = " -> ".join((*chain[chain.index(name) :], name))
                     raise ValueError(f"timeline: after forms a cycle: {cycle}")
-                chain.append(current.after)
-                current = by_label[current.after]
+                visit(name, [*chain, name])
+
+        for label in by_label:
+            visit(label, [label])
 
     @model_validator(mode="after")
     def _consistent(self) -> Scenario:

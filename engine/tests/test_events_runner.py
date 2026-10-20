@@ -107,7 +107,10 @@ def test_plan_resolves_every_trigger(resolved: Plan) -> None:
     assert data["when"]["target_world"] == {"x": 10.0, "y": 3.0}
     assert data["node"] == "/link_monitor"
     assert data["value"] == "5.0"
-    assert by_name["freeze_stack"].to_dict()["trigger"] == {"at_s": 1.0, "after": "drive_ahead"}
+    assert by_name["freeze_stack"].to_dict()["trigger"] == {
+        "at_s": 1.0,
+        "after": ["drive_ahead", "tighten_failsafe"],
+    }
     assert by_name["stop_stack"].to_dict() == {
         "name": "stop_stack",
         "at_s": 0.0,
@@ -199,7 +202,7 @@ def test_run_passes_through_every_trigger(resolved: Plan, clock: FakeClock) -> N
     triggered = events_of(resolved.run_dir / LOG_FILE, "action.triggered")
     assert [e["action"] for e in triggered] == ["tighten_failsafe", "freeze_stack", "stop_stack"]
     assert triggered[0]["message"].startswith("tighten_failsafe: condition held at")
-    assert triggered[1]["message"] == "freeze_stack: after drive_ahead at 10.0 s"
+    assert triggered[1]["message"] == "freeze_stack: after drive_ahead, tighten_failsafe at 10.0 s"
     assert [e["event"] for e in log.events if e["event"].startswith("container.")] == [
         "container.paused",
         "container.resumed",
@@ -221,11 +224,18 @@ def test_when_that_never_holds_is_skipped(config: Config, tmp_path: Path, clock:
     by_name = {a.name: a for a in record.timeline}
     assert by_name["tighten_failsafe"].status == "skipped"
     assert by_name["tighten_failsafe"].detail == "condition never held within 240 s"
-    assert by_name["stop_stack"].status == "ok"
+    # freeze_stack waits for the drive and the parameter change: skipped with it, and so on.
+    assert by_name["freeze_stack"].status == "skipped"
+    assert by_name["freeze_stack"].detail == "tighten_failsafe did not end ok"
+    assert by_name["stop_stack"].status == "skipped"
     skipped = events_of(resolved.run_dir / LOG_FILE, "action.skipped")
-    assert [e["action"] for e in skipped] == ["tighten_failsafe"]
-    # Nothing else was wrong: the drive and the other events ran.
-    assert {a["name"]: a["status"] for a in record.assertions}["stack_stopped"] == "passed"
+    assert sorted(e["action"] for e in skipped) == [
+        "freeze_stack",
+        "stop_stack",
+        "tighten_failsafe",
+    ]
+    # Nothing else was wrong: the drive and the announcements ran.
+    assert {a["name"]: a["status"] for a in record.assertions}["said_hello"] == "passed"
 
 
 def test_within_s_bounds_a_when(config: Config, tmp_path: Path, clock: FakeClock) -> None:
@@ -233,6 +243,7 @@ def test_within_s_bounds_a_when(config: Config, tmp_path: Path, clock: FakeClock
 
     def mutate(d: dict[str, Any]) -> None:
         entry(d, "tighten_failsafe").update(within_s="3s")
+        entry(d, "freeze_stack").update(after="drive_ahead")
         d["assertions"] = [a for a in d["assertions"] if a["name"] != "failsafe_tightened"]
 
     resolved = resolve(variant(mutate), config, tmp_path, "events-within")
@@ -296,7 +307,8 @@ def test_teardown_resumes_a_paused_container(
 
     def mutate(d: dict[str, Any]) -> None:
         del entry(d, "freeze_stack")["duration_s"]
-        drop(d, "stop_stack", "say_hello")  # nothing may run in the paused container
+        entry(d, "freeze_stack").update(after="drive_ahead")
+        drop(d, "stop_stack", "say_hello", "tighten_failsafe")  # nothing runs in the container
 
     resolved = resolve(variant(mutate), config, tmp_path, "events-paused")
     backend = ready_backend(resolved)

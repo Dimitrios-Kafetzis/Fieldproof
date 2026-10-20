@@ -45,6 +45,11 @@ def test_defaults() -> None:
 def test_trigger_forms() -> None:
     e = entry(at="5s", after="drive")
     assert e.trigger() == {"at_s": 5.0, "after": "drive"}
+    assert e.after_names == ["drive"]
+    e = entry(after=["drive", "park"])
+    assert e.trigger() == {"at_s": 0.0, "after": ["drive", "park"]}
+    assert e.after_names == ["drive", "park"]
+    assert entry().after_names == []
     e = entry(every="5s", count=3, at=2)
     assert e.every == 5.0
     assert e.trigger() == {"at_s": 2.0, "every_s": 5.0, "count": 3}
@@ -74,6 +79,9 @@ def test_parameters_are_the_entrys_own() -> None:
     [
         ({"after": "a", "when": {"metric": "rtf", "condition": "value < 1"}}, "exclusive"),
         ({"name": "a", "after": "a"}, "cannot follow itself"),
+        ({"name": "a", "after": ["b", "a"]}, "cannot follow itself"),
+        ({"after": []}, "non-empty list"),
+        ({"after": ["b", "b"]}, "distinct"),
         ({"within_s": 5}, "within_s goes with when"),
         ({"count": 2}, "count and until_s go with every"),
         ({"until_s": 2}, "count and until_s go with every"),
@@ -135,7 +143,7 @@ def test_example_loads(data: dict[str, Any]) -> None:
     assert tighten.when is not None
     assert tighten.when.metric == "distance_to"
     assert tighten.within_s == 240.0
-    assert scenario.timeline[3].after == "drive_ahead"
+    assert scenario.timeline[3].after == ["drive_ahead", "tighten_failsafe"]
     assert scenario.timeline[3].at == 1.0
 
 
@@ -145,6 +153,7 @@ def test_example_loads(data: dict[str, Any]) -> None:
         (3, {"after": "nowhere"}, r"timeline\[3\].after: 'nowhere' is not a timeline entry"),
         (3, {"after": "freeze_stack"}, "after: an entry cannot follow itself"),
         (3, {"after": "say_hello"}, r"timeline\[3\].after: 'say_hello' is a repeated entry"),
+        (3, {"after": ["drive_ahead", "nowhere"]}, r"timeline\[3\].after: 'nowhere' is not"),
         (2, {"when": {"metric": "x", "vehicle": "ugv9", "condition": "value > 1"}}, "ugv9"),
         (2, {"vehicle": "ugv9"}, r"timeline\[2\].vehicle: 'ugv9' is not a vehicle"),
         (1, {"action": "teleport"}, "teleport"),
@@ -163,6 +172,9 @@ def test_scenario_errors(
 def test_after_cycle(data: dict[str, Any]) -> None:
     data["timeline"][0].update(after="stop_stack")
     with pytest.raises(ScenarioError, match="after forms a cycle: drive_ahead -> stop_stack"):
+        validate_data(data)
+    data["timeline"][0].update(after=["tighten_failsafe", "stop_stack"])
+    with pytest.raises(ScenarioError, match="after forms a cycle"):
         validate_data(data)
 
 

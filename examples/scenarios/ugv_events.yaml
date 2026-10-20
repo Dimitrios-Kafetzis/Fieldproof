@@ -6,8 +6,10 @@
 #                        7 s and 12 s (example.announce, the example plugin of examples/plugins);
 #   when + within_s      tighten_failsafe sets a parameter of the stack's link monitor the
 #                        first time the vehicle's ground truth is more than 1 m from its spawn;
-#   after + at           freeze_stack pauses the vehicle's container 1 s after the drive ends,
-#                        for 3 s (the simulator goes on, the stack stands still);
+#   after + at           freeze_stack pauses the vehicle's container 1 s after both the drive
+#                        and the parameter change have ended, for 3 s (the simulator goes on,
+#                        the stack stands still; a command still running in the container
+#                        would freeze with it, hence the list);
 #   after                stop_stack kills the container once the pause is over; the run then
 #                        expects the container gone and ends the timeline.
 #
@@ -63,8 +65,8 @@ timeline:
     value: 5.0
   - name: freeze_stack
     vehicle: ugv1
-    after: drive_ahead
-    at: 1s # one second after the drive ends
+    after: [drive_ahead, tighten_failsafe]
+    at: 1s # one second after the later of the two ends
     action: container.pause
     duration_s: 3s
   - name: stop_stack

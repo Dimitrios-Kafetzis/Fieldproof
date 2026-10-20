@@ -10,12 +10,13 @@ the next occurrence of an ``every``). It touches no container and no clock: the 
 drive it with a fake clock, its own with numbers.
 
 The rules, from :mod:`fieldproof.dsl`: an entry's trigger is the timeline start, the
-successful end of its ``after`` entry, or the first sample that satisfies its ``when``; its
-first occurrence is due ``at`` seconds after the trigger; ``every`` makes the next one due a
-period after the previous was due (an occurrence that overran starts the next as soon as it
-ends), until ``count`` occurrences ran or ``until_s`` passed. The timeline is idle, and the
+successful end of its ``after`` entry (of every one, with a list), or the first sample that
+satisfies its ``when``; its first occurrence is due ``at`` seconds after the trigger;
+``every`` makes the next one due a period after the previous was due (an occurrence that
+overran starts the next as soon as it ends), until ``count`` occurrences ran or ``until_s``
+passed. The timeline is idle, and the
 runner ends it, when nothing runs and nothing is *live*: an untriggered ``when`` is live only
-until its ``within_s``, an ``after`` entry only while its predecessor is, and a repeated entry
+until its ``within_s``, an ``after`` entry only while a predecessor is, and a repeated entry
 without ``count`` or ``until_s`` is never live by itself. What is still waiting or repeating
 then ends ``skipped`` (a ``when`` whose condition never held) or ``ok`` (a repetition that ran
 its course), which is what the assertions see.
@@ -151,6 +152,8 @@ class Schedule:
 
     def __init__(self, actions: Sequence[Planned]) -> None:
         self.entries: dict[str, Scheduled] = {}
+        self._ended_ok: set[str] = set()
+        """The entries that ended `ok` (an `after` list waits for all of its names)."""
         for action in actions:
             state = Scheduled(action)
             entry = action.entry
@@ -229,11 +232,13 @@ class Schedule:
             state.reason = status
         if status != OK:
             return []
+        self._ended_ok.add(name)
         triggered = []
         for other_name, other in self.entries.items():
-            if other.status == WAITING and other.entry.after == name:
+            names = other.entry.after_names
+            if other.status == WAITING and name in names and self._ended_ok >= set(names):
                 self._trigger(other, t)
-                other.reason = f"after {name} at {t:.1f} s"
+                other.reason = f"after {', '.join(names)} at {t:.1f} s"
                 triggered.append(other_name)
         return triggered
 
@@ -250,10 +255,11 @@ class Schedule:
             return False
         if entry.when is not None:
             return entry.within_s is not None and t <= entry.within_s
-        follows = entry.after is not None and entry.after in self.entries
-        if follows and entry.after not in chain:
-            return self._live(self.entries[str(entry.after)], t, (*chain, str(entry.after)))
-        return False
+        return any(
+            self._live(self.entries[name], t, (*chain, name))
+            for name in entry.after_names
+            if name in self.entries and name not in chain
+        )
 
     def running(self) -> list[str]:
         """The entries with an occurrence running."""
@@ -284,8 +290,9 @@ class Schedule:
                 state.status, state.reason = OK, f"{state.occurrences} occurrence(s) ran; {reason}"
             else:
                 why = "condition never held" if state.entry.when is not None else reason
+                missing = [n for n in state.entry.after_names if n not in self._ended_ok]
                 if state.entry.after is not None:
-                    why = f"{state.entry.after} did not end ok"
+                    why = f"{', '.join(missing) or state.entry.after_names[0]} did not end ok"
                 state.status, state.reason = SKIPPED, why
             settled.append((name, state.status, state.reason))
         return settled

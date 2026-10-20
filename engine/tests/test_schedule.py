@@ -91,6 +91,24 @@ def test_after_waits_for_the_entry_and_adds_at() -> None:
     assert names(schedule.due(11.0)) == ["pause"]
 
 
+def test_after_several_entries_waits_for_all() -> None:
+    schedule = Schedule([planned("a"), planned("b", at=3), planned("c", after=["a", "b"], at=1)])
+    assert names(schedule.due(0.0)) == ["a"]
+    assert schedule.finished("a", OK, 1.0) == []
+    assert schedule.entries["c"].status == WAITING
+    assert schedule.idle(1.0) is False  # b is still due
+    assert names(schedule.due(3.0)) == ["b"]
+    assert schedule.finished("b", OK, 4.0) == ["c"]
+    assert schedule.entries["c"].reason == "after a, b at 4.0 s"
+    assert names(schedule.due(5.0)) == ["c"]
+    schedule = Schedule([planned("a"), planned("b", at=3), planned("c", after=["a", "b"])])
+    schedule.due(0.0)
+    schedule.finished("a", OK, 1.0)
+    schedule.due(3.0)
+    schedule.finished("b", "failed", 4.0)
+    assert schedule.settle("ended") == [("c", SKIPPED, "b did not end ok")]
+
+
 def test_after_a_failed_entry_never_triggers() -> None:
     schedule = Schedule([planned("drive"), planned("pause", after="drive")])
     schedule.due(0.0)

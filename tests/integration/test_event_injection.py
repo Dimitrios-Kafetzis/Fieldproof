@@ -9,8 +9,9 @@ the loading dock while the timeline exercises every trigger and every engine-sid
   the vehicle's container, which the recording holds;
 - ``tighten_failsafe`` (``param.set``): ``when`` the vehicle's ground truth is more than 1 m
   from its spawn, ``ros2 param set`` on the stack's ``link_monitor`` succeeded;
-- ``freeze_stack`` (``container.pause``): ``after`` the drive, 1 s later, the container was
-  paused for 3 s and resumed (``docker inspect`` of the container during the pause says so);
+- ``freeze_stack`` (``container.pause``): ``after`` the drive and the parameter change, 1 s
+  later, the container was paused for 3 s and resumed (``docker inspect`` of the container
+  during the pause says so);
 - ``stop_stack`` (``container.kill``): ``after`` the pause, the container was killed and the
   run went on to its verdict without treating the exit as an error.
 
@@ -148,7 +149,12 @@ def test_01_events_scenario(tmp_path: Path) -> None:  # noqa: PLR0915
     assert timeline["tighten_failsafe"]["trigger"]["when"]["metric"] == "distance_to"
     assert timeline["tighten_failsafe"]["detail"] == "/link_monitor loss_timeout_s = 5.0"
     assert timeline["tighten_failsafe"]["params"]["parameter"] == "loss_timeout_s"
-    assert timeline["freeze_stack"]["trigger"] == {"at_s": 1.0, "after": "drive_ahead"}
+    assert timeline["freeze_stack"]["trigger"] == {
+        "at_s": 1.0,
+        "after": ["drive_ahead", "tighten_failsafe"],
+    }
+    tighten_end = timeline["tighten_failsafe"]["t_s"] + timeline["tighten_failsafe"]["duration_s"]
+    assert timeline["freeze_stack"]["t_s"] >= tighten_end + 1.0
     assert timeline["freeze_stack"]["detail"] == "paused for 3 s, resumed"
     drive_t, drive_s = timeline["drive_ahead"]["t_s"], timeline["drive_ahead"]["duration_s"]
     assert timeline["freeze_stack"]["t_s"] >= drive_t + drive_s + 1.0

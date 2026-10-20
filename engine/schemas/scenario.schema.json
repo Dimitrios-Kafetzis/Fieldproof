@@ -48,11 +48,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
@@ -239,11 +245,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
@@ -404,11 +416,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
@@ -585,11 +603,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
@@ -743,11 +767,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
@@ -982,11 +1012,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
@@ -1140,11 +1176,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
@@ -1334,11 +1376,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
@@ -1668,11 +1716,17 @@
               "type": "string"
             },
             {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Start when the timeline entry with this `name` has ended successfully (a repeated entry cannot be named).",
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
           "title": "After"
         },
         "when": {
