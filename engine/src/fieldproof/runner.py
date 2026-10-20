@@ -174,6 +174,17 @@ GROUND_FILE = Path(ground.__file__).resolve()
 GROUND_IN_CONTAINER = "/opt/fieldproof/ground.py"
 GROUND_HOSTNAME = "ground"
 HOLDER_COMMAND = ("sleep", "infinity")
+# A bridge behind a link sits on two networks, and gz-transport advertises the address of
+# whichever interface comes first, which Docker does not keep stable: when it is the onboard one,
+# the simulator cannot reach the bridge's publishers (`cmd_vel` never arrives). The bridge
+# advertises its address on the route to the simulator instead (GZ_IP).
+GZ_IP_WRAPPER = (
+    'sim="$(getent ahostsv4 "$FIELDPROOF_SIM_HOST" | awk \'{print $1; exit}\')"; '
+    'if [ -n "$sim" ]; then '
+    'GZ_IP="$(ip -o -4 route get "$sim" | sed -n \'s/.* src \\([0-9.]*\\).*/\\1/p\')"; '
+    "export GZ_IP; fi; "
+    'exec "$@"'
+)
 LINK_KERNEL_HINT = (
     "the host kernel must provide the sch_netem and ifb modules (`sudo modprobe sch_netem ifb` "
     "if they are not loaded on demand)"
@@ -643,7 +654,7 @@ def plan(
                 "on one side of every link); run with discovery multicast"
             )
         links = _plan_links(scenario, config, vehicles, short, run_dir, ros_env, labels)
-        vehicles = tuple(_behind_link(v, links) for v in vehicles)
+        vehicles = tuple(_behind_link(v, links, str(sim.hostname)) for v in vehicles)
     observe = observe_plan(
         assertions,
         world=world.name,
@@ -835,11 +846,12 @@ def _plan_links(  # noqa: PLR0917
     )
 
 
-def _behind_link(vehicle: PlannedVehicle, links: PlannedLinks) -> PlannedVehicle:
+def _behind_link(vehicle: PlannedVehicle, links: PlannedLinks, sim_host: str) -> PlannedVehicle:
     """The vehicle in its link holder's network namespace, its bridge on its onboard network.
 
     The bridge that publishes `/clock` joins every onboard network, so each vehicle has exactly
-    one clock publisher within reach.
+    one clock publisher within reach. On two networks the bridge must tell gz-transport which
+    address to advertise (:data:`GZ_IP_WRAPPER`).
     """
     onboard = links.onboard[vehicle.name]
     bridge_networks = (
@@ -847,9 +859,15 @@ def _behind_link(vehicle: PlannedVehicle, links: PlannedLinks) -> PlannedVehicle
         if vehicle.clock
         else (onboard,)
     )
+    bridge = vehicle.bridge
     return replace(
         vehicle,
-        bridge=replace(vehicle.bridge, networks=bridge_networks),
+        bridge=replace(
+            bridge,
+            networks=bridge_networks,
+            command=("bash", "-c", GZ_IP_WRAPPER, "fieldproof-bridge-gz-ip", *bridge.command),
+            env={**bridge.env, "FIELDPROOF_SIM_HOST": sim_host},
+        ),
         container=replace(
             vehicle.container,
             network=None,

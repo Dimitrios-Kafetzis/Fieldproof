@@ -64,6 +64,13 @@ flowchart LR
   running `engine/src/fieldproof/ground.py`, mounted from the engine like the observer, as the
   engine's user, on the radio network only. It sends each vehicle the heartbeat its manifest
   asks for and probes every link ([Measurement](#measurement)).
+- **The bridges** sit on two networks (the run's and the vehicle's onboard one; the clock
+  bridge on every onboard network). gz-transport advertises the address of the container's
+  first interface, and Docker does not keep the order of a container's interfaces stable, so a
+  bridge could advertise its onboard address, which the simulator cannot reach: its `cmd_vel`
+  would never arrive while the odometry still flowed. A bridge behind a link therefore starts
+  through a wrapper that sets `GZ_IP` to its address on the route to the simulator
+  (`FIELDPROOF_SIM_HOST`, `ip route get`).
 - **The recorder** joins every onboard network, so what it records and what the assertions see
   is the vehicles' truth, not the ground station's view of them. It is not on the radio network
   (its subscriptions would pull every recorded topic over the links), so it does not hear the

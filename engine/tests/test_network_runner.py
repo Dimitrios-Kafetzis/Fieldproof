@@ -19,7 +19,9 @@ from fieldproof.backend import ExecResult
 from fieldproof.config import Config, load_config
 from fieldproof.network import GROUND_CONFIG, NETWORK_FILE
 from fieldproof.runner import (
+    BRIDGE_COMMAND,
     GROUND_IN_CONTAINER,
+    GZ_IP_WRAPPER,
     LINK_KERNEL_HINT,
     LOG_FILE,
     RUN_LABEL,
@@ -100,7 +102,7 @@ def stream(start: float) -> list[dict[str, Any]]:
         speed = 0.4 if moving else 0.0
         at(t, kind="value", topic="/odom", field="twist.twist.linear.x", value=speed)
         at(t + 0.5, kind="value", topic="/cmd_vel", field="linear.x", value=speed)
-    at(44.0, kind="pose", model="ugv1", x=3.0, y=-7.0, z=0.1, yaw=0.0)
+    at(44.0, kind="pose", model="ugv1", x=-2.0, y=15.0, z=0.1, yaw=0.0)
     at(45.0, kind="clock", rtf=1.0)
     return samples
 
@@ -208,6 +210,13 @@ def test_link_loss_topology(resolved: Plan) -> None:  # noqa: PLR0915
     assert vehicle.container.cap_add == (), "the stack under test gets no privilege"
     assert vehicle.bridge.network == resolved.network
     assert vehicle.bridge.networks == (onboard,)
+    # On two networks the bridge advertises its address towards the simulator to gz-transport.
+    assert vehicle.bridge.command[:4] == ("bash", "-c", GZ_IP_WRAPPER, "fieldproof-bridge-gz-ip")
+    assert vehicle.bridge.command[4] == BRIDGE_COMMAND
+    assert "bundle_out:=/tmp/fieldproof-bridge" in vehicle.bridge.command
+    assert vehicle.bridge.env["FIELDPROOF_SIM_HOST"] == resolved.sim.hostname
+    assert 'ip -o -4 route get "$sim"' in GZ_IP_WRAPPER
+    assert GZ_IP_WRAPPER.endswith('exec "$@"')
     assert resolved.recorder.networks == (onboard,)
     ground = links.ground
     assert ground.network == radio
