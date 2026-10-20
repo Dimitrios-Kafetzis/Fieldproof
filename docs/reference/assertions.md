@@ -129,14 +129,16 @@ A condition over a field of a topic's messages.
 | `condition` | an expression over `value` (below) |
 | `mode` | `always` (every message after `after_s` satisfies it; the default) or `eventually` (one does) |
 | `after_s` | grace period after the timeline starts, 0 by default |
-| `within_s` | deadline for `eventually`; the end of the timeline when absent |
+| `within_s` | end of the window: the deadline of `eventually`, the end of `always`; the end of the timeline when absent (later than `after_s`) |
 | `message_type` | `geometry_msgs/msg/Twist`; discovered from the graph when absent |
 
-`always` fails at the first message that violates the condition and passes at the end if at
-least one message was seen; `eventually` passes at the first message that satisfies it and fails
-at `within_s` or the end. A field that does not exist fails the assertion with the observer's
-message. Evidence: `samples`, `lowest`, `highest`, `last`, and the `violation` or `satisfied`
-sample.
+`always` fails at the first message that violates the condition and passes at `within_s` (or
+the end) if at least one message was seen; `eventually` passes at the first message that
+satisfies it and fails at `within_s` or the end. `after_s` and `within_s` make a window, so "the
+vehicle stands still while its link is down" is `mode: always`, `after_s: 13s`, `within_s: 24s`
+over the odometry's speed ([network.md](network.md#a-vehicle-on-a-link)). A field that does not
+exist fails the assertion with the observer's message. Evidence: `samples`, `lowest`, `highest`,
+`last`, and the `violation` or `satisfied` sample.
 
 The condition is a Python expression limited to what a test needs: comparisons (`<`, `<=`,
 `==`, `!=`, `in`, `is`), arithmetic, `and`/`or`/`not`, a conditional expression, indexing,

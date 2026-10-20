@@ -3,16 +3,18 @@
 A scenario is a YAML document, ``apiVersion: fieldproof.dev/v0alpha1``, ``kind: Scenario``, that
 says what a run is made of: the **world** the simulator loads, the **vehicles** (a manifest, a
 spawn pose, a namespace and frame prefix, a budget, what they wait for; task P2-T01 made them a
-fleet), the **time** settings of ADR-0006, a **timeline** of actions, the **assertions** that
+fleet), the **network** between them and the ground (radio links with named profiles, task
+P2-T02), the **time** settings of ADR-0006, a **timeline** of actions, the **assertions** that
 turn the run into a test, and the **outputs** of the run. The Pydantic models
 here are the schema: unknown keys are errors in every section, :func:`json_schema` exports the
 JSON Schema for editors and the ``check-jsonschema`` hook, :func:`load_scenario` reads and
 validates a file. What the engine does with a scenario is :mod:`fieldproof.runner`.
 
-The timeline is a stub in v0: it knows one action, ``navigate_to_pose`` (the event injection
-framework is task P2-T03). The assertions are the five primitives of task P1-T06 (``reach_pose``,
-``within_time``, ``topic_rate``, ``no_collision``, ``topic_value``), one model each, told apart
-by ``type``; :mod:`fieldproof.assertions` evaluates them.
+The timeline is a stub in v0: it knows ``navigate_to_pose`` and the link events ``link.set``,
+``link.drop`` and ``link.restore`` (the event injection framework is task P2-T03). The
+assertions are the five primitives of task P1-T06 (``reach_pose``, ``within_time``,
+``topic_rate``, ``no_collision``, ``topic_value``), one model each, told apart by ``type``;
+:mod:`fieldproof.assertions` evaluates them.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ from pydantic import (
 
 from fieldproof.expression import ExpressionError, compile_condition
 from fieldproof.manifest import Name, Resources, format_errors
+from fieldproof.network import DROP, PRESETS, LinkProfile
 
 API_VERSION = "fieldproof.dev/v0alpha1"
 KIND = "Scenario"
@@ -170,6 +173,58 @@ class Vehicle(Strict):
     )
 
 
+class Network(Strict):
+    """Radio links between the vehicles and the ground (task P2-T02).
+
+    With this section every vehicle talks to the ground station and to the other vehicles over
+    its own radio link, shaped by a profile (latency, jitter, loss, reordering, rate), while its
+    bridge and the run's recorder reach it unimpaired; the timeline changes a link with
+    `link.set`, `link.drop` and `link.restore`. Without it the vehicles share the run's network
+    as they always did.
+    """
+
+    profile: str = Field(
+        default="wifi_good",
+        description="Profile of every vehicle's link: a preset (`wifi_good`, `lte_rural`, "
+        "`rf_900mhz_5km`) or a name under `profiles`.",
+    )
+    links: dict[Name, str] = Field(
+        default_factory=dict,
+        description="Profile of a vehicle's link instead of `profile` (vehicle name to profile).",
+    )
+    profiles: dict[Name, LinkProfile] = Field(
+        default_factory=dict, description="Profiles of this scenario, by name."
+    )
+    verify: Literal["off", "warn", "fail"] = Field(
+        default="warn",
+        description="What a link whose measured latency is not within 10 % of its profile does: "
+        "nothing, a warning, or fails the run.",
+    )
+
+    @model_validator(mode="after")
+    def _known_profiles(self) -> Network:
+        for name in self.profiles:
+            if name in PRESETS or name == DROP:
+                raise ValueError(f"profiles: {name!r} is a preset; give the profile another name")
+        known = self.known()
+        for where, name in [("profile", self.profile)] + [
+            (f"links.{vehicle}", value) for vehicle, value in self.links.items()
+        ]:
+            if name not in known:
+                raise ValueError(
+                    f"{where}: unknown profile {name!r} (known: {', '.join(sorted(known))})"
+                )
+        return self
+
+    def known(self) -> dict[str, LinkProfile]:
+        """Every profile the scenario can name: the presets and its own."""
+        return {**PRESETS, **self.profiles}
+
+    def link_profile(self, vehicle: str) -> str:
+        """The name of the profile a vehicle's link is configured with."""
+        return self.links.get(vehicle, self.profile)
+
+
 class Time(Strict):
     """The clock of the run (ADR-0006)."""
 
@@ -189,8 +244,8 @@ class Time(Strict):
     )
 
 
-class NavigateToPose(Strict):
-    """Send a Nav2 `NavigateToPose` goal to a vehicle and wait for its result."""
+class TimelineBase(Strict):
+    """What every timeline entry has: when it starts and its label."""
 
     at: Duration = Field(
         default=0.0, description="When, after the vehicles are ready (`30s`, `1m`)."
@@ -198,13 +253,50 @@ class NavigateToPose(Strict):
     name: str | None = Field(
         default=None, description="Label in the run record (default: the action)."
     )
+
+
+class NavigateToPose(TimelineBase):
+    """Send a Nav2 `NavigateToPose` goal to a vehicle and wait for its result."""
+
     vehicle: Name = Field(description="The vehicle the goal goes to.")
     action: Literal["navigate_to_pose"]
     goal: Placement = Field(description="The goal, in the world (frame or coordinates).")
     timeout_s: Duration = Field(default=300.0, description="Give up on the result after this long.")
 
 
-TimelineEntry = NavigateToPose
+class LinkSet(TimelineBase):
+    """Put another profile on a vehicle's radio link (`network.profiles` or a preset)."""
+
+    vehicle: Name = Field(description="The vehicle whose link changes.")
+    action: Literal["link.set"]
+    profile: str = Field(description="The profile from now on.")
+
+
+class LinkDrop(TimelineBase):
+    """Drop a vehicle's radio link: nothing gets through either way.
+
+    With `duration_s` the entry restores the link's configured profile after that long and ends
+    then; without it the link stays down until a `link.restore` or `link.set`.
+    """
+
+    vehicle: Name = Field(description="The vehicle whose link drops.")
+    action: Literal["link.drop"]
+    duration_s: Duration | None = Field(
+        default=None, description="Restore the link after this long (absent: stay down)."
+    )
+
+
+class LinkRestore(TimelineBase):
+    """Bring back the profile the scenario configures for a vehicle's link."""
+
+    vehicle: Name = Field(description="The vehicle whose link is restored.")
+    action: Literal["link.restore"]
+
+
+TimelineEntry = Annotated[
+    NavigateToPose | LinkSet | LinkDrop | LinkRestore, Field(discriminator="action")
+]
+LINK_ACTIONS = ("link.set", "link.drop", "link.restore")
 
 
 def entry_label(entry: TimelineEntry) -> str:
@@ -306,8 +398,10 @@ class TopicValue(AssertionBase):
 
     `condition` is an expression over `value`, the field of each message (`value < 1.5`,
     `abs(value) <= 0.2`, `0 < value and value < 2`); `mode` says whether every message after
-    `after_s` must satisfy it (`always`, fails at the first that does not) or one must
-    (`eventually`, passes at the first that does, fails at `within_s` or the end).
+    `after_s` must satisfy it (`always`, fails at the first that does not, passes at `within_s`
+    or the end) or one must (`eventually`, passes at the first that does, fails at `within_s`
+    or the end). `after_s` and `within_s` make a window: "the vehicle is stopped from 12 s to
+    27 s" is `mode: always`, `after_s: 12s`, `within_s: 27s`.
     """
 
     type: Literal["topic_value"]
@@ -324,7 +418,9 @@ class TopicValue(AssertionBase):
         default=0.0, description="Grace period after the timeline starts before messages count."
     )
     within_s: Duration | None = Field(
-        default=None, description="Deadline for `eventually` (absent: the end of the timeline)."
+        default=None,
+        description="End of the window: the deadline of `eventually`, the end of `always` "
+        "(absent: the end of the timeline).",
     )
     message_type: str | None = Field(
         default=None,
@@ -337,8 +433,8 @@ class TopicValue(AssertionBase):
             compile_condition(self.condition)
         except ExpressionError as error:
             raise ValueError(f"condition: {error}") from error
-        if self.mode == "always" and self.within_s is not None:
-            raise ValueError("within_s applies to mode eventually")
+        if self.within_s is not None and self.within_s <= self.after_s:
+            raise ValueError("within_s must be later than after_s")
         return self
 
 
@@ -403,6 +499,11 @@ class Scenario(Strict):
     metadata: Metadata
     world: World
     vehicles: list[Vehicle] = Field(min_length=1)
+    network: Network | None = Field(
+        default=None,
+        description="Radio links between the vehicles and the ground (absent: one shared "
+        "network, no shaping).",
+    )
     time: Time = Time()
     timeline: list[TimelineEntry] = Field(default_factory=list)
     assertions: list[Assertion] = Field(default_factory=list)
@@ -458,6 +559,27 @@ class Scenario(Strict):
             visit(vehicle, ())
         return ordered
 
+    def _check_timeline(self, names: list[str]) -> None:
+        """The timeline's vehicles exist; link events have links and known profiles."""
+        if self.network is not None:
+            for linked in self.network.links:
+                if linked not in names:
+                    raise ValueError(f"network.links: {linked!r} is not a vehicle")
+        for index, entry in enumerate(self.timeline):
+            if entry.vehicle not in names:
+                raise ValueError(f"timeline[{index}].vehicle: {entry.vehicle!r} is not a vehicle")
+            if entry.action in LINK_ACTIONS and self.network is None:
+                raise ValueError(
+                    f"timeline[{index}]: {entry.action} needs a network section (radio links)"
+                )
+            if isinstance(entry, LinkSet) and self.network is not None:
+                profiles = self.network.known()
+                if entry.profile not in profiles:
+                    raise ValueError(
+                        f"timeline[{index}].profile: unknown profile {entry.profile!r} "
+                        f"(known: {', '.join(sorted(profiles))})"
+                    )
+
     @model_validator(mode="after")
     def _consistent(self) -> Scenario:
         names = [v.name for v in self.vehicles]
@@ -477,9 +599,7 @@ class Scenario(Strict):
                         f"vehicles[{dependent.name}].depends_on: {name!r} is not a vehicle"
                     )
         self.start_order()  # raises on a cycle
-        for index, entry in enumerate(self.timeline):
-            if entry.vehicle not in names:
-                raise ValueError(f"timeline[{index}].vehicle: {entry.vehicle!r} is not a vehicle")
+        self._check_timeline(names)
         labels = [a.name for a in self.assertions]
         if len(set(labels)) != len(labels):
             raise ValueError("assertions: names must be unique")

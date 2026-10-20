@@ -89,6 +89,23 @@ empty. ROS topics are unique across the manifest; sensor names are unique.
 | `resources` | mapping, optional | the container budget in Docker's units, applied as cgroup limits: `cpus` (the CPU quota, `--cpus`), `cpuset` (the cores it may run on, `--cpuset-cpus`: `0-1`, `0,2`), `memory` (`2g`, `512m`), `pids`; a scenario may replace any field per vehicle (`vehicles[].resources`) |
 | `dds_profile` | path, optional | the vehicle's own DDS XML profile, as deployed in the field, relative to and inside the manifest's directory (the example's `src/ugv_nav2_bringup/config/fastdds.xml`); bind-mounted read-only at `/opt/fieldproof/dds/profile.xml` by `fieldproof run` and `fieldproof vehicle run` and named to the RMW of `env` through `FASTRTPS_DEFAULT_PROFILES_FILE` (Fast DDS, the default), `CYCLONEDDS_URI` (`file://...`) or `NDDS_QOS_PROFILES`; another RMW is refused |
 | `env` | mapping | extra environment of the container (`ROS_DOMAIN_ID`, `FIELDPROOF_NAMESPACE`, `FIELDPROOF_FRAME_PREFIX` and, with a discovery server, `ROS_DISCOVERY_SERVER` are set per run by the orchestrator) |
+| `link` | mapping, optional | the radio link to the ground station (below) |
+
+#### `runtime.link`
+
+What the vehicle expects from its ground control station over the radio, and what it does
+without it (task P2-T02, [network.md](network.md#a-vehicle-on-a-link)). In a scenario with radio
+links, Fieldproof's ground station sends the heartbeat over the vehicle's link, so a dropped or
+congested link delays or stops it, and the scenario's assertions check the documented behaviour.
+
+| Field | Meaning |
+| --- | --- |
+| `heartbeat.topic` | the topic the vehicle listens on for the heartbeat (`std_msgs/msg/Header`, best effort, depth 1; relative names resolve under the vehicle's namespace: `gcs/heartbeat` is `/ugv1/gcs/heartbeat` in a fleet) |
+| `heartbeat.rate_hz` | how often the ground station sends it (2 by default) |
+| `loss_behaviour` | what the vehicle does when the link is lost and when it comes back: the behaviour a loss-of-link scenario asserts |
+
+Without `heartbeat` the ground station sends the vehicle nothing; its link is still shaped and
+measured.
 
 #### `runtime.build`
 
@@ -216,13 +233,14 @@ snapshot, driven by the bringup package `src/ugv_nav2_bringup`:
 
 | File | Contents |
 | --- | --- |
-| `robot.yaml` | extends the reference UGV's manifest; `runtime`: T1, image `fieldproof-vehicle-ugv-nav2:local` built from `src`, entrypoint `bringup.launch.py use_sim_time:=true drivers:=false` with `namespace_arg: namespace`, the two parameter files, six drivers in the swap map (base through ros2_control, description, lidar, IMU, camera, GNSS), readiness on Nav2's and SLAM Toolbox's lifecycle nodes, the `map` topic, the `map` → `base_link` transform and the `navigate_to_pose` action (relative names, resolved under the vehicle's namespace), the Fast DDS profile `config/fastdds.xml`, a budget of 2 CPUs and 2 GiB |
+| `robot.yaml` | extends the reference UGV's manifest; `runtime`: T1, image `fieldproof-vehicle-ugv-nav2:local` built from `src`, entrypoint `bringup.launch.py use_sim_time:=true drivers:=false` with `namespace_arg: namespace`, the two parameter files, six drivers in the swap map (base through ros2_control, description, lidar, IMU, camera, GNSS), readiness on Nav2's and SLAM Toolbox's lifecycle nodes, the `map` topic, the `map` → `base_link` transform and the `navigate_to_pose` action (relative names, resolved under the vehicle's namespace), the Fast DDS profile `config/fastdds.xml`, a budget of 2 CPUs and 2 GiB, and the radio link (`runtime.link`: the heartbeat on `gcs/heartbeat` at 2 Hz and the loss-of-link behaviour of `link_monitor`) |
 | `launch/bringup.launch.py` | the field bringup: `drivers.launch.py` when `drivers:=true` (the field default), SLAM Toolbox's `online_async_launch.py` with `config/slam.yaml`, the package's `navigation.launch.py` with `config/nav2.yaml`; `use_sim_time` defaults to `false` and is passed to every node; `namespace` puts every node under it and remaps `/tf` and `/tf_static` to the namespace's (Nav2's multi-robot bringup does the same; SLAM Toolbox's own launch knows no namespace, so this file wraps it); nothing else differs between the vehicle and the simulation |
 | `config/fastdds.xml` | the vehicle's DDS profile as deployed: one UDPv4 transport with 8 MB socket buffers for the camera's images and no shared-memory transport; mounted into the container unchanged (`runtime.dds_profile`) |
-| `launch/navigation.launch.py` | the Nav2 servers (controller, smoother, planner, behaviors, bt_navigator, waypoint follower, velocity smoother, collision monitor) under `nav2_lifecycle_manager`, one process each, with Nav2's `cmd_vel_nav` → `cmd_vel_smoothed` → `cmd_vel` remaps and, under a namespace, `config/nav2.yaml` rewritten with the namespace as its root key (`nav2_common`'s `RewrittenYaml`, what `nav2_bringup` does: a parameter file names its nodes, and `controller_server:` reaches `/controller_server` only); the vehicle's own launch rather than `nav2_bringup`'s, whose package pulls Gazebo, the TurtleBot models and the rviz plugins into the image |
+| `launch/navigation.launch.py` | the Nav2 servers (controller, smoother, planner, behaviors, bt_navigator, waypoint follower, velocity smoother, collision monitor) under `nav2_lifecycle_manager`, one process each, with Nav2's `cmd_vel_nav` → `cmd_vel_smoothed` → `cmd_vel_safe` remaps, then the loss-of-link failsafe `link_monitor` (`cmd_vel_safe` → `cmd_vel`) and, under a namespace, `config/nav2.yaml` rewritten with the namespace as its root key (`nav2_common`'s `RewrittenYaml`, what `nav2_bringup` does: a parameter file names its nodes, and `controller_server:` reaches `/controller_server` only); the vehicle's own launch rather than `nav2_bringup`'s, whose package pulls Gazebo, the TurtleBot models and the rviz plugins into the image |
 | `launch/drivers.launch.py` | the hardware drivers: `robot_state_publisher`, ros2_control (`controller_manager` with `diff_drive_controller` and `joint_state_broadcaster`), `rplidar_ros`, `microstrain_inertial_driver`, `nmea_navsat_driver`, `realsense2_camera`; `config/drivers.yaml` holds their ports and frames; not started and not installed in the simulation image |
 | `config/nav2.yaml`, `config/slam.yaml` | the vehicle's parameters, from the Jazzy defaults of `nav2_bringup` (without the route and docking servers) and `slam_toolbox` adapted to the platform: 0.70 m × 0.44 m footprint with `base_link` at the axle, `scan` from the 25 m lidar, `odom` from the drive, MPPI controller limited to 0.8 m/s and 1.5 rad/s, NavFn planner, SLAM Toolbox mapping with `base_link` and 0.2 m / 0.2 rad travel thresholds, its map on the relative `map` (`/ugv1/map` in a fleet, `/map` alone; slam_toolbox's default is the absolute `/map`); both costmaps wait 0.5 s for a transform, SLAM stamps `map` → `odom` 0.5 s ahead and the behaviour tree waits 1 s for a server to acknowledge a goal, so a CPU-starved simulation (software rendering in CI) does not make Nav2 abort a goal on a stale `map` → `odom` or a slow `follow_path` acknowledgement |
-| `package.xml` | `exec_depend` on the Nav2 servers it launches, `nav2_mppi_controller`, `nav2_navfn_planner`, `nav2_msgs`, `nav2_common` and `slam_toolbox`; the driver packages under `condition="$UGV_TARGET == field"` |
+| `scripts/link_monitor` | the loss-of-link failsafe (rclpy, installed to `lib/ugv_nav2_bringup`): armed by the ground station's first heartbeat on `gcs/heartbeat`; after `loss_timeout_s` (2 s) without one it publishes `link_state` false and holds the vehicle with zero `cmd_vel` at 20 Hz, dropping Nav2's commands; at the next heartbeat it publishes `link_state` true and passes them through again (parameters in `config/nav2.yaml` under `link_monitor`) |
+| `package.xml` | `exec_depend` on the Nav2 servers it launches, `rclpy`, `std_msgs`, `geometry_msgs` (the failsafe), `nav2_mppi_controller`, `nav2_navfn_planner`, `nav2_msgs`, `nav2_common` and `slam_toolbox`; the driver packages under `condition="$UGV_TARGET == field"` |
 
 `make test-vehicles` runs `tests/vehicles/test_vehicles.sh`: every `robot.yaml` validates
 (engine and `check-jsonschema`), the committed schema is current, the generated Dockerfile and

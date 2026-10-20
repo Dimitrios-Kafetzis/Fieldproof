@@ -15,7 +15,8 @@ scenario engine, and observed through a browser-based 3D cockpit. Every scenario
 test with pass/fail assertions, so field testing becomes verification of what already passed.
 
 > Status: milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2
-> (the scenario engine) is under way with fleets of vehicles (P2-T01). See
+> (the scenario engine) is under way with fleets of vehicles (P2-T01) and radio links between
+> the vehicles and a ground station (P2-T02). See
 > [docs/plan/STATUS.md](docs/plan/STATUS.md).
 
 ## See it run
@@ -62,7 +63,10 @@ software rendering on a host without a GPU render node, and `--help` lists the r
 [docs/reference/manifest.md](docs/reference/manifest.md) to bring your own vehicle. On a
 workstation, `make run SCENARIO=examples/scenarios/ugv_fleet.yaml` runs three of the example
 UGVs at once, each in its own container, namespace and budget
-([docs/reference/scenarios.md#fleets](docs/reference/scenarios.md#fleets)).
+([docs/reference/scenarios.md#fleets](docs/reference/scenarios.md#fleets)), and
+`make run SCENARIO=examples/scenarios/ugv_link_loss.yaml` drops the example vehicle's LTE link to
+its ground station for 20 s while it drives and checks that it holds position until the link is
+back ([docs/reference/network.md](docs/reference/network.md)).
 
 ## Documentation map
 

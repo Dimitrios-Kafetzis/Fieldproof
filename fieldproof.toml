@@ -31,4 +31,5 @@ bridge_s = 120.0
 recorder_s = 60.0
 discovery_s = 60.0
 contract_s = 180.0
+ground_s = 60.0
 teardown_s = 10.0

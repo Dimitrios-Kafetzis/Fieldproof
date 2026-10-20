@@ -43,6 +43,9 @@ vehicles:
     manifest: ../vehicles/ugv_nav2/robot.yaml   # relative to this file
     namespace: ""                        # ROS and Gazebo namespace (default: the root)
     spawn: { frame: spawn_dock }         # a frame of the world, or x, y, z, yaw
+network:                                 # optional: radio links (network.md)
+  profile: lte_rural                     # wifi_good | lte_rural | rf_900mhz_5km | profiles.<name>
+  verify: warn                           # off | warn | fail: the measured latency vs the profile
 time:
   mode: sim                              # sim (default) | realtime (task P2-T04)
   rtf: null                              # target real-time factor (null: the world's)
@@ -54,6 +57,10 @@ timeline:
     action: navigate_to_pose
     goal: { x: 10.0, y: -1.0, yaw: -1.5708 }   # in the world
     timeout_s: 5m
+  - at: 5s                               # with a network section: link.set, link.drop, link.restore
+    vehicle: ugv1
+    action: link.drop
+    duration_s: 20s
 assertions:                              # assertions.md
   - name: reached_goal
     type: reach_pose
@@ -87,16 +94,17 @@ outputs:
 ```
 
 Unknown keys are errors in every section, so a typo never passes silently. Durations (`at`,
-`timeout_s`, `max_s`, `within_s`, `window_s`, `after_s`) are a number of seconds or a string
-such as `90s`, `1m30s` or `2h`.
+`timeout_s`, `max_s`, `within_s`, `window_s`, `after_s`, `duration_s`) are a number of seconds or
+a string such as `90s`, `1m30s` or `2h`.
 
 | Section | Fields |
 | --- | --- |
 | `metadata` | `name`, `description`, `tags` |
 | `world` | `file`: a world file of the workspace's worlds directory (`depot.sdf`, [worlds.md](worlds.md)); its `<frame name="...">` elements are the named poses vehicles spawn at and goals refer to; the `<world name>` is what the runner waits for |
 | `vehicles[]` | `name` (unique), `manifest` (a `robot.yaml` with a `runtime` section, relative to the scenario, inside the workspace), `namespace` (unique; empty by default, the root; in a fleet one per vehicle, see [Fleets](#fleets)), `frame_prefix` (for a stack that keeps one shared TF tree; empty by default), `spawn` (a placement), `image` (overrides the manifest's `runtime.image`), `env` (extra environment of the vehicle container), `resources` (fields that replace the manifest's `runtime.resources`: `cpus`, `cpuset`, `memory`, `pids`), `depends_on` (vehicles that must be ready before this one's container starts) |
+| `network` | radio links between the vehicles and a ground station ([network.md](network.md)): `profile` (every vehicle's link: a preset `wifi_good`, `lte_rural`, `rf_900mhz_5km` or a name under `profiles`; `wifi_good` by default), `links` (vehicle name to the profile of its link instead), `profiles` (the scenario's own: `latency_ms`, `jitter_ms`, `loss_pct`, `reorder_pct`, `rate_kbit`, `description`), `verify` (`off`, `warn` by default, `fail`: what a link whose measured latency is not within 10 % of its profile does). Absent: one shared network, no shaping |
 | `time` | [ADR-0006](../adr/0006-sim-time-default-realtime-locked-mode.md): `mode` (`sim` by default; `realtime` validates but is refused by the runner until task P2-T04), `rtf` (target real-time factor, applied to the world's physics after it loads; absent: the world's own setting), `tolerance` (allowed deviation, recorded, enforced in the real-time-locked mode), `timeout_s` (the wall-clock budget of the run from the moment every vehicle is ready; 600 s by default) |
-| `timeline[]` | the actions of the run, each started at its `at` (seconds after every vehicle is ready, wall clock in v0) whether or not an earlier one has finished, so several vehicles drive at once. One action in v0: `navigate_to_pose` with `vehicle`, `goal` (a placement in the world), `timeout_s` (300 s) and an optional `name` for the record; the event injection framework of task P2-T03 adds the rest |
+| `timeline[]` | the actions of the run, each started at its `at` (seconds after every vehicle is ready, wall clock in v0) whether or not an earlier one has finished, so several vehicles drive at once, told apart by `action`, each with an optional `name` for the record: `navigate_to_pose` with `vehicle`, `goal` (a placement in the world) and `timeout_s` (300 s); with a `network` section the link events `link.set` (`vehicle`, `profile`), `link.drop` (`vehicle`, optional `duration_s` after which the configured profile comes back) and `link.restore` (`vehicle`) ([network.md](network.md#timeline-events)); the event injection framework of task P2-T03 adds the rest |
 | `assertions[]` | `name` (unique) and `type` (`reach_pose`, `within_time`, `topic_rate`, `no_collision`, `topic_value`) with the parameters of the type ([assertions.md](assertions.md#the-primitives)); a `vehicle` must be one of the scenario's, a `within_time.action` the `name` of a timeline entry, a `topic_value.condition` a valid expression |
 | `outputs` | `directory` (where `runs/<run_id>` goes; the workspace's `runs` by default), `record` (record to MCAP, `false` by default) and `topics` (the allow-list; every topic when empty; the `/fieldproof/*` side channels always, [assertions.md](assertions.md#recording)), `logs` (keep the containers' logs in the run directory, `true` by default), `video` (a video of the run from a camera of the world: `true` for the world's `spectator` camera, or `camera: <sensor name>` and `format: mp4`; `false` by default, see [Video](#video)) |
 
@@ -223,6 +231,7 @@ bridge_s = 120.0           # a bridge publishing the vehicle's odometry
 recorder_s = 60.0          # the recorder's observer reporting ready
 discovery_s = 60.0         # the discovery server listening (discovery = "server")
 contract_s = 180.0         # a vehicle's bridge contract check (--check-contracts)
+ground_s = 60.0            # the ground station reporting ready (radio links)
 teardown_s = 10.0          # grace period of a container stop
 ```
 
@@ -249,17 +258,20 @@ machine of phases, each a gate the next one waits for:
 | `spawn` | every vehicle at once: a one-shot container of the bridge image runs the manifest's spawn launch (`description.launch`: a file next to the manifest, or a launch file of `fieldproof_robots`) with `name`, `namespace`, `frame_prefix`, `world`, the pose, `use_sim_time:=true` and `robot_state_publisher:=false` | each container exits 0 (`timeouts.spawn_s`) |
 | `bridges` | every vehicle at once: the bridge container, `fieldproof-bridge` on the manifest at `/workspace/...` (`namespace:=` and `frame_prefix:=` when set, `clock:=false` for every bridge but the first, the bundle written to `/tmp/fieldproof-bridge`); with `--check-contracts`, the contract check follows | `ros2 topic list` inside it shows the vehicle's odometry topic (`timeouts.bridge_s`); the contract check exits 0 (`timeouts.contract_s`) |
 | `recorder` | the recorder container (the bridge image as the engine's user, the run directory mounted read-write at `/fieldproof/run`, the observer script read-only): the observer on `observe.json`, `ros2 bag record` to `recording/` when `outputs.record` is on, the Gazebo and ROS subscriptions the assertions need, the `/fieldproof/*` side channels ([assertions.md](assertions.md#how-a-run-is-observed)) | the observer's `ready` line in `samples.jsonl` (`timeouts.recorder_s`) |
-| `vehicles` | every vehicle in parallel, each once the vehicles it `depends_on` are ready: the vehicle container with the manifest's image, its command with `namespace_arg`/`frame_prefix_arg` when the vehicle has a namespace or prefix, the environment (`ROS_DOMAIN_ID`, `FIELDPROOF_NAMESPACE`, `FIELDPROOF_FRAME_PREFIX`, the DDS profile's variable, `runtime.env`, the scenario's `env`), the DDS profile mounted, the budget applied (`vehicle.budget`), hostname the vehicle's name | the image's readiness probe, run through `docker exec` with the manifest's `ready.timeout_s`, reports every `runtime.ready` condition ([manifest.md](manifest.md#the-readiness-probe)); its progress lines are shown |
-| `running` | the timeline: each entry starts at its `at` on a worker, `navigate_to_pose` running `ros2 action send_goal` inside the vehicle container and reading the result, several at once; every half second meanwhile the observer's new samples feed the assertion evaluator, deadlines are checked and, every two seconds, the containers; each assertion resolves as soon as the stream decides it and the rest are settled when the timeline completes | every entry ends `ok` within `time.timeout_s` and every assertion passed |
-| `teardown` | vehicles, the recorder (SIGINT to `ros2 bag record`, so the MCAP is finalised), bridges, the simulator and the discovery server are stopped (grace `timeouts.teardown_s`) and removed in reverse order, their logs saved first; then every container labelled with the run id is removed, whatever the in-memory list says | |
+| `network` | only with a `network` section ([network.md](network.md#topology)): every vehicle's link holder (the bridge image as root with `NET_ADMIN`, on the vehicle's onboard network and the radio network), each link's configured profile put on it with `tc` (`link.applied`); then the ground station on the radio network (heartbeats and probes) | each holder's script exits 0; the ground station's `ready` line in `network.jsonl` (`timeouts.ground_s`) |
+| `vehicles` | every vehicle in parallel, each once the vehicles it `depends_on` are ready: the vehicle container with the manifest's image, its command with `namespace_arg`/`frame_prefix_arg` when the vehicle has a namespace or prefix, the environment (`ROS_DOMAIN_ID`, `FIELDPROOF_NAMESPACE`, `FIELDPROOF_FRAME_PREFIX`, the DDS profile's variable, `runtime.env`, the scenario's `env`), the DDS profile mounted, the budget applied (`vehicle.budget`), hostname the vehicle's name; with radio links the container joins its link holder's network namespace instead of a network | the image's readiness probe, run through `docker exec` with the manifest's `ready.timeout_s`, reports every `runtime.ready` condition ([manifest.md](manifest.md#the-readiness-probe)); its progress lines are shown |
+| `running` | the timeline: each entry starts at its `at` on a worker, `navigate_to_pose` running `ros2 action send_goal` inside the vehicle container and reading the result, a link event running the holder's `tc` script, several at once; every half second meanwhile the observer's new samples feed the assertion evaluator, deadlines are checked and, every two seconds, the containers; each assertion resolves as soon as the stream decides it and the rest are settled when the timeline completes | every entry ends `ok` within `time.timeout_s`, every assertion passed and, with `network.verify: fail`, every link measured as its profile |
+| `teardown` | each link's traffic counters read from its holder (radio links); vehicles, the ground station and the link holders, the recorder (SIGINT to `ros2 bag record`, so the MCAP is finalised), bridges, the simulator and the discovery server are stopped (grace `timeouts.teardown_s`) and removed in reverse order, their logs saved first; then every container labelled with the run id is removed, whatever the in-memory list says; then the run's networks (radio links) | |
 | `finished` | the record and the report (`report.json`, `report.md`) are written | |
 
 Every container carries the labels `io.fieldproof.run=<run_id>`, `io.fieldproof.domain=<id>`,
-`io.fieldproof.role` (`discovery`, `sim`, `spawn`, `bridge`, `recorder`, `vehicle`) and, for a
-vehicle's containers, `io.fieldproof.vehicle=<name>`, and is named `fieldproof-<short>-sim`,
-`fieldproof-<short>-discovery`, `fieldproof-<short>-spawn-<vehicle>`,
-`fieldproof-<short>-bridge-<vehicle>`, `fieldproof-<short>-recorder` or
-`fieldproof-<short>-<vehicle>` after the run id's last part,
+`io.fieldproof.role` (`discovery`, `sim`, `spawn`, `bridge`, `recorder`, `link`, `ground`,
+`vehicle`) and, for a vehicle's containers, `io.fieldproof.vehicle=<name>`, and is named
+`fieldproof-<short>-sim`, `fieldproof-<short>-discovery`, `fieldproof-<short>-spawn-<vehicle>`,
+`fieldproof-<short>-bridge-<vehicle>`, `fieldproof-<short>-recorder`,
+`fieldproof-<short>-link-<vehicle>`, `fieldproof-<short>-ground` or
+`fieldproof-<short>-<vehicle>` after the run id's last part (the networks of radio links carry
+`io.fieldproof.run` too),
 so `docker ps --filter label=io.fieldproof.run` shows what a run started. The teardown runs
 whatever happens: a failed gate, the budget, an error of the daemon, Ctrl-C or SIGTERM (a second
 signal during the teardown is ignored so it completes). `--keep` leaves the containers running
@@ -374,15 +386,16 @@ still present afterwards.
 
 ## Known limits
 
-- The timeline knows one action, started at its `at` on the wall clock after readiness;
-  conditional triggers, sim-time scheduling and the other actions are task P2-T03's (the clock
-  manager, P2-T04's).
+- The timeline knows `navigate_to_pose` and the three link events, started at their `at` on
+  the wall clock after readiness; conditional triggers, sim-time scheduling and the other
+  actions are task P2-T03's (the clock manager, P2-T04's).
 - The assertions' deadlines are on the wall clock like the timeline; the recorder does not
   sample container resources yet ([assertions.md](assertions.md#known-limits)).
 - The runs of one workspace share the configured Docker network and their containers can reach
-  each other's ports; the per-vehicle network namespaces and the emulated links between them
-  are task P2-T02's. With `ros_domain_id = "auto"` two runs started at once collide on a domain
-  with odds of one in a hundred; `--domain-id` settles it where that matters.
+  each other's ports (with radio links a run's vehicles sit on its own onboard and radio
+  networks, [network.md](network.md)). With `ros_domain_id = "auto"` two runs started at once
+  collide on a domain with odds of one in a hundred; `--domain-id` settles it where that
+  matters.
 - A vehicle whose launch takes no namespace argument (`runtime.entrypoint.launch.namespace_arg`)
   can only run at the root namespace, hence alone; a `command` entrypoint gets the namespace from
   `FIELDPROOF_NAMESPACE` and is trusted to use it.

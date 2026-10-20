@@ -1,4 +1,4 @@
-"""A fake container runtime and clock for the runner's tests (tasks P1-T05, P1-T06)."""
+"""A fake container runtime and clock for the runner's tests (tasks P1-T05, P1-T06, P2-T02)."""
 
 from __future__ import annotations
 
@@ -26,6 +26,13 @@ DISCOVERY_LOG = "### Server is running ###\n"
 PROBE_OK = "waiting (3/9 ready): /map topic no publisher\nready: 9 conditions hold after 5.5 s\n"
 GOAL_OK = (
     "Waiting for an action server to become available...\nGoal finished with status: SUCCEEDED\n"
+)
+LINK_OK = "eth1\nqdisc netem 8001: root refcnt 2 limit 1000 delay 60ms 20ms\n"
+TRAFFIC_OK = (
+    '{"out": [{"kind": "prio", "handle": "1:"}, {"kind": "netem", "handle": "20:", '
+    '"bytes": 2263618, "packets": 6769, "drops": 12, "backlog": 0}], '
+    '"in": [{"kind": "netem", "handle": "20:", "bytes": 917404, "packets": 3100, "drops": 3, '
+    '"backlog": 0}]}'
 )
 
 
@@ -100,12 +107,54 @@ class FakeBackend:
     samples_on_start: list[dict[str, Any] | str] | None = None
     samples_on_goal: list[dict[str, Any] | str] = field(default_factory=list)
     samples_file: Path | None = None
+    # Radio links (task P2-T02): the networks' labels and removals, the scripts the link
+    # holders ran and their answer, and the ground station's network.jsonl, scripted like the
+    # observer's samples (a `ready` line by default when it starts, more when the goal is sent).
+    network_labels: dict[str, dict[str, str]] = field(default_factory=dict)
+    removed_networks: list[str] = field(default_factory=list)
+    fail_remove_network: set[str] = field(default_factory=set)
+    link_scripts: list[tuple[str, str]] = field(default_factory=list)
+    link_result: ExecResult = field(default_factory=lambda: ExecResult(0, LINK_OK))
+    traffic_result: ExecResult = field(default_factory=lambda: ExecResult(0, TRAFFIC_OK))
+    network_on_start: list[dict[str, Any] | str] | None = None
+    network_on_goal: list[dict[str, Any] | str] = field(default_factory=list)
+    network_file: Path | None = None
 
     def image_exists(self, image: str) -> bool:
         return image in self.images
 
-    def ensure_network(self, name: str) -> None:
+    def ensure_network(self, name: str, labels: dict[str, str] | None = None) -> None:
         self.networks.add(name)
+        self.network_labels.setdefault(name, dict(labels or {}))
+
+    def remove_network(self, name: str) -> None:
+        if name in self.fail_remove_network:
+            raise BackendError(f"network {name}: cannot remove it: has active endpoints")
+        self.removed_networks.append(name)
+        self.networks.discard(name)
+
+    def find_networks(self, label: str, value: str) -> list[str]:
+        return sorted(
+            n for n in self.networks if self.network_labels.get(n, {}).get(label) == value
+        )
+
+    def address(self, name: str, network: str) -> str:
+        container = self.containers.get(name)
+        if container is None:
+            raise BackendError(f"{name}: no such container")
+        names = sorted(self.containers)
+        return f"10.{names.index(name) + 1}.0.2"
+
+    def write_network(self, lines: Sequence[dict[str, Any] | str]) -> None:
+        """Append lines to the run's network.jsonl as the ground station would."""
+        if self.network_file is None:
+            return
+        with self.network_file.open("a") as file:
+            for line in lines:
+                if isinstance(line, str):
+                    file.write(line + "\n")
+                else:
+                    file.write(json.dumps({"wall": self.wall(), **line}) + "\n")
 
     def start(self, spec: ContainerSpec) -> None:
         if spec.name in self.fail_start:
@@ -116,6 +165,13 @@ class FakeBackend:
         self.started.append(spec.name)
         if spec.role == "discovery":
             self.containers[spec.name].logs += DISCOVERY_LOG
+        if spec.role == "ground":
+            run_dir = next(m.source for m in spec.mounts if not m.read_only)
+            self.network_file = Path(run_dir) / "network.jsonl"
+            lines = self.network_on_start
+            if lines is None:
+                lines = [{"kind": "ready", "addresses": {}, "heartbeats": [], "probing": True}]
+            self.write_network(lines)
         if spec.role == "recorder":
             run_dir = next(m.source for m in spec.mounts if not m.read_only)
             self.samples_file = Path(run_dir) / "samples.jsonl"
@@ -182,10 +238,16 @@ class FakeBackend:
             )
             topics = NAMESPACED_TOPICS.format(ns=namespace) if namespace else TOPIC_LIST
             return ExecResult(0, topics if ready else "/clock\n")
+        if role == "link" and "tc -s -j" in argv[-1]:
+            return self.traffic_result
+        if role == "link":
+            self.link_scripts.append((container.spec.name, argv[-1]))
+            return self.link_result
         if "send_goal" in command:
             if self.clock is not None:
                 self.clock.sleep(self.goal_duration_s)
             self.write_samples(self.samples_on_goal)
+            self.write_network(self.network_on_goal)
             return self.goal_result
         return self.probe_result
 

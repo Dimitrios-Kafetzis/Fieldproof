@@ -1,10 +1,12 @@
 """What the orchestrator needs from a container runtime (task P1-T05, ADR-0004).
 
 :class:`Backend` is the small surface the runner drives containers through: images exist,
-a network exists, a container starts detached or runs to completion, a command runs inside one,
-its state and logs can be read, it stops and is removed, the containers of a run are found by
-label, and the host's capacity is known. :mod:`fieldproof.docker_backend` implements it with the
-Docker SDK; the runner's tests use a fake, so the state machine is tested without Docker. The
+networks exist and go away, a container starts detached (on several networks, or in another
+container's network namespace) or runs to completion, a command runs inside one, its state,
+address and logs can be read, it stops and is removed, the containers and networks of a run are
+found by label, and the host's capacity is known. :mod:`fieldproof.docker_backend` implements it
+with the Docker SDK; the runner's tests use a fake, so the state machine is tested without
+Docker. The
 runner calls it from several threads at once (task P2-T01: the vehicles of a fleet start in
 parallel), so an implementation must be safe to share between threads.
 """
@@ -41,6 +43,16 @@ class ContainerSpec:
     env: dict[str, str] = field(default_factory=dict)
     labels: dict[str, str] = field(default_factory=dict)
     network: str | None = None
+    networks: tuple[str, ...] = ()
+    """Further networks the container joins before it starts (task P2-T02)."""
+    aliases: tuple[str, ...] = ()
+    """Names other containers resolve it by, on every network it joins."""
+    network_mode: str | None = None
+    """`container:<name>`: share that container's network namespace instead of joining networks
+    (a vehicle behind its link holder); `network`, `networks`, `aliases` and `hostname` are then
+    the other container's."""
+    cap_add: tuple[str, ...] = ()
+    """Capabilities added to the container's (`NET_ADMIN` for a link holder)."""
     hostname: str | None = None
     mounts: tuple[Mount, ...] = ()
     devices: tuple[str, ...] = ()
@@ -101,8 +113,17 @@ class Backend(Protocol):
     def image_exists(self, image: str) -> bool:
         """Whether the image is present locally."""
 
-    def ensure_network(self, name: str) -> None:
-        """Create the bridge network unless it exists."""
+    def ensure_network(self, name: str, labels: dict[str, str] | None = None) -> None:
+        """Create the bridge network unless it exists (with `labels` when it is created)."""
+
+    def remove_network(self, name: str) -> None:
+        """Remove the network if it exists."""
+
+    def find_networks(self, label: str, value: str) -> list[str]:
+        """Names of every network carrying `label=value`."""
+
+    def address(self, name: str, network: str) -> str:
+        """The container's IPv4 address on a network it joined."""
 
     def start(self, spec: ContainerSpec) -> None:
         """Create and start a container in the background."""

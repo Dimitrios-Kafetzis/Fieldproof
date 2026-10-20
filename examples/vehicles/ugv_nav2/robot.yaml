@@ -88,6 +88,18 @@ runtime:
         child: base_link
       - action: navigate_to_pose
         type: nav2_msgs/action/NavigateToPose
+  # The radio link to the ground control station (task P2-T02): what the ground station sends
+  # over the link and what the vehicle does without it. A scenario with radio links (`network`)
+  # gets the heartbeat from Fieldproof's ground station and asserts the behaviour.
+  link:
+    heartbeat:
+      topic: gcs/heartbeat # std_msgs/msg/Header, best effort, under the vehicle's namespace
+      rate_hz: 2
+    loss_behaviour: >-
+      The link monitor (scripts/link_monitor) arms at the first heartbeat. After 2 s without a
+      heartbeat it reports `link_state` false and holds the vehicle in place (zero `cmd_vel`,
+      Nav2 keeps its goal); at the next heartbeat it reports `link_state` true and the mission
+      resumes. A vehicle that never heard a ground station drives without the failsafe.
   # The vehicle's own DDS profile, as deployed on it: mounted into the container and named to
   # the RMW (FASTRTPS_DEFAULT_PROFILES_FILE for Fast DDS), see docs/reference/manifest.md.
   dds_profile: src/ugv_nav2_bringup/config/fastdds.xml

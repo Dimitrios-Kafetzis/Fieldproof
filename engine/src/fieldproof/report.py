@@ -119,6 +119,7 @@ def build_report(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         "phases": list(record.get("phases") or []),
         "recording": _recording(artifacts),
         "video": record.get("video"),
+        "network": record.get("network"),
         "artifacts": artifacts,
         "run_dir": str(run_dir),
     }
@@ -222,11 +223,61 @@ def render_markdown(report: dict[str, Any]) -> str:
             )
     else:
         lines.append("The scenario has no timeline.")
+    lines += _network_lines(report.get("network"))
     lines += ["", "## Phases", "", "| Phase | Duration |", "| --- | --- |"]
     for phase in report.get("phases") or []:
         lines.append(f"| {phase.get('name')} | {_fmt(phase.get('duration_s'), ' s')} |")
     lines += ["", "## Artefacts", "", *_artefact_lines(report)]
     return "\n".join(lines) + "\n"
+
+
+def _network_lines(network: dict[str, Any] | None) -> list[str]:
+    """The radio links: each link's periods, the profile against what was measured."""
+    if not network:
+        return []
+    lines = [
+        "",
+        "## Radio links",
+        "",
+        f"Radio network `{network.get('radio')}`, ground station `{network.get('ground')}`, "
+        f"verification `{network.get('verify')}`. Latency is one way (half the round trip of "
+        "the ground station's probes); times are from the start of the timeline.",
+        "",
+        "| Link | Profile | From | To | Latency (profile) | Latency (measured) | Jitter "
+        "(measured) | Loss (measured) | Probes | Verdict |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for link in network.get("periods") or []:
+        for period in link.get("periods") or []:
+            expected = period.get("expected") or {}
+            measured = period.get("measured") or {}
+            lines.append(
+                f"| `{link.get('vehicle')}` | `{period.get('profile')}` ({period.get('cause')}) | "
+                f"{_fmt(period.get('from_s'), ' s')} | {_fmt(period.get('to_s'), ' s')} | "
+                f"{_fmt(expected.get('latency_ms'), ' ms', 2)} | "
+                f"{_fmt(measured.get('latency_ms'), ' ms', 2)} | "
+                f"{_fmt(measured.get('jitter_ms'), ' ms', 2)} | "
+                f"{_fmt(measured.get('loss_pct'), ' %', 1)} | "
+                f"{measured.get('replies', 0)}/{measured.get('probes', 0)} | "
+                f"{ASSERTION_MARKS.get(str(period.get('status')), str(period.get('status')))} |"
+            )
+    counted = network.get("traffic") or {}
+    if counted:
+        lines += [
+            "",
+            "Traffic over the links (the probes excluded; drops are the profile's loss and "
+            "the queue overflowing behind the rate):",
+            "",
+            "| Link | Out | Dropped out | In | Dropped in |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        for vehicle, directions in counted.items():
+            out, inbound = directions.get("out") or {}, directions.get("in") or {}
+            lines.append(
+                f"| `{vehicle}` | {_size(int(out.get('bytes', 0)))} | {out.get('drops', 0)} | "
+                f"{_size(int(inbound.get('bytes', 0)))} | {inbound.get('drops', 0)} |"
+            )
+    return lines
 
 
 def _artefact_lines(report: dict[str, Any]) -> list[str]:

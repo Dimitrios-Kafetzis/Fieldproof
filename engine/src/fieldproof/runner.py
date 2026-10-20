@@ -32,6 +32,14 @@ share a domain) and ``GZ_PARTITION``; with ``discovery: server`` the ROS contain
 other through a Fast DDS discovery server of the run instead of multicast; every vehicle's
 topics, nodes and TF tree live under its namespace, its own DDS profile is mounted in, and its
 container runs under the cgroup limits of its budget.
+
+Radio links (task P2-T02): a scenario with a ``network`` section gets the topology of
+:mod:`fieldproof.network`. The plan adds a radio network and an onboard network per vehicle, a
+link holder per vehicle (the vehicle container shares its network namespace), and the ground
+station; the bridge and the recorder join the onboard networks, the bridge publishing ``/clock``
+all of them. A ``network`` phase between ``recorder`` and ``vehicles`` starts the holders, puts
+each link's profile on it and starts the ground station; the timeline's link events change the
+profiles; the ground station's measurements are checked against them at the end of the run.
 """
 
 from __future__ import annotations
@@ -47,7 +55,7 @@ import time
 import uuid
 from collections.abc import Callable, Sequence
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -56,7 +64,7 @@ from typing import IO, Any
 import yaml
 from rich.console import Console
 
-from fieldproof import __version__, observer
+from fieldproof import __version__, ground, observer
 from fieldproof.assertions import (
     ASSERTIONS_FILE,
     DEFAULT_CONTACTS_TOPIC,
@@ -72,16 +80,41 @@ from fieldproof.assertions import (
 from fieldproof.backend import Backend, BackendError, ContainerSpec, ExecResult, Mount
 from fieldproof.config import AUTO, Config
 from fieldproof.manifest import DDS_PROFILE_IN_CONTAINER, Resources, RobotManifest, memory_bytes
+from fieldproof.network import (
+    DROP,
+    DROP_PROFILE,
+    GROUND_CONFIG,
+    NETWORK_FILE,
+    PROBE_INTERVAL_S,
+    PROBE_PAYLOAD_BYTES,
+    PROBE_TIMEOUT_S,
+    PROBE_WINDOW_S,
+    LinkMonitor,
+    LinkProfile,
+    link_script,
+    traffic,
+    traffic_script,
+)
+from fieldproof.network import (
+    FAILED as LINK_FAILED,
+)
+from fieldproof.network import (
+    PASSED as LINK_PASSED,
+)
 from fieldproof.observer import FileTail
 from fieldproof.report import REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
 from fieldproof.scenario import (
     Assertion,
+    LinkDrop,
+    LinkRestore,
+    LinkSet,
     NavigateToPose,
     NoCollision,
     Pose,
     ReachPose,
     Scenario,
     ScenarioError,
+    TimelineEntry,
     TopicRate,
     TopicValue,
     Vehicle,
@@ -135,6 +168,27 @@ EVAL_POLL_S = 0.5
 OBSERVER_FILE = Path(observer.__file__).resolve()
 OBSERVER_IN_CONTAINER = "/opt/fieldproof/observer.py"
 RUN_DIR_IN_CONTAINER = "/fieldproof/run"
+# The ground station of a run with radio links: the script mounted from the engine like the
+# observer, on the radio network; and what a link holder runs (it only holds the namespace).
+GROUND_FILE = Path(ground.__file__).resolve()
+GROUND_IN_CONTAINER = "/opt/fieldproof/ground.py"
+GROUND_HOSTNAME = "ground"
+HOLDER_COMMAND = ("sleep", "infinity")
+# A bridge behind a link sits on two networks, and gz-transport advertises the address of
+# whichever interface comes first, which Docker does not keep stable: when it is the onboard one,
+# the simulator cannot reach the bridge's publishers (`cmd_vel` never arrives). The bridge
+# advertises its address on the route to the simulator instead (GZ_IP).
+GZ_IP_WRAPPER = (
+    'sim="$(getent ahostsv4 "$FIELDPROOF_SIM_HOST" | awk \'{print $1; exit}\')"; '
+    'if [ -n "$sim" ]; then '
+    'GZ_IP="$(ip -o -4 route get "$sim" | sed -n \'s/.* src \\([0-9.]*\\).*/\\1/p\')"; '
+    "export GZ_IP; fi; "
+    'exec "$@"'
+)
+LINK_KERNEL_HINT = (
+    "the host kernel must provide the sch_netem and ifb modules (`sudo modprobe sch_netem ifb` "
+    "if they are not loaded on demand)"
+)
 # In-container limit of a polling command, so a hung `gz service -l` cannot hang the runner.
 PROBE_LIMIT_S = 20
 RECORD_FILE = "run.json"
@@ -156,6 +210,7 @@ class Phase(StrEnum):
     SPAWN = "spawn"
     BRIDGES = "bridges"
     RECORDER = "recorder"
+    NETWORK = "network"
     VEHICLES = "vehicles"
     RUNNING = "running"
     TEARDOWN = "teardown"
@@ -196,16 +251,40 @@ class RunTimeoutError(RunFailedError):
 # -------------------------------------------------------------------------------------- plan
 @dataclass(frozen=True)
 class PlannedAction:
-    """A timeline entry with its goal resolved in the world and in the vehicle's map frame."""
+    """A timeline entry; a goal resolved in the world and in the vehicle's map frame."""
 
-    entry: NavigateToPose
-    goal_world: Pose
-    goal_map: Pose
+    entry: TimelineEntry
+    goal_world: Pose | None = None
+    goal_map: Pose | None = None
 
     @property
     def name(self) -> str:
         """The entry's label."""
         return entry_label(self.entry)
+
+    @property
+    def timeout_s(self) -> float:
+        """How long the entry may take (a link event: as long as the budget lets it)."""
+        return self.entry.timeout_s if isinstance(self.entry, NavigateToPose) else math.inf
+
+    def to_dict(self) -> dict[str, Any]:
+        """The entry as the dry run shows it."""
+        entry = self.entry
+        data: dict[str, Any] = {
+            "name": self.name,
+            "at_s": entry.at,
+            "vehicle": entry.vehicle,
+            "action": entry.action,
+        }
+        if isinstance(entry, NavigateToPose):
+            data["goal_world"] = asdict(self.goal_world) if self.goal_world else None
+            data["goal_map"] = asdict(self.goal_map) if self.goal_map else None
+            data["timeout_s"] = entry.timeout_s
+        elif isinstance(entry, LinkSet):
+            data["profile"] = entry.profile
+        elif isinstance(entry, LinkDrop):
+            data["duration_s"] = entry.duration_s
+        return data
 
 
 @dataclass(frozen=True)
@@ -278,6 +357,68 @@ class PlannedVideo:
 
 
 @dataclass(frozen=True)
+class PlannedLinks:
+    """The radio links of a run (`network`): networks, holders, ground station, profiles."""
+
+    radio: str
+    """The radio network: the ground station and every link holder."""
+    onboard: dict[str, str]
+    """Per vehicle, its onboard network: the holder, the bridge and the recorder."""
+    holders: dict[str, ContainerSpec]
+    ground: ContainerSpec
+    profiles: dict[str, LinkProfile]
+    """Every profile the scenario can name (the presets and its own)."""
+    links: dict[str, str]
+    """Per vehicle, the profile its link is configured with."""
+    heartbeats: dict[str, dict[str, Any] | None]
+    """Per vehicle, the heartbeat the ground station sends it (absolute topic, rate)."""
+    verify: str
+    labels: dict[str, str] = field(default_factory=dict)
+
+    def networks(self) -> list[str]:
+        """The networks the run creates and removes."""
+        return [self.radio, *self.onboard.values()]
+
+    def profile(self, name: str) -> LinkProfile:
+        """A profile by name (`drop` included)."""
+        return DROP_PROFILE if name == DROP else self.profiles[name]
+
+    def ground_config(self, run_dir: str) -> dict[str, Any]:
+        """`ground.json`: the links to probe and the heartbeats to send."""
+        return {
+            "output": f"{run_dir}/{NETWORK_FILE}",
+            "links": [
+                {"vehicle": name, "host": name, "heartbeat": self.heartbeats.get(name)}
+                for name in self.links
+            ],
+            "probe": {
+                "interval_s": PROBE_INTERVAL_S,
+                "window_s": PROBE_WINDOW_S,
+                "timeout_s": PROBE_TIMEOUT_S,
+                "payload_bytes": PROBE_PAYLOAD_BYTES,
+            },
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        """The links as the dry run and the record show them."""
+        return {
+            "radio": self.radio,
+            "onboard": dict(self.onboard),
+            "ground": self.ground.name,
+            "verify": self.verify,
+            "links": {
+                name: {
+                    "profile": profile,
+                    **self.profile(profile).model_dump(),
+                    "holder": self.holders[name].name,
+                    "heartbeat": self.heartbeats.get(name),
+                }
+                for name, profile in self.links.items()
+            },
+        }
+
+
+@dataclass(frozen=True)
 class Plan:
     """A resolved scenario, ready to run."""
 
@@ -301,6 +442,8 @@ class Plan:
     """Where the domain id came from: `auto` (derived from the run id) or `explicit`."""
     discovery: ContainerSpec | None = None
     """The run's Fast DDS discovery server (`discovery: server`), or None for multicast."""
+    links: PlannedLinks | None = None
+    """The radio links (`network`), or None: one shared network, no shaping."""
 
     @property
     def discovery_mode(self) -> str:
@@ -313,6 +456,9 @@ class Plan:
         specs.append(self.sim)
         specs += [v.bridge for v in self.vehicles]
         specs.append(self.recorder)
+        if self.links is not None:
+            specs += [self.links.holders[v.name] for v in self.vehicles]
+            specs.append(self.links.ground)
         specs += [v.container for v in self.vehicles]
         return specs
 
@@ -339,6 +485,10 @@ class Plan:
                     f"{m.source}:{m.target}{':ro' if m.read_only else ''}" for m in s.mounts
                 ],
                 "devices": list(s.devices),
+                "networks": list(s.networks),
+                "aliases": list(s.aliases),
+                "network_mode": s.network_mode,
+                "cap_add": list(s.cap_add),
                 "cpus": s.cpus,
                 "cpuset": s.cpuset,
                 "memory": s.memory,
@@ -375,18 +525,8 @@ class Plan:
                 for v in self.vehicles
             ],
             "containers": [spec(s) for s in self.containers()],
-            "timeline": [
-                {
-                    "name": a.name,
-                    "at_s": a.entry.at,
-                    "vehicle": a.entry.vehicle,
-                    "action": a.entry.action,
-                    "goal_world": asdict(a.goal_world),
-                    "goal_map": asdict(a.goal_map),
-                    "timeout_s": a.entry.timeout_s,
-                }
-                for a in self.actions
-            ],
+            "links": self.links.to_dict() if self.links else None,
+            "timeline": [a.to_dict() for a in self.actions],
             "assertions": [a.to_dict() for a in self.assertions],
             "observe": self.observe,
             "video": self.video.to_dict() if self.video else None,
@@ -468,25 +608,7 @@ def plan(
     server: ContainerSpec | None = None
     ros_env = dict(env)
     if discovery_mode == "server":
-        server = ContainerSpec(
-            name=f"fieldproof-{short}-discovery",
-            image=config.image("bridge"),
-            role="discovery",
-            command=(
-                "fastdds",
-                "discovery",
-                "--server-id",
-                "0",
-                "--udp-address",
-                "0.0.0.0",  # noqa: S104  (every interface of the container)
-                "--udp-port",
-                str(DISCOVERY_PORT),
-            ),
-            env=dict(env),
-            labels={**labels, ROLE_LABEL: "discovery"},
-            network=net,
-            hostname=f"fieldproof-{short}-discovery",
-        )
+        server = _plan_discovery(config, short, net, env, labels)
         ros_env.update(
             {
                 "ROS_DISCOVERY_SERVER": f"{server.hostname}:{DISCOVERY_PORT}",
@@ -518,31 +640,21 @@ def plan(
         for index, v in enumerate(scenario.vehicles)
     )
     by_name = {v.name: v for v in vehicles}
-    actions = []
-    for index, entry in enumerate(sorted(scenario.timeline, key=lambda e: e.at)):
-        goal_world = place(entry.goal, world, f"timeline[{index}].goal")
-        actions.append(
-            PlannedAction(entry, goal_world, by_name[entry.vehicle].spawn.relative(goal_world))
-        )
+    actions = _plan_actions(scenario, world, by_name)
     assertions = tuple(
         _plan_assertion(world, by_name, a, index) for index, a in enumerate(scenario.assertions)
     )
     run_dir = base / identity
-    video = None
-    wanted = scenario.outputs.video
-    if isinstance(wanted, VideoOutput):
-        if wanted.camera not in world.cameras:
-            known = ", ".join(sorted(world.cameras)) or "none"
+    video = _plan_video(scenario, world, short)
+    links = None
+    if scenario.network is not None:
+        if server is not None:
             raise ScenarioError(
-                f"outputs.video: world {world.name} has no camera sensor {wanted.camera!r} with "
-                f"a CameraVideoRecorder plugin (cameras with one: {known})"
+                "network: radio links need multicast discovery (the discovery server would sit "
+                "on one side of every link); run with discovery multicast"
             )
-        video = PlannedVideo(
-            camera=wanted.camera,
-            service=world.cameras[wanted.camera],
-            in_sim=f"{VIDEO_DIR_IN_SIM}/fieldproof-{short}-{wanted.camera}.{wanted.format}",
-            file=f"{VIDEO_DIR}/{wanted.camera}.{wanted.format}",
-        )
+        links = _plan_links(scenario, config, vehicles, short, run_dir, ros_env, labels)
+        vehicles = tuple(_behind_link(v, links, str(sim.hostname)) for v in vehicles)
     observe = observe_plan(
         assertions,
         world=world.name,
@@ -575,6 +687,8 @@ def plan(
             Mount(run_dir, RUN_DIR_IN_CONTAINER, read_only=False),
         ),
         user=f"{os.getuid()}:{os.getgid()}",
+        # With radio links the recorder sees every vehicle on its onboard network, unimpaired.
+        networks=tuple(links.onboard.values()) if links else (),
     )
     return Plan(
         scenario=scenario,
@@ -594,6 +708,172 @@ def plan(
         video=video,
         domain_source=domain_source,
         discovery=server,
+        links=links,
+    )
+
+
+def _plan_actions(
+    scenario: Scenario, world: WorldInfo, by_name: dict[str, PlannedVehicle]
+) -> list[PlannedAction]:
+    """The timeline in order of `at`, goals resolved in the world and the vehicle's map."""
+    actions = []
+    for index, entry in enumerate(sorted(scenario.timeline, key=lambda e: e.at)):
+        if isinstance(entry, NavigateToPose):
+            goal_world = place(entry.goal, world, f"timeline[{index}].goal")
+            spawn = by_name[entry.vehicle].spawn
+            actions.append(PlannedAction(entry, goal_world, spawn.relative(goal_world)))
+        else:
+            actions.append(PlannedAction(entry))
+    return actions
+
+
+def _plan_video(scenario: Scenario, world: WorldInfo, short: str) -> PlannedVideo | None:
+    """The video of the run from a camera of the world (`outputs.video`), if asked for."""
+    wanted = scenario.outputs.video
+    if not isinstance(wanted, VideoOutput):
+        return None
+    if wanted.camera not in world.cameras:
+        known = ", ".join(sorted(world.cameras)) or "none"
+        raise ScenarioError(
+            f"outputs.video: world {world.name} has no camera sensor {wanted.camera!r} with "
+            f"a CameraVideoRecorder plugin (cameras with one: {known})"
+        )
+    return PlannedVideo(
+        camera=wanted.camera,
+        service=world.cameras[wanted.camera],
+        in_sim=f"{VIDEO_DIR_IN_SIM}/fieldproof-{short}-{wanted.camera}.{wanted.format}",
+        file=f"{VIDEO_DIR}/{wanted.camera}.{wanted.format}",
+    )
+
+
+def _plan_discovery(
+    config: Config, short: str, network: str, env: dict[str, str], labels: dict[str, str]
+) -> ContainerSpec:
+    """The run's Fast DDS discovery server: a container of the bridge image."""
+    return ContainerSpec(
+        name=f"fieldproof-{short}-discovery",
+        image=config.image("bridge"),
+        role="discovery",
+        command=(
+            "fastdds",
+            "discovery",
+            "--server-id",
+            "0",
+            "--udp-address",
+            "0.0.0.0",  # noqa: S104  (every interface of the container)
+            "--udp-port",
+            str(DISCOVERY_PORT),
+        ),
+        env=dict(env),
+        labels={**labels, ROLE_LABEL: "discovery"},
+        network=network,
+        hostname=f"fieldproof-{short}-discovery",
+    )
+
+
+def _plan_links(  # noqa: PLR0917
+    scenario: Scenario,
+    config: Config,
+    vehicles: tuple[PlannedVehicle, ...],
+    short: str,
+    run_dir: Path,
+    env: dict[str, str],
+    labels: dict[str, str],
+) -> PlannedLinks:
+    """The radio network, the onboard networks, the link holders and the ground station."""
+    network = scenario.network
+    if network is None:  # the caller checks
+        raise ScenarioError("network: no radio links in this scenario")
+    radio = f"fieldproof-{short}-radio"
+    network_labels = {RUN_LABEL: labels[RUN_LABEL]}
+    onboard = {v.name: f"fieldproof-{short}-onboard-{v.name}" for v in vehicles}
+    holders = {
+        v.name: ContainerSpec(
+            name=f"fieldproof-{short}-link-{v.name}",
+            image=config.image("bridge"),
+            role="link",
+            command=HOLDER_COMMAND,
+            env=dict(env),
+            labels={**labels, ROLE_LABEL: "link", VEHICLE_LABEL: v.name},
+            network=onboard[v.name],
+            networks=(radio,),
+            aliases=(v.name,),
+            hostname=v.name,
+            user="0:0",
+            cap_add=("NET_ADMIN",),
+        )
+        for v in vehicles
+    }
+    heartbeats: dict[str, dict[str, Any] | None] = {}
+    for v in vehicles:
+        link = v.manifest.runtime.link if v.manifest.runtime else None
+        beat = link.heartbeat if link else None
+        heartbeats[v.name] = (
+            {"topic": v.topic(beat.topic), "rate_hz": beat.rate_hz} if beat else None
+        )
+    ground_spec = ContainerSpec(
+        name=f"fieldproof-{short}-ground",
+        image=config.image("bridge"),
+        role="ground",
+        command=(
+            "python3",
+            GROUND_IN_CONTAINER,
+            "--config",
+            f"{RUN_DIR_IN_CONTAINER}/{GROUND_CONFIG}",
+        ),
+        # As the recorder: the engine's user, so what it writes belongs to whoever ran the run.
+        env={**env, "HOME": "/tmp", "ROS_LOG_DIR": "/tmp/ros-log"},  # noqa: S108  (in-container)
+        working_dir=RUN_DIR_IN_CONTAINER,
+        labels={**labels, ROLE_LABEL: "ground"},
+        network=radio,
+        hostname=GROUND_HOSTNAME,
+        mounts=(
+            Mount(GROUND_FILE, GROUND_IN_CONTAINER),
+            Mount(run_dir, RUN_DIR_IN_CONTAINER, read_only=False),
+        ),
+        user=f"{os.getuid()}:{os.getgid()}",
+    )
+    return PlannedLinks(
+        radio=radio,
+        onboard=onboard,
+        holders=holders,
+        ground=ground_spec,
+        profiles=network.known(),
+        links={v.name: network.link_profile(v.name) for v in vehicles},
+        heartbeats=heartbeats,
+        verify=network.verify,
+        labels=network_labels,
+    )
+
+
+def _behind_link(vehicle: PlannedVehicle, links: PlannedLinks, sim_host: str) -> PlannedVehicle:
+    """The vehicle in its link holder's network namespace, its bridge on its onboard network.
+
+    The bridge that publishes `/clock` joins every onboard network, so each vehicle has exactly
+    one clock publisher within reach. On two networks the bridge must tell gz-transport which
+    address to advertise (:data:`GZ_IP_WRAPPER`).
+    """
+    onboard = links.onboard[vehicle.name]
+    bridge_networks = (
+        (onboard, *[n for n in links.onboard.values() if n != onboard])
+        if vehicle.clock
+        else (onboard,)
+    )
+    bridge = vehicle.bridge
+    return replace(
+        vehicle,
+        bridge=replace(
+            bridge,
+            networks=bridge_networks,
+            command=("bash", "-c", GZ_IP_WRAPPER, "fieldproof-bridge-gz-ip", *bridge.command),
+            env={**bridge.env, "FIELDPROOF_SIM_HOST": sim_host},
+        ),
+        container=replace(
+            vehicle.container,
+            network=None,
+            hostname=None,
+            network_mode=f"container:{links.holders[vehicle.name].name}",
+        ),
     )
 
 
@@ -879,6 +1159,9 @@ class RunRecord:
     """The observer's stream: samples, simulation time covered, problems."""
     video: dict[str, Any] | None = None
     """The video of the run (`outputs.video`): camera, file, bytes, status."""
+    network: dict[str, Any] | None = None
+    """The radio links (`network`): networks, holders, the ground station, and per link the
+    periods between profile changes with what the ground station measured in each."""
     time: dict[str, Any] = field(default_factory=dict)
     stack: dict[str, Any] = field(default_factory=dict)
 
@@ -954,6 +1237,14 @@ class Run:
             },
         )
         self._phase_started: float | None = None
+        self.monitor = LinkMonitor(plan.links.links) if plan.links is not None else None
+        """The links' profiles and measurements (radio links only)."""
+        self._addresses: dict[str, str] = {}
+        """Per vehicle, its link holder's address on the radio network."""
+        self._network = FileTail(plan.run_dir / NETWORK_FILE)
+        self._ground_ready = False
+        if plan.links is not None:
+            self.record.network = plan.links.to_dict()
         self._samples = FileTail(plan.run_dir / SAMPLES_FILE)
         self._observer_errors = 0
         self._last_alive_check = -math.inf
@@ -983,6 +1274,7 @@ class Run:
             self._parallel("bridge", [(v.name, v, self.start_bridge) for v in self.plan.vehicles])
             self._phase(Phase.RECORDER)
             self.start_recorder()
+            self.start_links()
             self._phase(Phase.VEHICLES)
             self.start_vehicles()
             self._phase(Phase.RUNNING)
@@ -1046,6 +1338,8 @@ class Run:
             "unparsed_lines": self.evaluator.bad_lines,
             "observer_errors": self._observer_errors,
         }
+        self.collect_traffic()
+        self._record_links()
 
     def _write(self) -> None:
         with self._lock:
@@ -1132,6 +1426,19 @@ class Run:
         self.check_assets()
         self.check_budget()
         self.backend.ensure_network(self.plan.network)
+        links = self.plan.links
+        if links is not None:
+            if not GROUND_FILE.is_file():
+                raise RunError(f"the ground station {GROUND_FILE} is missing from the engine")
+            for name in links.networks():
+                self.backend.ensure_network(name, links.labels)
+            self.log.event(
+                "network.links",
+                f"radio network {links.radio}, {len(links.onboard)} onboard network(s); "
+                + "; ".join(f"{name}: {profile}" for name, profile in links.links.items()),
+                radio=links.radio,
+                links=dict(links.links),
+            )
         self.log.event(
             "network.ok",
             f"{self.plan.network}, ROS_DOMAIN_ID {self.plan.domain_id} "
@@ -1434,10 +1741,223 @@ class Run:
     def _observe(self) -> None:
         """One poll of the running phase: the stream, the deadlines, the containers."""
         self._poll_samples()
+        self._poll_network()
         self._resolve(self.evaluator.tick(self.wall()))
         if self.clock() - self._last_alive_check >= POLL_S:
             self._last_alive_check = self.clock()
             self.check_alive()
+
+    # ---------------------------------------------------------------------------- radio links
+    def start_links(self) -> None:
+        """The `network` phase of radio links: every link holder with its profile, the ground."""
+        if self.plan.links is None:
+            return
+        self._phase(Phase.NETWORK)
+        self._parallel("link", [(v.name, v, self.start_link) for v in self.plan.vehicles])
+        self.start_ground()
+
+    def _links(self) -> PlannedLinks:
+        if self.plan.links is None:
+            raise RunError("this run has no radio links (no network section)")
+        return self.plan.links
+
+    def start_link(self, vehicle: PlannedVehicle) -> None:
+        """Start the vehicle's link holder and put the link's configured profile on it."""
+        links = self._links()
+        holder = links.holders[vehicle.name]
+        self.backend.start(holder)
+        self._started(holder)
+        self._running(holder)
+        address = self.backend.address(holder.name, links.radio)
+        with self._lock:
+            self._addresses[vehicle.name] = address
+        self.apply_link(vehicle.name, links.links[vehicle.name], "initial")
+
+    def apply_link(self, vehicle: str, profile_name: str, cause: str) -> None:
+        """Put a profile (`drop` included) on the vehicle's link, in its holder."""
+        links = self._links()
+        profile = links.profile(profile_name)
+        holder = links.holders[vehicle]
+        # The profile changes somewhere during the exec, which can take a while on a loaded host:
+        # the previous period ends when the exec starts, the new one begins when it returns.
+        since = self.wall()
+        result = self.backend.exec(
+            holder.name, ("bash", "-c", link_script(self._addresses[vehicle], profile))
+        )
+        if not result.ok:
+            raise RunError(
+                f"{vehicle}: cannot put profile {profile_name} on the link (exit "
+                f"{result.exit_code}; {LINK_KERNEL_HINT}):\n{result.tail()}"
+            )
+        device = result.output.strip().splitlines()[0] if result.output.strip() else "?"
+        with self._lock:
+            if self.monitor is not None:
+                self.monitor.change(vehicle, profile_name, profile, self.wall(), cause, since=since)
+        self.log.event(
+            "link.applied",
+            f"{vehicle}: {profile_name} ({profile.summary()}) on {device} of {holder.name}",
+            vehicle=vehicle,
+            profile=profile_name,
+            cause=cause,
+        )
+        self._record_links()
+
+    def start_ground(self) -> None:
+        """Start the ground station and wait for its `ready` line."""
+        links = self._links()
+        run_dir = self.plan.run_dir
+        (run_dir / GROUND_CONFIG).write_text(
+            json.dumps(links.ground_config(RUN_DIR_IN_CONTAINER), indent=2) + "\n"
+        )
+        (run_dir / NETWORK_FILE).touch()
+        self.backend.start(links.ground)
+        self._started(links.ground)
+
+        def ready() -> bool:
+            self._running(links.ground)
+            self._poll_network()
+            return self._ground_ready
+
+        self.wait_for(ready, self.plan.config.timeouts.ground_s, "the ground station to be ready")
+        beats = [b["topic"] for b in links.heartbeats.values() if b]
+        self.log.event(
+            "ground.ready",
+            f"probing {len(links.links)} link(s)"
+            + (f", heartbeat on {', '.join(beats)}" if beats else ", no heartbeat"),
+            heartbeats=beats,
+        )
+
+    def _poll_network(self) -> None:
+        """Read the ground station's new lines: its ready line, its errors, the link windows."""
+        for line in self._network.lines():
+            try:
+                data = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            kind = data.get("kind")
+            if kind == "ready":
+                self._ground_ready = True
+                if not data.get("probing", True):
+                    self.log.event(
+                        "ground.warning",
+                        "the ground station cannot probe the links",
+                        level="warning",
+                    )
+            elif kind == "error":
+                self.log.event("ground.error", str(data.get("message", "")), level="warning")
+            elif self.monitor is not None:
+                with self._lock:
+                    self.monitor.feed(data)
+
+    def _record_links(self) -> None:
+        """The links' periods into the record."""
+        if self.monitor is None or self.record.network is None:
+            return
+        with self._lock:
+            self.record.network["addresses"] = dict(self._addresses)
+            self.record.network["periods"] = self.monitor.to_dict()
+
+    def collect_traffic(self) -> None:
+        """What every link carried and dropped (its queue counters), into the record."""
+        links = self.plan.links
+        if links is None or self.record.network is None:
+            return
+        counted: dict[str, Any] = {}
+        for vehicle, address in sorted(self._addresses.items()):
+            holder = links.holders[vehicle]
+            try:
+                result = self.backend.exec(holder.name, ("bash", "-c", traffic_script(address)))
+                counters = traffic(json.loads(result.output)) if result.ok else {}
+            except (BackendError, ValueError) as error:
+                self.log.event("link.traffic", f"{vehicle}: no counters ({error})", level="warning")
+                continue
+            counted[vehicle] = counters
+            out, inbound = counters.get("out", {}), counters.get("in", {})
+            self.log.event(
+                "link.traffic",
+                f"{vehicle}: {out.get('bytes', 0) / 1e6:.2f} MB out ({out.get('drops', 0)} "
+                f"dropped), {inbound.get('bytes', 0) / 1e6:.2f} MB in "
+                f"({inbound.get('drops', 0)} dropped)",
+                vehicle=vehicle,
+                traffic=counters,
+            )
+        with self._lock:
+            self.record.network["traffic"] = counted
+
+    def check_links(self) -> None:
+        """Compare every link period's measurement with its profile (`network.verify`)."""
+        links = self.plan.links
+        if self.monitor is None or links is None:
+            return
+        self._poll_network()
+        self._record_links()
+        if links.verify == "off":
+            return
+        for link in self.monitor.links.values():
+            for period in link.periods:
+                status, reason = period.verdict()
+                level = {LINK_PASSED: "info", LINK_FAILED: "warning"}.get(status, "debug")
+                self.log.event(
+                    f"link.{status}",
+                    f"{link.vehicle}: {period.profile_name} ({period.cause}): {reason}",
+                    level=level,
+                    vehicle=link.vehicle,
+                    profile=period.profile_name,
+                )
+        failures = self.monitor.failures()
+        if failures and links.verify == "fail":
+            vehicle, period, reason = failures[0]
+            more = f" (and {len(failures) - 1} more)" if len(failures) > 1 else ""
+            raise RunFailedError(
+                f"link {vehicle} does not match profile {period.profile_name}: {reason}{more}"
+            )
+
+    def link_action(self, action: PlannedAction, limit_s: float, record: ActionRecord) -> None:
+        """`link.set`, `link.drop` (restored after `duration_s` if given) or `link.restore`.
+
+        Runs on a worker like a goal; a drop with a duration holds its worker until the link is
+        restored, so the entry ends when the outage does.
+        """
+        entry = action.entry
+        links = self._links()
+        vehicle = entry.vehicle
+        configured = links.links[vehicle]
+        if isinstance(entry, LinkSet):
+            self.apply_link(vehicle, entry.profile, action.name)
+            record.status, record.detail = "ok", f"{entry.profile} applied"
+        elif isinstance(entry, LinkRestore):
+            self.apply_link(vehicle, configured, action.name)
+            record.status, record.detail = "ok", f"{configured} restored"
+        elif isinstance(entry, LinkDrop):
+            self.apply_link(vehicle, DROP, action.name)
+            record.status, record.detail = "ok", "dropped"
+            if entry.duration_s is not None:
+                deadline = self.clock() + min(entry.duration_s, limit_s)
+                while not self.tearing_down and self.clock() < deadline:
+                    self.sleep(min(EVAL_POLL_S, max(deadline - self.clock(), 0.0)))
+                if self.tearing_down:
+                    return
+                if entry.duration_s > limit_s:
+                    record.status = "timeout"
+                    record.detail = f"the budget ended the drop after {limit_s:.0f} s"
+                    return
+                self.apply_link(vehicle, configured, f"{action.name} (restore)")
+                record.detail = f"dropped for {entry.duration_s:g} s, {configured} restored"
+        self.log.event(
+            "action.end",
+            f"{action.name}: {record.detail}",
+            action=action.name,
+            status=record.status,
+        )
+
+    def perform(self, action: PlannedAction, limit_s: float, record: ActionRecord) -> None:
+        """Run one timeline entry on a worker."""
+        if isinstance(action.entry, NavigateToPose):
+            self.navigate_to_pose(action, limit_s, record)
+        else:
+            self.link_action(action, limit_s, record)
 
     def start_vehicles(self) -> None:
         """Start every vehicle on the workers, each once the ones it depends on are ready."""
@@ -1523,6 +2043,8 @@ class Run:
         started = self.clock()
         self._poll_samples()
         self.evaluator.start(self.wall())
+        if self.monitor is not None:
+            self.monitor.origin = self.evaluator.start_wall
         self.log.event(
             "timeline.start",
             f"{len(self.plan.actions)} action(s), {len(self.plan.assertions)} assertion(s), "
@@ -1546,6 +2068,7 @@ class Run:
             self.log.event(
                 "assertions.passed", f"all {len(self.plan.assertions)} assertion(s) passed"
             )
+        self.check_links()
 
     def _run_actions(self, started: float, budget: float) -> None:
         """Start every entry at its time on a worker and settle it when it returns.
@@ -1571,11 +2094,11 @@ class Run:
             while pending and pending[0].entry.at <= elapsed:
                 action = pending.pop(0)
                 record = records[action.name]
-                limit = min(action.entry.timeout_s, budget - elapsed)
+                limit = min(action.timeout_s, budget - elapsed)
                 record.started_at = utc_now()
                 record.status = "running"
                 self._resolve(self.evaluator.action(action.name, "started", self.wall()))
-                future = self._executor.submit(self.navigate_to_pose, action, limit, record)
+                future = self._executor.submit(self.perform, action, limit, record)
                 running[action.name] = (action, future, self.clock(), limit)
             # The stream first, so what the vehicles did during an action is judged before the
             # action's own result ends the run.
@@ -1602,7 +2125,7 @@ class Run:
                     records[other].status = "cancelled"
                     records[other].detail = f"cancelled: {name} {record.status}"
                 self._write()
-                if record.status == "timeout" and limit < action.entry.timeout_s:
+                if record.status == "timeout" and limit < action.timeout_s:
                     raise RunTimeoutError(f"budget of {budget:g} s passed during {name}")
                 raise RunFailedError(f"{name}: {record.detail}")
             if not pending and not running:
@@ -1704,7 +2227,9 @@ class Run:
         and the log (which is thread-safe).
         """
         vehicle = self.plan.vehicle(action.entry.vehicle)
-        goal = action.goal_map
+        goal, goal_world = action.goal_map, action.goal_world
+        if goal is None or goal_world is None:
+            raise RunError(f"{action.name}: no goal resolved")
         message = json.dumps(
             {
                 "pose": {
@@ -1718,7 +2243,7 @@ class Run:
         )
         self.log.event(
             "action.start",
-            f"{action.name}: {vehicle.name} to ({action.goal_world.x:g}, {action.goal_world.y:g}) "
+            f"{action.name}: {vehicle.name} to ({goal_world.x:g}, {goal_world.y:g}) "
             f"in the world, ({goal.x:.2f}, {goal.y:.2f}, yaw {goal.yaw:.2f}) in map, "
             f"limit {limit_s:.0f} s",
             action=action.name,
@@ -1772,6 +2297,8 @@ class Run:
         self.tearing_down = True
         if self.keep:
             names = [s.name for s in self.plan.containers() if self.backend.state(s.name).exists]
+            if self.plan.links is not None:
+                names += self.plan.links.networks()
             self.log.event("teardown.kept", ", ".join(names) or "nothing running", level="warning")
             return
         logs_dir = self.plan.run_dir / LOGS_DIR
@@ -1800,7 +2327,34 @@ class Run:
                 self.log.event("teardown.swept", name, level="warning", container=name)
         except BackendError as error:
             self.log.event("teardown.error", str(error), level="warning")
-        self.log.event("teardown.done", f"{removed} container(s) removed", removed=removed)
+        networks = self.remove_networks()
+        self.log.event(
+            "teardown.done",
+            f"{removed} container(s)"
+            + (f" and {networks} network(s)" if networks else "")
+            + " removed",
+            removed=removed,
+        )
+
+    def remove_networks(self) -> int:
+        """Remove the networks of the radio links, then any other network of the run."""
+        if self.plan.links is None:
+            return 0
+        removed = 0
+        names = list(self.plan.links.networks())
+        try:
+            names += [
+                n for n in self.backend.find_networks(RUN_LABEL, self.plan.run_id) if n not in names
+            ]
+        except BackendError as error:
+            self.log.event("teardown.error", str(error), level="warning")
+        for name in names:
+            try:
+                self.backend.remove_network(name)
+                removed += 1
+            except BackendError as error:
+                self.log.event("teardown.error", str(error), level="warning", network=name)
+        return removed
 
     def write_report(self) -> None:
         """`report.json`, `report.md` and `junit.xml` from the record and the run directory."""

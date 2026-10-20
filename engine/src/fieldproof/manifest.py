@@ -454,6 +454,32 @@ def memory_bytes(value: str) -> int:
     return int(number * {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3}[unit])
 
 
+class Heartbeat(Strict):
+    """The ground station's heartbeat the vehicle listens for (`std_msgs/msg/Header`)."""
+
+    topic: str = Field(
+        description="Topic of the heartbeat (relative: under the vehicle's namespace).",
+        min_length=1,
+    )
+    rate_hz: PositiveFloat = Field(2.0, description="How often the ground station sends it.")
+
+
+class Link(Strict):
+    """The vehicle's radio link to its ground station (task P2-T02).
+
+    In a scenario with radio links (`network`) the ground station sends the heartbeat over the
+    link, so a dropped link stops it, and the scenario's assertions check the behaviour
+    `loss_behaviour` documents.
+    """
+
+    heartbeat: Heartbeat | None = Field(
+        None, description="The heartbeat the ground station sends (absent: none)."
+    )
+    loss_behaviour: str = Field(
+        "", description="What the vehicle does when the link is lost, and when it comes back."
+    )
+
+
 class Runtime(Strict):
     """What runs on the vehicle and how."""
 
@@ -479,6 +505,7 @@ class Runtime(Strict):
     env: dict[str, str] = Field(
         default_factory=dict, description="Extra environment of the container."
     )
+    link: Link | None = Field(None, description="The radio link to the ground station.")
 
     @model_validator(mode="after")
     def _unique_drivers(self) -> Runtime:

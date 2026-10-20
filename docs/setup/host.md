@@ -83,6 +83,14 @@ Snap Store), GTK helpers such as `zenity` crash because the snap injects its own
 and `GTK_PATH`; wrap the helper in `env -i` with only `DISPLAY`, `WAYLAND_DISPLAY`,
 `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` set.
 
+**`Specified qdisc kind is unknown` or `Cannot find device "ifb-radio"` in a run with radio
+links.** The `network` phase shapes each vehicle's link with `tc netem` and an `ifb` device
+([network.md](../reference/network.md#how-a-profile-is-applied)); Ubuntu loads `sch_netem` and
+`ifb` on demand when a container with `NET_ADMIN` asks for them, a hardened or minimal kernel
+may not. `sudo modprobe sch_netem ifb` loads them (`lsmod | grep -E 'netem|ifb'` shows them);
+`echo -e 'sch_netem\nifb' | sudo tee /etc/modules-load.d/fieldproof.conf` keeps them across
+reboots.
+
 **Disk space.** Images for simulation, ROS 2 and development will take several gigabytes under
 `/var/lib/docker`. Keep at least 30 GB free before P0-T03; `docker system df` shows usage and
 `docker system prune` reclaims build cache.

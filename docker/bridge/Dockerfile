@@ -8,7 +8,9 @@
 # that install space, an entry point that sources it, and `fieldproof-bridge`, which starts the
 # bridge launch on the manifest named by FIELDPROOF_MANIFEST (the default command). Every
 # run-time dependency of the two packages (ros_gz_bridge, robot_state_publisher, xacro, rclpy,
-# the message packages) is already in the simulation image, so the runtime stage installs nothing.
+# the message packages) is already in the simulation image; the runtime stage adds the network
+# tools of the radio links (task P2-T02): `tc` and `ip` (iproute2) for the netem profiles a link
+# holder applies, `iperf3` and `ping` to measure a link by hand and in the integration tests.
 ARG BASE_IMAGE=ghcr.io/dimitrios-kafetzis/fieldproof-sim:local
 # hadolint ignore=DL3006
 FROM ${BASE_IMAGE} AS build
@@ -39,6 +41,12 @@ FROM ${BASE_IMAGE} AS runtime
 ARG BASE_IMAGE
 ARG FIELDPROOF_USER=fieldproof
 USER root
+
+# The network tools, from the snapshots the base image is pinned to (DL3008 and DL3009 as in the
+# base image).
+# hadolint ignore=DL3008,DL3009
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    fieldproof-apt-install iproute2 iperf3 iputils-ping
 
 COPY --from=build /opt/fieldproof_bridge /opt/fieldproof_bridge
 COPY --chmod=755 entrypoint.sh /usr/local/bin/fieldproof-bridge-entrypoint

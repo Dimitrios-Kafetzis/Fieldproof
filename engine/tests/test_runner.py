@@ -310,6 +310,8 @@ def test_plan_resolves_the_assertions_and_the_observation(resolved: Plan) -> Non
 def test_plan_resolves_the_timeline(resolved: Plan) -> None:
     (action,) = resolved.actions
     assert action.name == "drive_ahead"
+    assert action.goal_world is not None
+    assert action.goal_map is not None
     assert action.goal_world.x == 10.0
     assert action.goal_world.y == -1.0
     assert action.goal_map.x == pytest.approx(4.0)

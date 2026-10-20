@@ -117,4 +117,5 @@ nav:
       - Vehicle manifest: reference/manifest.md
       - Scenarios: reference/scenarios.md
       - Assertions, recording and reports: reference/assertions.md
+      - Radio links: reference/network.md
       - Worlds: reference/worlds.md

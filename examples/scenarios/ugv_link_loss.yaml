@@ -1,0 +1,122 @@
+# Loss of the radio link (task P2-T02): the example vehicle ugv_nav2 talks to its ground station
+# over a rural LTE link (60 ms ± 20 ms one way, 1 % loss, 4 Mbit/s). While it drives 8 m west
+# along the depot's hall, the link drops for 20 s. The vehicle's documented
+# loss-of-link behaviour (robot.yaml, `runtime.link.loss_behaviour`): after 2 s without the
+# ground station's heartbeat it reports the link lost and holds position; when the heartbeat
+# returns it reports the link back and resumes the mission. The assertions check exactly that,
+# and `network.verify: fail` fails the run if the measured latency of the link is not within
+# 10 % of the profile. The failsafe's 2 s are simulation time while the timeline and the
+# assertion windows are wall clock (runner v0), so the windows leave room for a simulation
+# running well below real time (software rendering on a CI runner: the vehicle reported the
+# link lost 4.4 s after the drop there). Schema: docs/reference/scenarios.md; links:
+# docs/reference/network.md.
+#
+#   fieldproof validate examples/scenarios/ugv_link_loss.yaml
+#   fieldproof run examples/scenarios/ugv_link_loss.yaml
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: ugv_link_loss
+  description: The example UGV holds position while its LTE link is down for 20 s, then resumes
+  tags: [network, nav, ugv]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    spawn:
+      frame: spawn_hall # (6, 15), facing west along the open floor of the hall
+network:
+  profile: lte_rural # every vehicle's link (one here)
+  verify: fail # the measured latency must be within 10 % of the profile's
+time:
+  mode: sim
+  timeout_s: 10m
+timeline:
+  - at: 0s
+    name: drive_along_hall
+    vehicle: ugv1
+    action: navigate_to_pose
+    # 8 m ahead, in the lidar's view from the spawn: the planner never plans through unknown
+    # space (NavFn intermittently fails to extract such a plan, and a held vehicle would replan
+    # into the same failure).
+    goal: { x: -2.0, y: 15.0, yaw: 3.1416 }
+    timeout_s: 5m
+  - at: 5s
+    name: link_outage
+    vehicle: ugv1
+    action: link.drop
+    duration_s: 20s # then lte_rural again
+assertions:
+  # The vehicle notices: link_state false within 10 s of the drop (2 s of simulation time).
+  - name: reports_link_lost
+    type: topic_value
+    topic: link_state
+    vehicle: ugv1
+    field: data
+    condition: not value
+    mode: eventually
+    after_s: 5s
+    within_s: 15s
+  # It holds position while the link is down (wheel odometry from the simulator: the speed the
+  # vehicle actually has), from 8 s after the drop until just before the restore.
+  - name: holds_while_lost
+    type: topic_value
+    topic: odom
+    vehicle: ugv1
+    field: twist.twist.linear.x
+    condition: abs(value) < 0.05
+    mode: always
+    after_s: 13s
+    within_s: 24s
+  # Its failsafe commands nothing but zero during the same window.
+  - name: commands_zero_while_lost
+    type: topic_value
+    topic: cmd_vel
+    vehicle: ugv1
+    field: linear.x
+    condition: value == 0
+    mode: always
+    after_s: 13s
+    within_s: 24s
+  # The heartbeat comes back over the restored link and the vehicle reports it.
+  - name: reports_link_back
+    type: topic_value
+    topic: link_state
+    vehicle: ugv1
+    field: data
+    condition: value
+    mode: eventually
+    after_s: 25s
+    within_s: 40s
+  # It resumes the mission and reaches its goal (ground truth from Gazebo).
+  - name: reached_goal
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: -2.0, y: 15.0 }
+    tolerance_m: 0.5
+  - name: arrived_in_time
+    type: within_time
+    action: drive_along_hall
+    max_s: 4m
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+outputs:
+  logs: true
+  record: true
+  # The recorder sees the vehicle on its onboard network, not the ground station on the radio
+  # (so not the heartbeat it sends); the link measurements are on /fieldproof/network, a side
+  # channel, always recorded.
+  topics:
+    - /clock
+    - /tf
+    - /tf_static
+    - /odom
+    - /cmd_vel
+    - /cmd_vel_safe
+    - /link_state
+    - /scan
+    - /map
+    - /plan
+    - /rosout

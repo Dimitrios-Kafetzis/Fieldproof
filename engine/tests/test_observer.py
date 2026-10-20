@@ -280,9 +280,11 @@ def config(run_dir: Path, **overrides: Any) -> dict[str, Any]:
             "events": "/fieldproof/events",
             "assertions": "/fieldproof/assertions",
             "metrics": "/fieldproof/metrics",
+            "network": "/fieldproof/network",
         },
         "events_file": str(run_dir / "engine.log"),
         "assertions_file": str(run_dir / "assertions.jsonl"),
+        "network_file": str(run_dir / "network.jsonl"),
         "samples_file": str(run_dir / "samples.jsonl"),
     }
     base.update(overrides)
@@ -370,6 +372,7 @@ def test_observer_subscribes_and_streams_messages(run_dir: Path) -> None:
         "/fieldproof/events",
         "/fieldproof/assertions",
         "/fieldproof/metrics",
+        "/fieldproof/network",
     }
     assert set(gz.poses) == {"/world/depot/pose/info"}
     assert set(gz.contacts) == {"/contacts"}
@@ -435,6 +438,12 @@ def test_observer_timers_and_side_channels(run_dir: Path) -> None:
     assert ros.published["/fieldproof/assertions"] == [
         '{"name": "reached_goal", "status": "passed"}'
     ]
+    # The ground station's link measurements (radio links) onto /fieldproof/network; the file
+    # appears only in runs with links.
+    assert ros.published["/fieldproof/network"] == []
+    (run_dir / "network.jsonl").write_text('{"kind": "link", "vehicle": "ugv1"}\n')
+    ros.spin_once(0.1)
+    assert ros.published["/fieldproof/network"] == ['{"kind": "link", "vehicle": "ugv1"}']
     # Stop.
     watcher.stop()
     assert watcher.run() == 0

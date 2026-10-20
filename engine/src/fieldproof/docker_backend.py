@@ -17,6 +17,7 @@ import tarfile
 import threading
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import docker
 import requests
@@ -80,13 +81,44 @@ class DockerBackend:
             raise BackendError(f"{image}: {error}") from error
         return True
 
-    def ensure_network(self, name: str) -> None:
-        """Create the bridge network unless it exists."""
+    def ensure_network(self, name: str, labels: dict[str, str] | None = None) -> None:
+        """Create the bridge network unless it exists (with `labels` when it is created)."""
         try:
             if not any(n.name == name for n in self.client.networks.list(names=[name])):
-                self.client.networks.create(name, driver="bridge")
+                self.client.networks.create(name, driver="bridge", labels=dict(labels or {}))
         except (APIError, requests.RequestException) as error:
             raise BackendError(f"network {name}: {error}") from error
+
+    def remove_network(self, name: str) -> None:
+        """Remove the network if it exists."""
+        try:
+            self.client.networks.get(name).remove()
+        except NotFound:
+            return
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"network {name}: cannot remove it: {error}") from error
+
+    def find_networks(self, label: str, value: str) -> list[str]:
+        """Names of every network carrying `label=value`."""
+        try:
+            networks = self.client.networks.list(filters={"label": f"{label}={value}"})
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"cannot list networks: {error}") from error
+        return [str(n.name) for n in networks]
+
+    def address(self, name: str, network: str) -> str:
+        """The container's IPv4 address on a network it joined."""
+        try:
+            container = self.client.containers.get(name)
+        except NotFound as error:
+            raise BackendError(f"{name}: no such container") from error
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(f"{name}: cannot inspect the container: {error}") from error
+        networks = container.attrs.get("NetworkSettings", {}).get("Networks") or {}
+        address = (networks.get(network) or {}).get("IPAddress")
+        if not address:
+            raise BackendError(f"{name}: no address on network {network}")
+        return str(address)
 
     # --------------------------------------------------------------------------- containers
     def _create(self, spec: ContainerSpec) -> Container:
@@ -94,15 +126,23 @@ class DockerBackend:
             DockerMount(m.target, str(m.source), type="bind", read_only=m.read_only)
             for m in spec.mounts
         ]
+        networking: dict[str, Any] = {}
+        if spec.network_mode is not None:
+            networking["network_mode"] = spec.network_mode
+        else:
+            networking["hostname"] = spec.hostname
+            networking["network"] = spec.network
+            if spec.network is not None and spec.aliases:
+                networking["networking_config"] = {
+                    spec.network: self.client.api.create_endpoint_config(aliases=list(spec.aliases))
+                }
         try:
-            return self.client.containers.create(
+            container = self.client.containers.create(
                 spec.image,
                 command=list(spec.command) or None,
                 name=spec.name,
-                hostname=spec.hostname,
                 environment=dict(spec.env),
                 labels=dict(spec.labels),
-                network=spec.network,
                 mounts=mounts,
                 devices=[f"{d}:{d}:rwm" for d in spec.devices],
                 group_add=list(spec.group_add),
@@ -112,10 +152,21 @@ class DockerBackend:
                 pids_limit=spec.pids,
                 user=spec.user,
                 working_dir=spec.working_dir,
+                cap_add=list(spec.cap_add) or None,
                 detach=True,
+                **networking,
             )
         except (APIError, requests.RequestException) as error:
             raise BackendError(f"{spec.name}: cannot create the container: {error}") from error
+        for network in spec.networks:
+            try:
+                self.client.networks.get(network).connect(container, aliases=list(spec.aliases))
+            except (APIError, requests.RequestException) as error:
+                self._remove(container)
+                raise BackendError(
+                    f"{spec.name}: cannot join network {network}: {error}"
+                ) from error
+        return container
 
     def start(self, spec: ContainerSpec) -> None:
         """Create and start a container in the background."""
@@ -208,14 +259,17 @@ class DockerBackend:
             return
 
     def find(self, label: str, value: str) -> list[str]:
-        """Names of every container carrying `label=value`, running or not."""
+        """Names of every container carrying `label=value`, running or not.
+
+        Through the low-level list call, whose answer carries the names: the high-level one
+        inspects every container it lists, which fails when one is removed in between (a
+        spawn's worker removing its one-shot container during an interrupted run, #56).
+        """
         try:
-            containers = self.client.containers.list(
-                all=True, filters={"label": f"{label}={value}"}
-            )
+            containers = self.client.api.containers(all=True, filters={"label": f"{label}={value}"})
         except (APIError, requests.RequestException) as error:
             raise BackendError(f"cannot list containers: {error}") from error
-        return [str(c.name) for c in containers]
+        return [str(c["Names"][0]).lstrip("/") for c in containers if c.get("Names")]
 
     def copy_from(self, name: str, path: str, destination: Path) -> int:
         """Copy a file out of a container to `destination`; return the bytes written."""

@@ -358,6 +358,40 @@ def value(t: float, v: Any, field: str = "linear.x", topic: str = "/cmd_vel") ->
     return sample("value", t, t, topic=topic, field=field, value=v)
 
 
+def test_topic_value_always_within_a_window() -> None:
+    # "Stopped from 2 s to 5 s": messages before and after the window do not count.
+    evaluator = Evaluator([value_assertion("abs(value) < 0.05", after_s=2, within_s=5)])
+    evaluator.start(T0)
+    assert evaluator.feed(value(1.0, 0.4)) == [], "before the window"
+    assert evaluator.feed(value(2.5, 0.0)) == []
+    assert evaluator.feed(value(4.5, 0.01)) == []
+    assert evaluator.tick(T0 + 4.9) == []
+    (result,) = evaluator.tick(T0 + 5.0)
+    assert result.status == PASSED
+    assert result.reason == (
+        "/cmd_vel linear.x satisfied 'abs(value) < 0.05' in all 2 message(s) from 2 s to 5 s"
+    )
+    assert result.t_s == 5.0
+    assert evaluator.feed(value(6.0, 0.4)) == [], "after the window: settled already"
+    # A message past the window that arrives before the tick settles it the same way.
+    late = Evaluator([value_assertion("abs(value) < 0.05", after_s=2, within_s=5)])
+    late.start(T0)
+    late.feed(value(3.0, 0.0))
+    (result,) = late.feed(value(6.0, 0.4))
+    assert result.status == PASSED
+    assert result.evidence["samples"] == 1
+    # A violation inside the window fails at once; no message in it fails at its end.
+    violated = Evaluator([value_assertion("abs(value) < 0.05", after_s=2, within_s=5)])
+    violated.start(T0)
+    (result,) = violated.feed(value(3.0, 0.3))
+    assert result.status == FAILED
+    silent = Evaluator([value_assertion("abs(value) < 0.05", after_s=2, within_s=5)])
+    silent.start(T0)
+    (result,) = silent.tick(T0 + 5.0)
+    assert result.status == FAILED
+    assert result.reason == "no message of /cmd_vel from 2 s to 5 s"
+
+
 def test_topic_value_always() -> None:
     evaluator = Evaluator([value_assertion(after_s=1)])
     evaluator.start(T0)

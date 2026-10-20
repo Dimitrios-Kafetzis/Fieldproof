@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Loss-of-link failsafe of the example UGV: hold position while the ground station is silent.
+
+The ground control station sends a heartbeat (`std_msgs/msg/Header`) on `gcs/heartbeat`, twice a
+second, over the vehicle's radio. This node sits last in the velocity chain, between Nav2's
+collision monitor (`cmd_vel_safe`) and the base (`cmd_vel`):
+
+- it **arms** at the first heartbeat, so a vehicle that never heard a ground station (a bench
+  test, a scenario without radio links) drives as if the node were not there;
+- once armed, when no heartbeat has arrived for `loss_timeout_s` (2 s) it declares the link
+  **lost**: it publishes `link_state` false, drops Nav2's commands and sends zero velocity at
+  `hold_rate_hz`, so the vehicle stops where it is and holds. Nav2 keeps its goal (its progress
+  checker and recoveries see a vehicle that does not move);
+- at the next heartbeat it declares the link **back**, publishes `link_state` true and passes
+  Nav2's commands through again, so the mission resumes where it stopped.
+
+`link_state` (`std_msgs/msg/Bool`, transient local) is published on every change and once a
+second. Time is the node's clock, so the timeout follows the simulation clock under
+`use_sim_time`.
+"""
+
+from __future__ import annotations
+
+import rclpy
+from geometry_msgs.msg import Twist
+from rclpy.duration import Duration
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
+from std_msgs.msg import Bool, Header
+
+
+class LinkMonitor(Node):  # type: ignore[misc]
+    """The failsafe: pass commands through while the ground station is heard, hold otherwise."""
+
+    def __init__(self) -> None:
+        super().__init__("link_monitor")
+        self.timeout = Duration(seconds=float(self.declare_parameter("loss_timeout_s", 2.0).value))
+        heartbeat = str(self.declare_parameter("heartbeat_topic", "gcs/heartbeat").value)
+        hold_rate = float(self.declare_parameter("hold_rate_hz", 20.0).value)
+        self.armed = False
+        self.lost = False
+        self.last_heartbeat: Time | None = None
+        self.lost_since: Time | None = None
+        self.create_subscription(
+            Header,
+            heartbeat,
+            self.on_heartbeat,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
+        )
+        self.create_subscription(Twist, "cmd_vel_in", self.on_command, 10)
+        self.command = self.create_publisher(Twist, "cmd_vel_out", 10)
+        self.state = self.create_publisher(
+            Bool, "link_state", QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        )
+        self.create_timer(1.0 / hold_rate, self.on_timer)
+        self.create_timer(1.0, self.publish_state)
+
+    def publish_state(self) -> None:
+        """`link_state`, once armed."""
+        if self.armed:
+            self.state.publish(Bool(data=not self.lost))
+
+    def on_heartbeat(self, _message: Header) -> None:
+        """The ground station is heard."""
+        now = self.get_clock().now()
+        self.last_heartbeat = now
+        if not self.armed:
+            self.armed = True
+            self.get_logger().info("heartbeat from the ground station: link monitoring armed")
+            self.publish_state()
+        elif self.lost:
+            self.lost = False
+            outage = (now - self.lost_since).nanoseconds / 1e9 if self.lost_since else 0.0
+            self.get_logger().info(
+                f"link to the ground station back after {outage:.1f} s: resuming the mission"
+            )
+            self.publish_state()
+
+    def on_command(self, message: Twist) -> None:
+        """A command from Nav2: through while the link holds."""
+        if not self.lost:
+            self.command.publish(message)
+
+    def on_timer(self) -> None:
+        """Declare the link lost after the timeout; hold position while it is."""
+        now = self.get_clock().now()
+        silent = self.last_heartbeat is not None and now - self.last_heartbeat > self.timeout
+        if self.armed and not self.lost and silent:
+            self.lost = True
+            self.lost_since = now
+            self.get_logger().warning(
+                f"no heartbeat from the ground station for "
+                f"{self.timeout.nanoseconds / 1e9:.1f} s: link lost, holding position"
+            )
+            self.publish_state()
+        if self.lost:
+            self.command.publish(Twist())
+
+
+def main() -> None:
+    """Spin the failsafe until shut down."""
+    rclpy.init()
+    node = LinkMonitor()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == "__main__":
+    main()
