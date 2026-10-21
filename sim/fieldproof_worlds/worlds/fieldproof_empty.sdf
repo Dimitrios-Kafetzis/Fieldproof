@@ -22,6 +22,10 @@
     </plugin>
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
     <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+    <!-- Wind on the links that enable it (set_wind, task P2-T03) and the Fieldproof world
+         events: spawn, remove, teleport and set_wind services for the scenario timeline. -->
+    <plugin filename="gz-sim-wind-effects-system" name="gz::sim::systems::WindEffects"/>
+    <plugin filename="fieldproof_world_events" name="fieldproof::WorldEvents"/>
 
     <gravity>0 0 -9.81</gravity>
     <!-- Geodetic origin of the world frame (an arbitrary point on the Athens coast), ENU. -->

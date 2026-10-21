@@ -14,6 +14,7 @@
 
   <depend>python3-yaml</depend>
 
+  <exec_depend>fieldproof_gz_plugins</exec_depend>
   <exec_depend>gz_sim_vendor</exec_depend>
 
   <test_depend>ament_cmake_pytest</test_depend>

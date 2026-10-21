@@ -36,6 +36,8 @@ REQUIRED_SYSTEMS = {
     "gz::sim::systems::Sensors",
     "gz::sim::systems::Imu",
     "gz::sim::systems::NavSat",
+    "gz::sim::systems::WindEffects",
+    "fieldproof::WorldEvents",
 }
 PHYSICS_STEP_S = 0.001
 DEPOT_FRAMES = {
