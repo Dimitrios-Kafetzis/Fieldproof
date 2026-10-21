@@ -29,6 +29,7 @@ GOAL_OK = (
 )
 LINK_OK = "eth1\nqdisc netem 8001: root refcnt 2 limit 1000 delay 60ms 20ms\n"
 PARAM_OK = "Set parameter successful\n"
+WORLD_OK = 'data: "applied"\n'
 TRAFFIC_OK = (
     '{"out": [{"kind": "prio", "handle": "1:"}, {"kind": "netem", "handle": "20:", '
     '"bytes": 2263618, "packets": 6769, "drops": 12, "backlog": 0}], '
@@ -82,6 +83,8 @@ class FakeBackend:
     paused: list[tuple[str, bool]] = field(default_factory=list)
     killed: list[tuple[str, str]] = field(default_factory=list)
     param_result: ExecResult = field(default_factory=lambda: ExecResult(0, PARAM_OK))
+    world_result: ExecResult = field(default_factory=lambda: ExecResult(0, WORLD_OK))
+    """What the simulator answers a world event's service (`gz service` on the sim container)."""
     world_polls_needed: int = 2
     bridge_polls_needed: int = 1
     spawn_result: ExecResult = field(
@@ -220,11 +223,15 @@ class FakeBackend:
                 on_line(line)
         return result
 
-    def _answer(self, container: FakeContainer, argv: tuple[str, ...]) -> ExecResult:  # noqa: PLR0911
+    def _answer(  # noqa: PLR0911, PLR0912
+        self, container: FakeContainer, argv: tuple[str, ...]
+    ) -> ExecResult:
         command = " ".join(argv)
         role = container.spec.role
         if role == "sim" and "set_physics" in command:
             return self.rtf_result
+        if role == "sim" and "/fieldproof/" in command:
+            return self.world_result
         if role == "sim" and "record_video" in command:
             return self.video_stop_result if "stop: true" in command else self.video_start_result
         if role == "sim" and command.startswith("bash -lc test -s "):
@@ -235,6 +242,8 @@ class FakeBackend:
             return ExecResult(0, WORLD_LIST if ready else "/world/depot/control\n")
         if role == "bridge" and "contract_check" in command:
             return self.contract_result
+        if role == "bridge" and "param set" in command:
+            return self.param_result
         if role == "bridge":
             ready = self.polls[container.spec.name] >= self.bridge_polls_needed
             namespace = next(

@@ -13,7 +13,8 @@ its :class:`ActionRecord`.
 
 Events are found through Python entry points of the group ``fieldproof.events``: the engine
 registers its built-ins (:mod:`fieldproof.events.navigation`, :mod:`fieldproof.events.link`,
-:mod:`fieldproof.events.container`, :mod:`fieldproof.events.param`) and any distribution
+:mod:`fieldproof.events.container`, :mod:`fieldproof.events.param`,
+:mod:`fieldproof.events.world`, :mod:`fieldproof.events.faults`) and any distribution
 installed next to the engine adds its own (``examples/plugins`` shows one). The built-ins are
 also loaded directly, so an engine checkout works without its metadata. :func:`registry` is
 what the scenario schema builds its timeline union from and what the runner dispatches with;
@@ -29,7 +30,17 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass
 from functools import cache
 from importlib.metadata import EntryPoint, entry_points
-from typing import Annotated, Any, ClassVar, Literal, Protocol, Union, get_args, get_origin
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Literal,
+    Protocol,
+    Union,
+    get_args,
+    get_origin,
+)
 
 from pydantic import Field
 
@@ -37,12 +48,17 @@ from fieldproof.backend import Backend, ExecResult, LineSink
 from fieldproof.dsl import ScenarioError, TimelineBase
 from fieldproof.world import Pose, WorldInfo
 
+if TYPE_CHECKING:
+    from fieldproof_bridge.generator import Bundle
+
 ENTRY_POINT_GROUP = "fieldproof.events"
 BUILTIN_MODULES = (
     "fieldproof.events.navigation",
     "fieldproof.events.link",
     "fieldproof.events.container",
     "fieldproof.events.param",
+    "fieldproof.events.world",
+    "fieldproof.events.faults",
 )
 BUILTIN = "built-in"
 # Statuses of an action record.
@@ -103,11 +119,22 @@ class VehicleHandle(Protocol):
         """The name of its container."""
 
     @property
+    def bridge_name(self) -> str:
+        """The name of its bridge container (the fault injectors run there)."""
+
+    @property
     def spawn(self) -> Pose:
         """Where it spawned, in the world."""
 
     def topic(self, name: str) -> str:
         """An absolute topic, node or action name under the vehicle's namespace."""
+
+    def bundle(self) -> Bundle:
+        """The plan of its bridge bundle (:mod:`fieldproof_bridge.generator`).
+
+        The nodes the bridge runs, among them the fault injectors a fault event sets the
+        parameters of, and the contract topics they publish.
+        """
 
 
 @dataclass(frozen=True)
@@ -162,6 +189,35 @@ class EventContext(Protocol):
 
         Through the image's entry point (the stack's environment sourced), interrupted after
         `timeout_s` (exit code 124).
+        """
+
+    def bridge_ros2(
+        self,
+        vehicle: VehicleHandle,
+        argv: Sequence[str],
+        *,
+        timeout_s: float,
+        on_line: LineSink | None = None,
+    ) -> ExecResult:
+        """`ros2 <argv>` inside the vehicle's bridge container (the fault injectors' side).
+
+        Through the bridge image's entry point, interrupted after `timeout_s` (exit code 124);
+        the bridge runs on whether the vehicle's container is paused, killed or behind a link.
+        """
+
+    def gz_service(
+        self,
+        service: str,
+        *,
+        request_type: str,
+        reply_type: str,
+        request: str,
+        timeout_s: float = 10.0,
+    ) -> ExecResult:
+        """`gz service -s <service>` inside the simulator's container (the world events).
+
+        `request` is the message in protobuf text format; the reply is printed the same way
+        (`data: "..."` for a `gz.msgs.StringMsg`). The call is interrupted after `timeout_s`.
         """
 
     def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:

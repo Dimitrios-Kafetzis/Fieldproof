@@ -11,11 +11,13 @@ a node that just started), so the event asks again once a second until its ``tim
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from functools import partial
 from typing import Any, ClassVar, Literal
 
 from pydantic import Field
 
+from fieldproof.backend import ExecResult
 from fieldproof.dsl import Duration, TimelineBase
 from fieldproof.events import FAILED, OK, TIMEOUT, ActionRecord, Event, EventContext, PlanContext
 from fieldproof.manifest import Name
@@ -53,6 +55,52 @@ def value_text(value: bool | int | float | str) -> str:
     return json.dumps(value)
 
 
+Ros2 = Callable[..., ExecResult]
+"""`context.ros2` or `context.bridge_ros2`, bound to a vehicle: `(argv, timeout_s=, on_line=)`."""
+
+
+def set_parameter(  # noqa: PLR0917
+    ros2: Ros2,
+    context: EventContext,
+    node: str,
+    parameter: str,
+    value: str,
+    deadline: float,
+    record: ActionRecord,
+) -> bool:
+    """`ros2 param set <node> <parameter> <value>`, asked again while the node is not found.
+
+    Sets the record (`ok` with `<node> <parameter> = <value>`, `failed`, `timeout`) and returns
+    whether the node accepted the value.
+    """
+    limit_s = max(deadline - context.clock(), 1.0)
+    while True:
+        result = ros2(
+            ("param", "set", node, parameter, value),
+            timeout_s=max(deadline - context.clock(), 1.0),
+            on_line=lambda line: context.log(
+                "action.output", line.rstrip(), level="debug", action=record.name
+            ),
+        )
+        missing = NODE_MISSING in result.output
+        if not missing or context.clock() + RETRY_S >= deadline or not context.hold(RETRY_S):
+            break
+    if result.exit_code == 124:
+        record.status, record.detail = TIMEOUT, f"{node} did not answer within {limit_s:.0f} s"
+    elif result.ok and PARAM_SET_OK in result.output:
+        record.status, record.detail = OK, f"{node} {parameter} = {value}"
+        return True
+    elif missing:
+        record.status = FAILED
+        record.detail = f"{node} not found within {limit_s:.0f} s"
+    else:
+        record.status = FAILED
+        record.detail = f"{node} refused {parameter} (exit {result.exit_code}): " + (
+            result.tail(3) or "no output"
+        )
+    return False
+
+
 class ParamSetEvent(Event):
     """`param.set`."""
 
@@ -77,31 +125,15 @@ class ParamSetEvent(Event):
         vehicle = context.vehicle(entry.vehicle)
         node, value = str(resolved["node"]), str(resolved["value"])
         limit_s = min(entry.timeout_s, float(resolved.get("limit_s", entry.timeout_s)))
-        deadline = context.clock() + limit_s
-        while True:
-            result = context.ros2(
-                vehicle,
-                ("param", "set", node, entry.parameter, value),
-                timeout_s=max(deadline - context.clock(), 1.0),
-                on_line=lambda line: context.log(
-                    "action.output", line.rstrip(), level="debug", action=record.name
-                ),
-            )
-            missing = NODE_MISSING in result.output
-            if not missing or context.clock() + RETRY_S >= deadline or not context.hold(RETRY_S):
-                break
-        if result.exit_code == 124:
-            record.status, record.detail = TIMEOUT, f"{node} did not answer within {limit_s:.0f} s"
-        elif result.ok and PARAM_SET_OK in result.output:
-            record.status, record.detail = OK, f"{node} {entry.parameter} = {value}"
-        elif missing:
-            record.status = FAILED
-            record.detail = f"{node} not found within {limit_s:.0f} s"
-        else:
-            record.status = FAILED
-            record.detail = f"{node} refused {entry.parameter} (exit {result.exit_code}): " + (
-                result.tail(3) or "no output"
-            )
+        set_parameter(
+            partial(context.ros2, vehicle),
+            context,
+            node,
+            entry.parameter,
+            value,
+            context.clock() + limit_s,
+            record,
+        )
 
 
 EVENTS = (ParamSetEvent,)

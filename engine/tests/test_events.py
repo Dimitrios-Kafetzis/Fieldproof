@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from importlib.metadata import EntryPoint
+from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 import pytest
@@ -37,6 +38,12 @@ from fieldproof.events.navigation import NavigateToPose, goal_message, goal_stat
 from fieldproof.events.param import ParamSet, value_text
 from fieldproof.manifest import Name
 from fieldproof.world import Pose, WorldInfo
+from fieldproof_bridge.generator import Bundle
+from fieldproof_bridge.generator import plan as bridge_plan
+from fieldproof_bridge.manifest import Manifest as BridgeManifest
+
+REPO = Path(__file__).resolve().parents[2]
+NAV2 = REPO / "examples/vehicles/ugv_nav2/robot.yaml"
 
 BUILTINS = {
     "navigate_to_pose",
@@ -52,18 +59,23 @@ BUILTINS = {
 
 # ---------------------------------------------------------------------------------- fakes
 class Vehicle:
-    """A vehicle of the plan."""
+    """A vehicle of the plan (the example vehicle's manifest for its bridge bundle)."""
 
-    def __init__(self, name: str = "ugv1", namespace: str = "") -> None:
+    def __init__(self, name: str = "ugv1", namespace: str = "", manifest: Path = NAV2) -> None:
         self.name = name
         self.namespace = namespace
         self.container_name = f"fieldproof-run-{name}"
+        self.bridge_name = f"fieldproof-run-bridge-{name}"
         self.spawn = Pose(10.0, 3.0, 0.0, -1.5708)
+        self.manifest = manifest
 
     def topic(self, name: str) -> str:
         if name.startswith("/"):
             return name
         return f"/{self.namespace}/{name}" if self.namespace else f"/{name}"
+
+    def bundle(self) -> Bundle:
+        return bridge_plan(BridgeManifest.load(self.manifest), namespace=self.namespace)
 
 
 class Context:
@@ -79,6 +91,10 @@ class Context:
         self.ros2_result = ExecResult(0, "")
         self.ros2_results: list[ExecResult] = []
         """Answers in order before `ros2_result`."""
+        self.bridge_calls: list[tuple[str, tuple[str, ...], float]] = []
+        self.gz_calls: list[dict[str, Any]] = []
+        self.gz_result = ExecResult(0, 'data: "applied"\n')
+        self.gz_results: list[ExecResult] = []
         self.links: list[tuple[str, str, str]] = []
         self.exits: set[str] = set()
         self.paused: dict[str, bool] = {}
@@ -109,6 +125,41 @@ class Context:
             for line in result.output.splitlines():
                 on_line(line)
         return result
+
+    def bridge_ros2(
+        self,
+        vehicle: VehicleHandle,
+        argv: Sequence[str],
+        *,
+        timeout_s: float,
+        on_line: LineSink | None = None,
+    ) -> ExecResult:
+        self.bridge_calls.append((vehicle.bridge_name, tuple(argv), timeout_s))
+        result = self.ros2_results.pop(0) if self.ros2_results else self.ros2_result
+        if on_line is not None:
+            for line in result.output.splitlines():
+                on_line(line)
+        return result
+
+    def gz_service(
+        self,
+        service: str,
+        *,
+        request_type: str,
+        reply_type: str,
+        request: str,
+        timeout_s: float = 10.0,
+    ) -> ExecResult:
+        self.gz_calls.append(
+            {
+                "service": service,
+                "request_type": request_type,
+                "reply_type": reply_type,
+                "request": request,
+                "timeout_s": timeout_s,
+            }
+        )
+        return self.gz_results.pop(0) if self.gz_results else self.gz_result
 
     def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:
         self.events.append((event, message, {"level": level, **fields}))

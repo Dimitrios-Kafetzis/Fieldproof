@@ -20,10 +20,14 @@ class Vehicle:
     name = "ugv1"
     namespace = "ugv1"
     container_name = "fieldproof-x-ugv1"
+    bridge_name = "fieldproof-x-bridge-ugv1"
     spawn = Pose(0.0, 0.0, 0.0, 0.0)
 
     def topic(self, name: str) -> str:
         return name if name.startswith("/") else f"/{self.namespace}/{name}"
+
+    def bundle(self) -> Any:
+        raise NotImplementedError("the plugin does not look at the bridge bundle")
 
 
 class Context:

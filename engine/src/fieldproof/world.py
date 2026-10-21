@@ -15,6 +15,9 @@ from pathlib import Path
 from fieldproof.dsl import Placement, ScenarioError
 
 VIDEO_RECORDER_PLUGIN = "gz::sim::systems::CameraVideoRecorder"
+# The spawn launch's default `z`: the reference UGV's base_link height above the ground, which
+# a spawn and a teleport of a vehicle add to the ground pose.
+SPAWN_HEIGHT_M = 0.12
 
 
 @dataclass(frozen=True)

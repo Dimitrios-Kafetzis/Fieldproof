@@ -62,6 +62,17 @@ navigate_to_pose = "fieldproof.events.navigation:NavigateToPoseEvent"
 "container.resume" = "fieldproof.events.container:ContainerResumeEvent"
 "container.kill" = "fieldproof.events.container:ContainerKillEvent"
 "param.set" = "fieldproof.events.param:ParamSetEvent"
+spawn_object = "fieldproof.events.world:SpawnObjectEvent"
+remove_object = "fieldproof.events.world:RemoveObjectEvent"
+teleport = "fieldproof.events.world:TeleportEvent"
+set_wind = "fieldproof.events.world:SetWindEvent"
+"gps.deny" = "fieldproof.events.faults:GpsDenyEvent"
+"gps.offset" = "fieldproof.events.faults:GpsOffsetEvent"
+"imu.bias" = "fieldproof.events.faults:ImuBiasEvent"
+"sensor.dropout" = "fieldproof.events.faults:SensorDropoutEvent"
+"sensor.freeze" = "fieldproof.events.faults:SensorFreezeEvent"
+"battery.drain" = "fieldproof.events.faults:BatteryDrainEvent"
+"actuator.limit" = "fieldproof.events.faults:ActuatorLimitEvent"
 
 [tool.uv.sources]
 fieldproof-bridge = { path = "../bridge/fieldproof_bridge", editable = true }
