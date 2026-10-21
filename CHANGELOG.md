@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.13.0...v0.14.0) (2026-10-21)
+
+
+### Features
+
+* **engine:** timeline DSL, event plugins and the engine-side events (P2-T03, session 1) ([#60](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/60)) ([759c0ea](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/759c0eaa84fcd911cd35e4fc1bad7272f5855085))
+
 ## [0.13.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.12.1...v0.13.0) (2026-10-20)
 
 
