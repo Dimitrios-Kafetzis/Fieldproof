@@ -68,8 +68,12 @@ def test_bridge_gen_options(tmp_path: Path) -> None:
     assert [n["name"] for n in bridge["nodes"]] == [
         "ros_gz_bridge",
         "ros_gz_bridge_camera_optical_link",
+        "cmd_vel_relay",
+        "odom_relay",
         "joint_states_throttle",
+        "scan_relay",
         "imu_adapter",
+        "battery",
     ]
 
 

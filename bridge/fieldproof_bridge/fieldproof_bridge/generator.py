@@ -22,9 +22,18 @@ The rules, applied to every interface of the manifest (:mod:`fieldproof_bridge.m
   ``parameter_bridge`` instance per frame, which relabels with ``override_frame_id`` (no copy in
   Python, so camera images stay in C++).
 - An IMU gets the ``imu_adapter`` (covariance from the noise figures), a GNSS fix the
-  ``navsat_adapter`` (frame, covariance, status), an interface with ``gz_rate`` the ``throttle``;
-  the bridge then publishes on a hidden topic (``<namespace>/_bridge/<topic>``) that the adapter
-  reads, and the adapter publishes the contract topic with the declared QoS.
+  ``navsat_adapter`` (frame, covariance, status), an interface with ``gz_rate`` the ``throttle``,
+  every other output of an injectable type (a laser scan, an odometry, joint states: small
+  messages at up to 100 Hz) the ``relay``; the bridge then publishes on a hidden topic
+  (``<namespace>/_bridge/<topic>``) that the adapter reads, and the adapter publishes the
+  contract topic with the declared QoS. Every adapter is a **fault injector** (task P2-T03): the
+  timeline's sensor faults set its parameters. Images, camera info and point clouds stay on the
+  C++ path through the bridge instances.
+- The drive command goes through the ``command_relay``: the vehicle publishes the contract
+  topic, the relay republishes on the hidden topic the bridge forwards to Gazebo, and the
+  ``actuator.limit`` event caps the speeds in between.
+- A ``power.battery`` section adds the ``battery`` node, which publishes the synthetic battery
+  state the ``battery.drain`` event drains.
 - ``/clock`` is bridged from the simulator unless disabled; ``robot_state_publisher`` runs from
   the manifest's xacro (same arguments as the spawn) unless disabled, which adds ``/tf_static``
   and ``robot_description`` to the contract.
@@ -43,7 +52,15 @@ from typing import Any
 
 import yaml
 
-from fieldproof_bridge.manifest import GZ_TO_ROS, ROS_TO_GZ, Interface, Manifest, ManifestError, Qos
+from fieldproof_bridge.manifest import (
+    GZ_TO_ROS,
+    ROS_TO_GZ,
+    Battery,
+    Interface,
+    Manifest,
+    ManifestError,
+    Qos,
+)
 
 BUNDLE_API_VERSION = "fieldproof.dev/v0alpha1"
 MAIN_BRIDGE = "ros_gz_bridge"
@@ -54,6 +71,24 @@ TF_TYPE = "tf2_msgs/msg/TFMessage"
 DESCRIPTION_TYPE = "std_msgs/msg/String"
 IMU_TYPE = "sensor_msgs/msg/Imu"
 NAVSAT_TYPE = "sensor_msgs/msg/NavSatFix"
+TWIST_TYPE = "geometry_msgs/msg/Twist"
+# The outputs a relay takes between the bridge and the vehicle (task P2-T03): small messages
+# at up to 100 Hz, which a Python node handles; images and point clouds stay in C++.
+RELAYED_TYPES = frozenset(
+    {
+        "sensor_msgs/msg/LaserScan",
+        "sensor_msgs/msg/Range",
+        "sensor_msgs/msg/MagneticField",
+        "sensor_msgs/msg/FluidPressure",
+        "sensor_msgs/msg/Temperature",
+        "nav_msgs/msg/Odometry",
+        "sensor_msgs/msg/JointState",
+        "geometry_msgs/msg/TwistStamped",
+        "geometry_msgs/msg/PoseStamped",
+    }
+)
+INJECTORS = ("imu_adapter", "navsat_adapter", "throttle", "relay", "command_relay", "battery")
+"""The node kinds that are fault injectors (the sensor and vehicle faults set their parameters)."""
 # Noise figures of the manifest -> adapter parameters (standard deviations in SI units).
 IMU_NOISE = {
     "gyro_stddev_radps": "angular_velocity_stddev",
@@ -96,10 +131,15 @@ class NodePlan:
     """A node the launch file starts."""
 
     name: str
-    kind: str  # ros_gz_bridge | imu_adapter | navsat_adapter | throttle | robot_state_publisher
+    kind: str  # ros_gz_bridge | imu_adapter | navsat_adapter | throttle | relay | command_relay |
+    # battery | robot_state_publisher
     params: dict[str, Any] = field(default_factory=dict)
     config: str | None = None  # file name of the parameter_bridge configuration
     entries: list[BridgeEntry] = field(default_factory=list)
+    topic: str | None = None
+    """The contract topic an injector serves (its output; the command relay's input)."""
+    sensor: str | None = None
+    """The manifest sensor (or drive interface, or `battery`) an injector serves."""
 
 
 @dataclass
@@ -156,6 +196,22 @@ class Bundle:
         """The fully qualified name of a node of the bundle."""
         return f"{self.namespace}/{node}"
 
+    def injectors(self) -> list[NodePlan]:
+        """The fault injectors of the bundle, in order."""
+        return [n for n in self.nodes if n.kind in INJECTORS]
+
+    def injector(self, what: str) -> NodePlan | None:
+        """The injector serving a sensor (`lidar`), a drive interface (`odometry`) or a topic.
+
+        A topic is matched as written in the manifest (relative to the namespace) or fully
+        qualified; `battery` names the battery node.
+        """
+        topic = what if what.startswith("/") else qualify(self.namespace, what)
+        for node in self.injectors():
+            if node.sensor == what or node.topic == topic:
+                return node
+        return None
+
 
 def normalise_namespace(namespace: str) -> str:
     """``""`` or ``/name/space``: the form the fully qualified names are built from."""
@@ -200,13 +256,24 @@ def _adapter_kind(interface: Interface) -> str | None:
         return "imu_adapter"
     if interface.ros_type == NAVSAT_TYPE:
         return "navsat_adapter"
+    if interface.ros_type in RELAYED_TYPES:
+        return "relay"
     return None
+
+
+def _interface_key(interface: Interface) -> str:
+    """What the fault events name the interface by: the sensor, or the drive interface."""
+    if interface.sensor is not None:
+        return interface.sensor
+    return interface.key.removeprefix("drive.")
 
 
 def _adapter_params(kind: str, interface: Interface, frame_id: str | None) -> dict[str, Any]:
     params: dict[str, Any] = {"frame_id": frame_id if interface.relabelled and frame_id else ""}
     if kind == "throttle":
         params = {"type": interface.ros_type, "rate_hz": float(interface.rate_hz or 0.0)}
+    elif kind == "relay":
+        params["type"] = interface.ros_type
     elif kind == "imu_adapter":
         for source, target in IMU_NOISE.items():
             params[target] = float(interface.noise.get(source, 0.0))
@@ -250,13 +317,15 @@ class _Planner:
         entry = BridgeEntry(ros_name, gz_name, interface.ros_type, interface.gz_type, "GZ_TO_ROS")
         if interface.direction == ROS_TO_GZ:
             entry.direction = "ROS_TO_GZ"
-            self.main.entries.append(entry)
-            self.main.params.update(qos_overrides(ros_name, "subscription", interface.qos))
-            self.topics.append(
-                TopicContract(
-                    ros_name, interface.ros_type, "subscriber", MAIN_BRIDGE, interface.qos
-                )
+            contract = TopicContract(
+                ros_name, interface.ros_type, "subscriber", MAIN_BRIDGE, interface.qos
             )
+            if interface.ros_type == TWIST_TYPE:
+                contract.via = self._command_relay(interface, entry, ros_name)
+            else:
+                self.main.entries.append(entry)
+                self.main.params.update(qos_overrides(ros_name, "subscription", interface.qos))
+            self.topics.append(contract)
             return
         frame_id = self.framed(interface.frame_id)
         child_frame_id = self.framed(interface.child_frame_id)
@@ -293,11 +362,12 @@ class _Planner:
         frame_id: str | None,
     ) -> str:
         """Bridge to a hidden topic and let an adapter publish the contract topic."""
-        name = (
-            node_name(f"{interface.ros_topic}_throttle")
-            if kind == "throttle"
-            else node_name(f"{interface.sensor or interface.ros_topic}_adapter")
-        )
+        if kind == "throttle":
+            name = node_name(f"{interface.ros_topic}_throttle")
+        elif kind == "relay":
+            name = node_name(f"{interface.ros_topic}_relay")
+        else:
+            name = node_name(f"{interface.sensor or interface.ros_topic}_adapter")
         entry.ros_topic = hidden(self.ns, interface.ros_topic)
         self.main.entries.append(entry)
         params: dict[str, Any] = {"input": entry.ros_topic, "output": ros_name}
@@ -305,9 +375,64 @@ class _Planner:
         params["qos_reliability"] = interface.qos.reliability
         params["qos_durability"] = interface.qos.durability
         params["qos_depth"] = interface.qos.depth
-        self.adapters.append(NodePlan(name, kind, params=params))
+        self.adapters.append(
+            NodePlan(name, kind, params=params, topic=ros_name, sensor=_interface_key(interface))
+        )
         self.internal.append(entry.ros_topic)
         return name
+
+    def _command_relay(self, interface: Interface, entry: BridgeEntry, ros_name: str) -> str:
+        """The vehicle's command through the relay, then the hidden topic to Gazebo."""
+        name = node_name(f"{interface.ros_topic}_relay")
+        entry.ros_topic = hidden(self.ns, interface.ros_topic)
+        self.main.entries.append(entry)
+        params: dict[str, Any] = {
+            "input": ros_name,
+            "output": entry.ros_topic,
+            "qos_reliability": interface.qos.reliability,
+            "qos_durability": interface.qos.durability,
+            "qos_depth": interface.qos.depth,
+        }
+        self.adapters.append(
+            NodePlan(
+                name,
+                "command_relay",
+                params=params,
+                topic=ros_name,
+                sensor=_interface_key(interface),
+            )
+        )
+        self.internal.append(entry.ros_topic)
+        return name
+
+    def add_battery(self, battery: Battery) -> None:
+        """The synthetic battery state of the manifest's `power.battery`."""
+        ros_name = qualify(self.ns, battery.ros_topic)
+        params: dict[str, Any] = {
+            "output": ros_name,
+            "rate_hz": float(battery.rate_hz),
+            "full_voltage": float(battery.full_voltage_v),
+            "empty_voltage": float(battery.empty_voltage_v),
+            "capacity_ah": float(battery.capacity_ah),
+            "frame_id": self.framed(battery.frame_id) or "",
+            "qos_reliability": battery.qos.reliability,
+            "qos_durability": battery.qos.durability,
+            "qos_depth": battery.qos.depth,
+        }
+        self.adapters.append(
+            NodePlan("battery", "battery", params=params, topic=ros_name, sensor="battery")
+        )
+        self.topics.append(
+            TopicContract(
+                ros_name,
+                battery.ros_type,
+                "publisher",
+                "battery",
+                battery.qos,
+                frame_id=self.framed(battery.frame_id) or None,
+                rate_hz=battery.rate_hz,
+            )
+        )
 
     def _relabel(self, frame_id: str, entry: BridgeEntry, qos: Qos) -> str:
         """Bridge through the instance that relabels every message with ``frame_id``."""
@@ -401,6 +526,8 @@ def plan(
     for interface in manifest.interfaces:
         if interface.sensor not in without:
             planner.add(interface)
+    if manifest.battery is not None:
+        planner.add_battery(manifest.battery)
     if clock:
         planner.add_clock()
     nodes: list[NodePlan] = [*planner.bridges.values(), *planner.adapters]
@@ -486,7 +613,13 @@ def write_bundle(bundle: Bundle, out_dir: Path) -> list[Path]:
         "description": bundle.description,
         "tf": dict(bundle.tf),
         "nodes": [
-            {"name": n.name, "kind": n.kind, **({"config": n.config} if n.config else {})}
+            {
+                "name": n.name,
+                "kind": n.kind,
+                **({"config": n.config} if n.config else {}),
+                **({"topic": n.topic} if n.topic else {}),
+                **({"sensor": n.sensor} if n.sensor else {}),
+            }
             for n in bundle.nodes
         ],
         "internal_topics": bundle.internal_topics,

@@ -96,6 +96,17 @@ drive:
     rate_hz: 50
     qos:
       depth: 100
+power:
+  # The battery as the bridge's battery node reports it on `battery/state` (task P2-T03): the
+  # model simulates no power system, so the state is synthetic, full until a scenario's
+  # `battery.drain` event drains it. A 24 V class pack (7S Li-ion): 29.4 V full, 21 V empty.
+  battery:
+    ros_topic: battery/state
+    ros_type: sensor_msgs/msg/BatteryState
+    rate_hz: 1
+    full_voltage_v: 29.4
+    empty_voltage_v: 21.0
+    capacity_ah: 20
 sensors:
   - name: lidar
     type: gpu_lidar

@@ -44,6 +44,9 @@ DRIVE_INTERFACES = {
 DESCRIPTION_PATH_KEYS = ("xacro", "urdf", "sdf", "meshes")
 
 
+BATTERY_TYPE = "sensor_msgs/msg/BatteryState"
+
+
 class ManifestError(ValueError):
     """The manifest is missing something the bridge needs, or a value is out of range."""
 
@@ -177,6 +180,24 @@ class Interface:
         return self.gz_rate is not None and self.rate_hz is not None
 
 
+@dataclass(frozen=True)
+class Battery:
+    """The vehicle's battery as the bridge reports it (``power.battery``, task P2-T03).
+
+    The reference vehicles simulate no power system: the bridge's battery node publishes the
+    state from these figures, full until a scenario drains it.
+    """
+
+    ros_topic: str
+    ros_type: str
+    rate_hz: float
+    full_voltage_v: float
+    empty_voltage_v: float
+    capacity_ah: float
+    frame_id: str = ""
+    qos: Qos = field(default_factory=Qos)
+
+
 def _require(mapping: Any, key: str, where: str) -> Any:
     if not isinstance(mapping, dict):
         raise ManifestError(f"{where}: expected a mapping")
@@ -238,6 +259,7 @@ class Manifest:
         self.xacro_args: dict[str, Any] = dict(xacro_args)
         self._interfaces = self._read_drive(_require(data, "drive", "manifest"))
         self._interfaces += self._read_sensors(data.get("sensors") or [])
+        self.battery = self._read_battery(data.get("power"))
         names = [i.ros_topic for i in self._interfaces]
         duplicates = sorted({n for n in names if names.count(n) > 1})
         if duplicates:
@@ -312,6 +334,39 @@ class Manifest:
                 )
             )
         return interfaces
+
+    def _read_battery(self, power: Any) -> Battery | None:
+        """The ``power.battery`` section (task P2-T03), if any."""
+        if power is None:
+            return None
+        if not isinstance(power, dict):
+            raise ManifestError("power: must be a mapping")
+        raw = power.get("battery")
+        if raw is None:
+            return None
+        where = "power.battery"
+        if not isinstance(raw, dict):
+            raise ManifestError(f"{where}: must be a mapping")
+        ros_type = str(raw.get("ros_type", BATTERY_TYPE))
+        if ros_type != BATTERY_TYPE:
+            raise ManifestError(f"{where}.ros_type: must be {BATTERY_TYPE}")
+        battery = Battery(
+            ros_topic=str(raw.get("ros_topic", "battery/state")),
+            ros_type=ros_type,
+            rate_hz=float(raw.get("rate_hz", 1.0)),
+            full_voltage_v=_number(raw, "full_voltage_v", where),
+            empty_voltage_v=_number(raw, "empty_voltage_v", where),
+            capacity_ah=_number(raw, "capacity_ah", where),
+            frame_id=str(raw.get("frame_id", "")),
+            qos=Qos.from_mapping(raw.get("qos"), where),
+        )
+        if battery.rate_hz <= 0:
+            raise ManifestError(f"{where}.rate_hz: must be positive")
+        if battery.empty_voltage_v >= battery.full_voltage_v:
+            raise ManifestError(f"{where}: empty_voltage_v must be below full_voltage_v")
+        if battery.ros_topic in {i.ros_topic for i in self._interfaces}:
+            raise ManifestError(f"{where}.ros_topic: {battery.ros_topic!r} is an interface already")
+        return battery
 
     def _read_sensors(self, sensors: Any) -> list[Interface]:
         if not isinstance(sensors, list):

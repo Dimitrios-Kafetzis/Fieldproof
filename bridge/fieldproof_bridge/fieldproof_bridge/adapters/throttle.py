@@ -6,7 +6,8 @@ tens of hertz. The throttle passes one message per period, judged by the header 
 time), so the output rate holds whatever the real-time factor is. Messages without a header are
 timed with the node clock.
 
-Parameters: ``input``, ``output``, ``type`` (ROS type, ``pkg/msg/Name``), ``rate_hz``, ``qos_*``.
+Parameters: ``input``, ``output``, ``type`` (ROS type, ``pkg/msg/Name``), ``rate_hz``, ``qos_*``;
+the faults ``dropout`` and ``freeze`` (task P2-T03).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from rclpy.qos import QoSProfile
 from rosidl_runtime_py.utilities import get_message
 
 from fieldproof_bridge.adapters.common import declare_io_parameters, run
+from fieldproof_bridge.adapters.faults import FaultInjection
 
 NODE_NAME = "throttle"
 # Stamps jitter by a float rounding; a message this close to the due time passes.
@@ -56,7 +58,7 @@ def stamp_seconds(msg: Any) -> float | None:
     return float(header.stamp.sec) + float(header.stamp.nanosec) * 1e-9
 
 
-class ThrottleNode(Node):
+class ThrottleNode(FaultInjection, Node):
     """Republishes ``input`` on ``output`` at ``rate_hz``."""
 
     def __init__(self) -> None:
@@ -71,6 +73,7 @@ class ThrottleNode(Node):
             raise ValueError(msg)
         message_type = get_message(type_name)
         self.throttle = Throttle(rate_hz)
+        self.init_faults()
         self.publisher = self.create_publisher(message_type, output_topic, qos)
         self.subscription = self.create_subscription(
             message_type, input_topic, self.on_message, QoSProfile(depth=10)
@@ -83,7 +86,9 @@ class ThrottleNode(Node):
         if stamp is None:
             stamp = self.get_clock().now().nanoseconds * 1e-9
         if self.throttle.accept(stamp):
-            self.publisher.publish(msg)
+            out = self.inject(msg)
+            if out is not None:
+                self.publisher.publish(out)
 
 
 def main(argv: list[str] | None = None) -> int:
