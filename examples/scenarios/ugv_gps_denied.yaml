@@ -1,0 +1,102 @@
+# GNSS denial during a drive (task P2-T03, session 2, the second definition-of-done scenario;
+# docs/reference/events.md). The example vehicle ugv_nav2 drives 4 m ahead from the loading
+# dock as in ugv_nav_to_goal.yaml; 5 s into the drive the `gps.deny` event makes its GNSS
+# receiver report no fix for 20 s (`status.status` NO_FIX, NaN position: jamming, or a roof),
+# then the fix comes back and the vehicle drives back to the dock. The fault is injected by the
+# bridge's GNSS adapter, between the simulator and the vehicle, so the stack sees what a driver
+# would report; the stack itself is not touched. The example stack navigates by SLAM and
+# odometry and never uses the fix, so both legs succeed: the assertions show the fix present
+# at the start, absent through the denial window (13 s to 24 s wall clock: the parameter takes
+# a few seconds to reach the adapter through the CLI, and software rendering in CI needs the
+# margin), back for the return leg, and the drive unaffected.
+#
+#   fieldproof validate examples/scenarios/ugv_gps_denied.yaml
+#   fieldproof run examples/scenarios/ugv_gps_denied.yaml
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: ugv_gps_denied
+  description: The example UGV loses its GNSS fix for 20 s during a drive and goes on by SLAM
+  tags: [events, faults, gps, ugv]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    spawn:
+      frame: spawn_dock
+time:
+  mode: sim
+  timeout_s: 10m
+timeline:
+  - at: 0s
+    name: drive_ahead
+    vehicle: ugv1
+    action: navigate_to_pose
+    goal: { x: 10.0, y: -1.0, yaw: -1.5708 } # 4 m ahead of spawn_dock
+    timeout_s: 5m
+  - name: deny_gps
+    vehicle: ugv1
+    at: 5s
+    action: gps.deny
+    duration_s: 20s # lifted at 25 s or later (the parameter's own round trip adds to it)
+  - name: drive_back # once the fix is back, return to the dock
+    vehicle: ugv1
+    after: [drive_ahead, deny_gps]
+    action: navigate_to_pose
+    goal: { frame: spawn_dock }
+    timeout_s: 5m
+assertions:
+  - name: fix_present # a fix before the denial
+    type: topic_value
+    topic: gps/fix
+    vehicle: ugv1
+    field: status.status
+    condition: value >= 0 # STATUS_FIX is 0, STATUS_NO_FIX is -1
+    mode: always
+    within_s: 4s
+  - name: fix_lost # no fix throughout the window the denial is sure to cover
+    type: topic_value
+    topic: gps/fix
+    vehicle: ugv1
+    field: status.status
+    condition: value < 0
+    mode: always
+    after_s: 13s
+    within_s: 24s
+  - name: fix_back # a fix again once the denial is lifted (the return leg keeps the stream)
+    type: topic_value
+    topic: gps/fix
+    vehicle: ugv1
+    field: status.status
+    condition: value >= 0
+    mode: eventually
+    after_s: 25s
+  - name: gps_denied # the event ran: the fix denied for 20 s, then lifted
+    type: within_time
+    action: deny_gps
+    max_s: 1m
+  - name: reached_goal
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: 10.0, y: -1.0 }
+    tolerance_m: 0.5
+  - name: returned # the second leg, with the fix back
+    type: within_time
+    action: drive_back
+    max_s: 4m
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+outputs:
+  logs: true
+  record: true
+  topics:
+    - /clock
+    - /tf
+    - /tf_static
+    - /odom
+    - /cmd_vel
+    - /gps/fix
+    - /scan
+    - /rosout
