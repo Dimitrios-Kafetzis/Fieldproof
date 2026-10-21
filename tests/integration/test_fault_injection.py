@@ -233,11 +233,14 @@ class TestInjectors:
         assert echo_number("/battery/state", "percentage") == 1.0
         assert echo_number("/battery/state", "voltage") == pytest.approx(29.4)
         assert echo_number("/battery/state", "power_supply_status") == 4.0, "FULL"
+        # A long drain: every CLI round trip below takes seconds of simulation time.
         set_param("/battery", "drain_to", "0.5")
-        set_param("/battery", "drain_duration_s", "4.0")
-        time.sleep(1.5)
+        set_param("/battery", "drain_duration_s", "30.0")
         assert echo_number("/battery/state", "power_supply_status") == 2.0, "DISCHARGING"
-        time.sleep(6.0)
+        midway = echo_number("/battery/state", "percentage")
+        assert 0.5 < midway < 1.0, midway
+        assert echo_number("/battery/state", "voltage") < 29.4
+        time.sleep(32.0)
         assert echo_number("/battery/state", "percentage") == pytest.approx(0.5)
         assert echo_number("/battery/state", "voltage") == pytest.approx(25.2)
         assert echo_number("/battery/state", "power_supply_status") == 3.0, "NOT_CHARGING"
