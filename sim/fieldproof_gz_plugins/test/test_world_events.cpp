@@ -32,7 +32,7 @@ namespace {
 constexpr unsigned int kTimeoutMs = 5000;
 constexpr const char* kWorld = "events_test";
 
-const char* kWorldSdf = R"sdf(<?xml version="1.0"?>
+constexpr const char* kWorldSdf = R"sdf(<?xml version="1.0"?>
 <sdf version="1.11">
   <world name="events_test">
     <physics name="1ms" type="ignored">
@@ -46,7 +46,7 @@ const char* kWorldSdf = R"sdf(<?xml version="1.0"?>
   </world>
 </sdf>)sdf";
 
-const char* kBoxSdf =
+constexpr const char* kBoxSdf =
     "<?xml version='1.0'?><sdf version='1.11'><model name='box'><link name='link'>"
     "<inertial><mass>1</mass></inertial>"
     "<collision name='c'><geometry><box><size>0.5 0.5 0.5</size></box></geometry></collision>"
@@ -150,7 +150,7 @@ TEST_F(WorldEventsTest, SpawnCreatesTheModelAtThePose) {
   EXPECT_EQ(report, "spawned model crate at (1, 2, 0.25, yaw 1.5)");
   EXPECT_TRUE(fixture_->Server()->HasEntity("crate"));
   ASSERT_TRUE(Eventually([&] { return observed_.PoseOf("crate").has_value(); }));
-  const auto observed = *observed_.PoseOf("crate");
+  const auto observed = observed_.PoseOf("crate").value_or(gz::math::Pose3d::Zero);
   EXPECT_NEAR(observed.Pos().X(), 1.0, 1e-3);
   EXPECT_NEAR(observed.Pos().Y(), 2.0, 1e-3);
   EXPECT_NEAR(observed.Pos().Z(), 0.25, 1e-3);
@@ -159,7 +159,7 @@ TEST_F(WorldEventsTest, SpawnCreatesTheModelAtThePose) {
 
 TEST_F(WorldEventsTest, SpawnRefusesATakenNameUnlessRenamingIsAllowed) {
   const gz::math::Pose3d pose(0, 0, 0.25, 0, 0, 0);
-  EXPECT_EQ(Spawn("crate", pose).rfind("spawned", 0), 0u);
+  EXPECT_EQ(Spawn("crate", pose).rfind("spawned", 0), 0U);
   EXPECT_EQ(Spawn("crate", pose),
             "error: spawn: a model called crate already exists in world events_test");
   EXPECT_EQ(Spawn("crate", pose, true), "spawned model crate_0 at (0, 0, 0.25, yaw 0)");
@@ -169,11 +169,11 @@ TEST_F(WorldEventsTest, SpawnRefusesATakenNameUnlessRenamingIsAllowed) {
 TEST_F(WorldEventsTest, SpawnReportsBadRequests) {
   gz::msgs::EntityFactory request;
   request.set_sdf("<sdf version='1.11'><model name='x'><link name='l'><collision name='c'>");
-  EXPECT_EQ(Call("spawn", request).rfind("error: spawn: the SDF does not parse", 0), 0u);
+  EXPECT_EQ(Call("spawn", request).rfind("error: spawn: the SDF does not parse", 0), 0U);
   request.set_sdf(
       "<?xml version='1.0'?><sdf version='1.11'><light name='sun' type='directional'/></sdf>");
   EXPECT_EQ(Call("spawn", request), "error: spawn: the SDF holds no model");
-  gz::msgs::EntityFactory empty;
+  const gz::msgs::EntityFactory empty;
   EXPECT_EQ(Call("spawn", empty), "error: spawn: the request carries neither sdf nor sdf_filename");
 }
 
@@ -187,7 +187,7 @@ TEST_F(WorldEventsTest, TeleportMovesAModel) {
     const auto pose = observed_.PoseOf("crate");
     return pose && pose->Pos().Distance(gz::math::Vector3d(5.0, -6.0, 0.25)) < 1e-2;
   }));
-  EXPECT_NEAR(observed_.PoseOf("crate")->Rot().Yaw(), -1.0, 1e-2);
+  EXPECT_NEAR(observed_.PoseOf("crate").value_or(gz::math::Pose3d::Zero).Rot().Yaw(), -1.0, 1e-2);
   // A pose without an orientation means no rotation.
   gz::msgs::Pose upright;
   upright.set_name("crate");

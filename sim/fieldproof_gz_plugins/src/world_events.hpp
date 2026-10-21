@@ -92,8 +92,8 @@ class WorldEvents : public gz::sim::System,
   std::string SetWind(const gz::msgs::Wind& request, gz::sim::EntityComponentManager& ecm);
 
   /// The model called `name` among the world's children, or `gz::sim::kNullEntity`.
-  gz::sim::Entity ModelByName(const std::string& name,
-                              const gz::sim::EntityComponentManager& ecm) const;
+  [[nodiscard]] gz::sim::Entity ModelByName(const std::string& name,
+                                            const gz::sim::EntityComponentManager& ecm) const;
 
   gz::sim::Entity world_entity_{gz::sim::kNullEntity};
   gz::sim::EventManager* event_manager_{nullptr};
