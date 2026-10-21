@@ -88,13 +88,19 @@ class FaultInjection:
 
 
 def vector3(value: Any) -> tuple[float, float, float] | None:
-    """``value`` as three floats, or None when it is not a list of three numbers."""
-    if not isinstance(value, list | tuple) or len(value) != 3:
+    """``value`` as three floats, or None when it is not a sequence of three numbers.
+
+    rclpy delivers a double array parameter as an ``array.array('d')``, a YAML list as a list.
+    """
+    if isinstance(value, str | bytes):
         return None
     try:
-        return (float(value[0]), float(value[1]), float(value[2]))
+        values = [float(v) for v in value]
     except (TypeError, ValueError):
         return None
+    if len(values) != 3:
+        return None
+    return (values[0], values[1], values[2])
 
 
 def non_negative(value: Any) -> float | None:

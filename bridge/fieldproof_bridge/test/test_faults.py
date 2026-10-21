@@ -9,6 +9,7 @@ dev container (and are skipped where the ROS message packages are not installed)
 from __future__ import annotations
 
 import math
+from array import array
 from typing import Any
 
 import pytest
@@ -100,6 +101,7 @@ def test_parameter_callback_refuses_bad_values_and_ignores_others() -> None:
 
 def test_vector3_and_non_negative() -> None:
     assert vector3([1, 2.5, 3]) == (1.0, 2.5, 3.0)
+    assert vector3(array("d", [0.5, 0.0, 0.0])) == (0.5, 0.0, 0.0), "what rclpy delivers"
     assert vector3((0.0, 0.0, 0.0)) == (0.0, 0.0, 0.0)
     assert vector3([1, 2]) is None
     assert vector3("1 2 3") is None

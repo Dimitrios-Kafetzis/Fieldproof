@@ -106,15 +106,27 @@ def echo_field(topic: str, field: str, timeout: float = 30.0) -> str | None:
     return lines[0]
 
 
+def stamp_of(topic: str) -> tuple[float, float]:
+    """The header stamp (seconds, nanoseconds) of the next message on `topic`."""
+    return (
+        echo_number(topic, "header.stamp.sec"),
+        echo_number(topic, "header.stamp.nanosec"),
+    )
+
+
 def echo_number(topic: str, field: str, timeout: float = 30.0) -> float:
     value = echo_field(topic, field, timeout)
     assert value is not None, f"no message on {topic} within {timeout:.0f} s"
     return float(value)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="class")
 def bridge() -> Iterator[None]:
-    """The simulator with the spawned reference UGV and its bridge, torn down afterwards."""
+    """The simulator with the spawned reference UGV and its bridge, torn down after the class.
+
+    Torn down before the scenario run of ``test_06``: two stacks on the same ROS domain on
+    one host cross-talk (the run saw the compose stack's ``ugv_ref`` contact and its clock).
+    """
     run([sys.executable, str(REPO / "tools/assets/fetch_fuel.py"), "--quiet"], timeout=900)
     run([*COMPOSE, "up", "-d", "--wait", "--no-build", "sim"], timeout=300)
     try:
@@ -155,114 +167,111 @@ def bridge() -> Iterator[None]:
 
 
 @pytest.mark.integration
-def test_01_gps_deny_and_offset(bridge: None) -> None:
-    assert echo_number("/gps/fix", "status.status") == 0.0, "a fix to begin with"
-    latitude = echo_number("/gps/fix", "latitude")
-    longitude = echo_number("/gps/fix", "longitude")
-    set_param("/gps_adapter", "deny", "true")
-    time.sleep(1.0)
-    assert echo_number("/gps/fix", "status.status") == -1.0, "STATUS_NO_FIX while denied"
-    assert echo_field("/gps/fix", "latitude") == "nan"
-    set_param("/gps_adapter", "deny", "false")
-    time.sleep(1.0)
-    assert echo_number("/gps/fix", "status.status") == 0.0, "the fix back"
-    set_param("/gps_adapter", "offset_enu_m", "[100.0, 0.0, 0.0]")
-    time.sleep(1.0)
-    moved = echo_number("/gps/fix", "longitude")
-    metres_per_degree = 111_319.5 * math.cos(math.radians(latitude))
-    assert (moved - longitude) * metres_per_degree == pytest.approx(100.0, abs=3.0)
-    assert echo_number("/gps/fix", "latitude") == pytest.approx(latitude, abs=1e-4)
-    set_param("/gps_adapter", "offset_enu_m", "[0.0, 0.0, 0.0]")
-    time.sleep(1.0)
-    assert echo_number("/gps/fix", "longitude") == pytest.approx(longitude, abs=1e-4)
+class TestInjectors:
+    """Each fault set in the real bridge and observed on the contract topic."""
 
+    def test_01_gps_deny_and_offset(self, bridge: None) -> None:
+        assert echo_number("/gps/fix", "status.status") == 0.0, "a fix to begin with"
+        latitude = echo_number("/gps/fix", "latitude")
+        longitude = echo_number("/gps/fix", "longitude")
+        set_param("/gps_adapter", "deny", "true")
+        time.sleep(1.0)
+        assert echo_number("/gps/fix", "status.status") == -1.0, "STATUS_NO_FIX while denied"
+        assert echo_field("/gps/fix", "latitude") == "nan"
+        set_param("/gps_adapter", "deny", "false")
+        time.sleep(1.0)
+        assert echo_number("/gps/fix", "status.status") == 0.0, "the fix back"
+        set_param("/gps_adapter", "offset_enu_m", "[100.0, 0.0, 0.0]")
+        time.sleep(1.0)
+        moved = echo_number("/gps/fix", "longitude")
+        metres_per_degree = 111_319.5 * math.cos(math.radians(latitude))
+        assert (moved - longitude) * metres_per_degree == pytest.approx(100.0, abs=3.0)
+        assert echo_number("/gps/fix", "latitude") == pytest.approx(latitude, abs=1e-4)
+        set_param("/gps_adapter", "offset_enu_m", "[0.0, 0.0, 0.0]")
+        time.sleep(1.0)
+        assert echo_number("/gps/fix", "longitude") == pytest.approx(longitude, abs=1e-4)
 
-@pytest.mark.integration
-def test_02_imu_bias(bridge: None) -> None:
-    assert abs(echo_number("/imu/data", "angular_velocity.x")) < 0.1, "at rest"
-    set_param("/imu_adapter", "gyro_bias_radps", "[0.5, 0.0, 0.0]")
-    time.sleep(0.5)
-    assert echo_number("/imu/data", "angular_velocity.x") == pytest.approx(0.5, abs=0.1)
-    set_param("/imu_adapter", "accel_bias_mps2", "[0.0, 0.0, -2.0]")
-    time.sleep(0.5)
-    assert echo_number("/imu/data", "linear_acceleration.z") == pytest.approx(9.81 - 2.0, abs=0.3)
-    set_param("/imu_adapter", "gyro_bias_radps", "[0.0, 0.0, 0.0]")
-    set_param("/imu_adapter", "accel_bias_mps2", "[0.0, 0.0, 0.0]")
-    time.sleep(0.5)
-    assert abs(echo_number("/imu/data", "angular_velocity.x")) < 0.1
-
-
-@pytest.mark.integration
-def test_03_sensor_dropout_and_freeze(bridge: None) -> None:
-    assert echo_field("/scan", "header.frame_id") == "lidar_link", "the scan through the relay"
-    set_param("/scan_relay", "dropout", "true")
-    time.sleep(1.0)
-    assert echo_field("/scan", "header.frame_id", timeout=8.0) is None, "the scan silent"
-    set_param("/scan_relay", "dropout", "false")
-    assert echo_field("/scan", "header.frame_id") == "lidar_link", "the scan back"
-    set_param("/odom_relay", "freeze", "true")
-    time.sleep(1.0)
-    first = echo_number("/odom", "header.stamp.sec") + echo_number("/odom", "header.stamp.nanosec")
-    time.sleep(1.5)
-    second = echo_number("/odom", "header.stamp.sec") + echo_number("/odom", "header.stamp.nanosec")
-    assert first == second, "the odometry frozen on one message"
-    set_param("/odom_relay", "freeze", "false")
-    time.sleep(1.0)
-    third = echo_number("/odom", "header.stamp.sec") + echo_number("/odom", "header.stamp.nanosec")
-    assert third != second, "the odometry moving again"
-
-
-@pytest.mark.integration
-def test_04_battery_drain(bridge: None) -> None:
-    assert echo_number("/battery/state", "percentage") == 1.0
-    assert echo_number("/battery/state", "voltage") == pytest.approx(29.4)
-    assert echo_number("/battery/state", "power_supply_status") == 4.0, "FULL"
-    set_param("/battery", "drain_to", "0.5")
-    set_param("/battery", "drain_duration_s", "4.0")
-    time.sleep(1.5)
-    assert echo_number("/battery/state", "power_supply_status") == 2.0, "DISCHARGING"
-    time.sleep(6.0)
-    assert echo_number("/battery/state", "percentage") == pytest.approx(0.5)
-    assert echo_number("/battery/state", "voltage") == pytest.approx(25.2)
-    assert echo_number("/battery/state", "power_supply_status") == 3.0, "NOT_CHARGING"
-
-
-@pytest.mark.integration
-def test_05_actuator_limit(bridge: None) -> None:
-    set_param("/cmd_vel_relay", "max_linear_mps", "0.2")
-    set_param("/cmd_vel_relay", "max_angular_radps", "0.5")
-    publisher = subprocess.Popen(  # noqa: S603
-        [
-            *COMPOSE,
-            "exec",
-            "-T",
-            "bridge",
-            BRIDGE_ENTRYPOINT,
-            "ros2",
-            "topic",
-            "pub",
-            "--rate",
-            "10",
-            "/cmd_vel",
-            "geometry_msgs/msg/Twist",
-            "{linear: {x: 1.0}, angular: {z: -2.0}}",
-        ],
-        env=ENV,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        assert echo_number("/_bridge/cmd_vel", "linear.x") == pytest.approx(0.2)
-        assert echo_number("/_bridge/cmd_vel", "angular.z") == pytest.approx(-0.5)
-        set_param("/cmd_vel_relay", "max_linear_mps", "0.0")
-        set_param("/cmd_vel_relay", "max_angular_radps", "0.0")
+    def test_02_imu_bias(self, bridge: None) -> None:
+        assert abs(echo_number("/imu/data", "angular_velocity.x")) < 0.1, "at rest"
+        set_param("/imu_adapter", "gyro_bias_radps", "[0.5, 0.0, 0.0]")
         time.sleep(0.5)
-        assert echo_number("/_bridge/cmd_vel", "linear.x") == pytest.approx(1.0)
-    finally:
-        publisher.terminate()
-        publisher.wait(timeout=30)
-    # A stop, so the vehicle does not drive on after the test.
-    ros2("topic", "pub", "--once", "/cmd_vel", "geometry_msgs/msg/Twist", "{}", timeout=30)
+        assert echo_number("/imu/data", "angular_velocity.x") == pytest.approx(0.5, abs=0.1)
+        set_param("/imu_adapter", "accel_bias_mps2", "[0.0, 0.0, -2.0]")
+        time.sleep(0.5)
+        assert echo_number("/imu/data", "linear_acceleration.z") == pytest.approx(
+            9.81 - 2.0, abs=0.3
+        )
+        set_param("/imu_adapter", "gyro_bias_radps", "[0.0, 0.0, 0.0]")
+        set_param("/imu_adapter", "accel_bias_mps2", "[0.0, 0.0, 0.0]")
+        time.sleep(0.5)
+        assert abs(echo_number("/imu/data", "angular_velocity.x")) < 0.1
+
+    def test_03_sensor_dropout_and_freeze(self, bridge: None) -> None:
+        assert echo_field("/scan", "header.frame_id") == "lidar_link", "the scan through the relay"
+        set_param("/scan_relay", "dropout", "true")
+        time.sleep(1.0)
+        assert echo_field("/scan", "header.frame_id", timeout=8.0) is None, "the scan silent"
+        set_param("/scan_relay", "dropout", "false")
+        assert echo_field("/scan", "header.frame_id") == "lidar_link", "the scan back"
+        set_param("/odom_relay", "freeze", "true")
+        time.sleep(1.0)
+        first = stamp_of("/odom")
+        time.sleep(1.5)
+        second = stamp_of("/odom")
+        assert first == second, "the odometry frozen on one message"
+        set_param("/odom_relay", "freeze", "false")
+        time.sleep(1.0)
+        third = stamp_of("/odom")
+        assert third != second, "the odometry moving again"
+
+    def test_04_battery_drain(self, bridge: None) -> None:
+        assert echo_number("/battery/state", "percentage") == 1.0
+        assert echo_number("/battery/state", "voltage") == pytest.approx(29.4)
+        assert echo_number("/battery/state", "power_supply_status") == 4.0, "FULL"
+        set_param("/battery", "drain_to", "0.5")
+        set_param("/battery", "drain_duration_s", "4.0")
+        time.sleep(1.5)
+        assert echo_number("/battery/state", "power_supply_status") == 2.0, "DISCHARGING"
+        time.sleep(6.0)
+        assert echo_number("/battery/state", "percentage") == pytest.approx(0.5)
+        assert echo_number("/battery/state", "voltage") == pytest.approx(25.2)
+        assert echo_number("/battery/state", "power_supply_status") == 3.0, "NOT_CHARGING"
+
+    def test_05_actuator_limit(self, bridge: None) -> None:
+        set_param("/cmd_vel_relay", "max_linear_mps", "0.2")
+        set_param("/cmd_vel_relay", "max_angular_radps", "0.5")
+        publisher = subprocess.Popen(  # noqa: S603
+            [
+                *COMPOSE,
+                "exec",
+                "-T",
+                "bridge",
+                BRIDGE_ENTRYPOINT,
+                "ros2",
+                "topic",
+                "pub",
+                "--rate",
+                "10",
+                "/cmd_vel",
+                "geometry_msgs/msg/Twist",
+                "{linear: {x: 1.0}, angular: {z: -2.0}}",
+            ],
+            env=ENV,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            assert echo_number("/_bridge/cmd_vel", "linear.x") == pytest.approx(0.2)
+            assert echo_number("/_bridge/cmd_vel", "angular.z") == pytest.approx(-0.5)
+            set_param("/cmd_vel_relay", "max_linear_mps", "0.0")
+            set_param("/cmd_vel_relay", "max_angular_radps", "0.0")
+            time.sleep(0.5)
+            assert echo_number("/_bridge/cmd_vel", "linear.x") == pytest.approx(1.0)
+        finally:
+            publisher.terminate()
+            publisher.wait(timeout=30)
+        # A stop, so the vehicle does not drive on after the test.
+        ros2("topic", "pub", "--once", "/cmd_vel", "geometry_msgs/msg/Twist", "{}", timeout=30)
 
 
 def docker(*args: str) -> str:
