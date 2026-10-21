@@ -348,7 +348,9 @@ straight line, 1.7 m ahead and in the lidar's view; Nav2's costmaps take it in, 
 routes around it (the door is 4 m wide) and the vehicle reaches the goal without a contact;
 `remove_object` clears the crate once the drive has ended. Six assertions: the crate spawned
 (`within_time`), the goal reached, in time, the path kept being published (`topic_rate` on
-`plan`), no contact, the crate cleared. The integration test adds what the simulator saw: the
+`plan`: 1 Hz of simulation time on a GPU host, 0.2 Hz under software rendering on a four-core
+CI runner, so the floor is 0.1 Hz over 10 s windows), no contact, the crate cleared. The
+integration test adds what the simulator saw: the
 vehicle's ground truth leaving the straight line to pass the crate.
 
 `examples/scenarios/ugv_gps_denied.yaml` is the second: the same drive, with `gps.deny` 5 s in

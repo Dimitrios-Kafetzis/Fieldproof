@@ -65,17 +65,17 @@ assertions:
     vehicle: ugv1
     target: { x: 10.0, y: -1.5 }
     tolerance_m: 0.5
-  - name: arrived_in_time
+  - name: arrived_in_time # 25 s on a GPU host; 200 s under software rendering on a CI runner
     type: within_time
     action: drive_ahead
-    max_s: 4m
+    max_s: 6m
   - name: kept_planning # Nav2 kept publishing its path while it drove (the replans among them)
     type: topic_rate
     topic: plan
     vehicle: ugv1
-    min_hz: 0.3 # the behaviour tree replans at 1 Hz of simulation time
-    window_s: 5s
-    after_s: 5s
+    min_hz: 0.1 # the behaviour tree replans at 1 Hz of simulation time on a GPU host; under
+    window_s: 10s # software rendering on a four-core CI runner the path came at 0.2 Hz
+    after_s: 10s
   - name: no_collision # the chassis touched neither the crate nor the door
     type: no_collision
     vehicle: ugv1

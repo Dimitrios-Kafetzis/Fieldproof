@@ -100,11 +100,15 @@ def echo_field(topic: str, field: str, timeout: float = 30.0) -> str | None:
     completed = ros2(
         "topic", "echo", "--once", "--field", field, topic, timeout=timeout, check=False
     )
-    # The CLI interleaves "A message was lost!!!" when a reader falls behind: not the value.
+    # The CLI interleaves "A message was lost!!!" (and its indented "total count" lines) when a
+    # reader falls behind: not the value.
     lines = [
         line.strip()
         for line in completed.stdout.splitlines()
-        if line.strip() and line.strip() != "---" and "message was lost" not in line
+        if line.strip()
+        and line.strip() != "---"
+        and "message was lost" not in line
+        and not line.strip().startswith("total count")
     ]
     if completed.returncode != 0 or not lines:
         return None
@@ -240,8 +244,13 @@ class TestInjectors:
         midway = echo_number("/battery/state", "percentage")
         assert 0.5 < midway < 1.0, midway
         assert echo_number("/battery/state", "voltage") < 29.4
-        time.sleep(32.0)
-        assert echo_number("/battery/state", "percentage") == pytest.approx(0.5)
+        # The drain runs in simulation time, which lags the wall clock under software rendering.
+        wait_until(
+            lambda: echo_number("/battery/state", "percentage") == pytest.approx(0.5),
+            240.0,
+            "the battery to reach 50 %",
+            period_s=5.0,
+        )
         assert echo_number("/battery/state", "voltage") == pytest.approx(25.2)
         assert echo_number("/battery/state", "power_supply_status") == 3.0, "NOT_CHARGING"
 
