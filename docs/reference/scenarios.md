@@ -61,6 +61,12 @@ timeline:
     vehicle: ugv1
     action: link.drop
     duration_s: 20s
+  - name: freeze_stack                   # events.md: at, after, when, every; the events
+    vehicle: ugv1
+    after: drive_ahead
+    at: 1s
+    action: container.pause
+    duration_s: 3s
 assertions:                              # assertions.md
   - name: reached_goal
     type: reach_pose
@@ -104,8 +110,8 @@ a string such as `90s`, `1m30s` or `2h`.
 | `vehicles[]` | `name` (unique), `manifest` (a `robot.yaml` with a `runtime` section, relative to the scenario, inside the workspace), `namespace` (unique; empty by default, the root; in a fleet one per vehicle, see [Fleets](#fleets)), `frame_prefix` (for a stack that keeps one shared TF tree; empty by default), `spawn` (a placement), `image` (overrides the manifest's `runtime.image`), `env` (extra environment of the vehicle container), `resources` (fields that replace the manifest's `runtime.resources`: `cpus`, `cpuset`, `memory`, `pids`), `depends_on` (vehicles that must be ready before this one's container starts) |
 | `network` | radio links between the vehicles and a ground station ([network.md](network.md)): `profile` (every vehicle's link: a preset `wifi_good`, `lte_rural`, `rf_900mhz_5km` or a name under `profiles`; `wifi_good` by default), `links` (vehicle name to the profile of its link instead), `profiles` (the scenario's own: `latency_ms`, `jitter_ms`, `loss_pct`, `reorder_pct`, `rate_kbit`, `description`), `verify` (`off`, `warn` by default, `fail`: what a link whose measured latency is not within 10 % of its profile does). Absent: one shared network, no shaping |
 | `time` | [ADR-0006](../adr/0006-sim-time-default-realtime-locked-mode.md): `mode` (`sim` by default; `realtime` validates but is refused by the runner until task P2-T04), `rtf` (target real-time factor, applied to the world's physics after it loads; absent: the world's own setting), `tolerance` (allowed deviation, recorded, enforced in the real-time-locked mode), `timeout_s` (the wall-clock budget of the run from the moment every vehicle is ready; 600 s by default) |
-| `timeline[]` | the actions of the run, each started at its `at` (seconds after every vehicle is ready, wall clock in v0) whether or not an earlier one has finished, so several vehicles drive at once, told apart by `action`, each with an optional `name` for the record: `navigate_to_pose` with `vehicle`, `goal` (a placement in the world) and `timeout_s` (300 s); with a `network` section the link events `link.set` (`vehicle`, `profile`), `link.drop` (`vehicle`, optional `duration_s` after which the configured profile comes back) and `link.restore` (`vehicle`) ([network.md](network.md#timeline-events)); the event injection framework of task P2-T03 adds the rest |
-| `assertions[]` | `name` (unique) and `type` (`reach_pose`, `within_time`, `topic_rate`, `no_collision`, `topic_value`) with the parameters of the type ([assertions.md](assertions.md#the-primitives)); a `vehicle` must be one of the scenario's, a `within_time.action` the `name` of a timeline entry, a `topic_value.condition` a valid expression |
+| `timeline[]` | the events of the run ([events.md](events.md)), told apart by `action`, each with an optional `name` for the record and the triggers of the timeline DSL: `at` (an offset from the trigger, seconds on the wall clock in v0), `after` (the name, or the names, of the entries whose successful end triggers this one), `when` (a condition over a topic field or a metric of the run that triggers it the first time it holds; `within_s` bounds the wait), `every` (repeat at a period; `count`, `until_s`); entries run concurrently, so several vehicles drive at once. The built-in actions: `navigate_to_pose` with `vehicle`, `goal` (a placement in the world) and `timeout_s` (300 s); with a `network` section `link.set` (`vehicle`, `profile`), `link.drop` (`vehicle`, optional `duration_s`) and `link.restore` (`vehicle`) ([network.md](network.md#timeline-events)); `container.pause` (`vehicle`, optional `duration_s`), `container.resume`, `container.kill` (`signal`), `param.set` (`vehicle`, `node`, `parameter`, `value`); plugins add their own (`fieldproof events` lists them) |
+| `assertions[]` | `name` (unique) and `type` (`reach_pose`, `within_time`, `topic_rate`, `no_collision`, `topic_value`) with the parameters of the type ([assertions.md](assertions.md#the-primitives)); a `vehicle` must be one of the scenario's, a `within_time.action` the `name` of a timeline entry (it fails when the entry is skipped), a `topic_value.condition` a valid expression |
 | `outputs` | `directory` (where `runs/<run_id>` goes; the workspace's `runs` by default), `record` (record to MCAP, `false` by default) and `topics` (the allow-list; every topic when empty; the `/fieldproof/*` side channels always, [assertions.md](assertions.md#recording)), `logs` (keep the containers' logs in the run directory, `true` by default), `video` (a video of the run from a camera of the world: `true` for the world's `spectator` camera, or `camera: <sensor name>` and `format: mp4`; `false` by default, see [Video](#video)) |
 
 ### Placements
@@ -360,7 +366,8 @@ still present afterwards.
   passing or failing, three actions truly concurrent on a thread pool, one failing and
   cancelling the others, the budget during actions, the oversubscription warning);
   `test_scenario_cli.py`: the three commands, the dry run (with `--discovery server`), a run
-  on the fake backend with its exit codes, the fleet with `--check-contracts`;
+  on the fake backend with its exit codes, the fleet with `--check-contracts`; the timeline
+  DSL, the scheduler and the events have their own suites ([events.md](events.md#tests));
   `test_docker_backend.py`: the Docker backend against a stub of the SDK's client (the budget
   mapped, the host's capacity, one connection per thread). `make test-engine` runs them with
   coverage.
@@ -386,9 +393,10 @@ still present afterwards.
 
 ## Known limits
 
-- The timeline knows `navigate_to_pose` and the three link events, started at their `at` on
-  the wall clock after readiness; conditional triggers, sim-time scheduling and the other
-  actions are task P2-T03's (the clock manager, P2-T04's).
+- The timeline's triggers are on the wall clock after readiness (`when: {metric: sim_time}`
+  is the one in simulation time); sim-time scheduling is the clock manager's (task P2-T04).
+  The world and sensor events of the backlog arrive with the second session of task P2-T03
+  ([events.md](events.md#known-limits)).
 - The assertions' deadlines are on the wall clock like the timeline; the recorder does not
   sample container resources yet ([assertions.md](assertions.md#known-limits)).
 - The runs of one workspace share the configured Docker network and their containers can reach

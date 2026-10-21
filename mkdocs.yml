@@ -118,4 +118,5 @@ nav:
       - Scenarios: reference/scenarios.md
       - Assertions, recording and reports: reference/assertions.md
       - Radio links: reference/network.md
+      - Events: reference/events.md
       - Worlds: reference/worlds.md

@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from fieldproof.scenario import (
+    NavigateToPose,
     NoCollision,
     Placement,
     Pose,
@@ -83,9 +84,11 @@ def test_example_loads(example: Scenario) -> None:
     assert example.vehicle("ugv1").spawn.frame == "spawn_dock"
     assert example.time.mode == "sim"
     assert example.time.timeout_s == 600.0
-    assert example.timeline[0].action == "navigate_to_pose"
-    assert example.timeline[0].timeout_s == 300.0
-    assert example.timeline[0].goal.x == 10.0
+    drive = example.timeline[0]
+    assert isinstance(drive, NavigateToPose)
+    assert drive.action == "navigate_to_pose"
+    assert drive.timeout_s == 300.0
+    assert drive.goal.x == 10.0
     assert [a.type for a in example.assertions] == [
         "reach_pose",
         "within_time",

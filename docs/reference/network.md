@@ -144,10 +144,12 @@ phase fails with the `tc` error and the hint `sudo modprobe sch_netem ifb`.
 | `link.drop` | `vehicle`, `duration_s` (optional) | 100 % loss both ways; with `duration_s` the entry restores the configured profile after that long and ends then (so `within_time` and the record see the outage's length); without it the link stays down until a `link.set` or `link.restore` |
 | `link.restore` | `vehicle` | the profile the scenario configures for the link (`links.<vehicle>` or `profile`) |
 
-They take `at` and `name` like every entry and run on the timeline's workers, so a 20 s drop
-runs while the vehicle drives. A link event needs a `network` section; a `link.set` profile must
-be known. The record's `timeline` has each entry's outcome (`dropped for 20 s, lte_rural
-restored`).
+They take the triggers of the timeline DSL (`at`, `after`, `when`, `every`; task P2-T03,
+[events.md](events.md#the-timeline-dsl)) and `name` like every entry and run on the timeline's
+workers, so a 20 s drop runs while the vehicle drives. A link event needs a `network` section;
+a `link.set` profile must be known. The record's `timeline` has each entry's outcome (`dropped
+for 20 s, lte_rural restored`). They are events of the plugin API like the rest
+(`fieldproof.events.link`).
 
 ## Measurement
 

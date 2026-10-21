@@ -296,6 +296,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fieldproof-example-events" },
     { name = "mcap" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -314,6 +315,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fieldproof-example-events", editable = "../examples/plugins/example_events" },
     { name = "mcap", specifier = "==1.5.0" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-cov", specifier = "==7.1.0" },
@@ -329,6 +331,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pyyaml" }]
+
+[[package]]
+name = "fieldproof-example-events"
+version = "0.1.0"
+source = { editable = "../examples/plugins/example_events" }
+dependencies = [
+    { name = "fieldproof" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "fieldproof" }]
 
 [[package]]
 name = "idna"

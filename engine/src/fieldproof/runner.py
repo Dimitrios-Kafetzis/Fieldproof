@@ -16,12 +16,15 @@ contract when asked), recorder (the observer of :mod:`fieldproof.observer` start
 directory, recording to MCAP when asked, its ``ready`` sample seen), vehicles (started in
 parallel, a vehicle once the ones it ``depends_on`` are ready, each until the image's readiness
 probe reports every ``runtime.ready`` condition), running (the timeline within the scenario's
-budget, every entry starting at its time while the :class:`~fieldproof.assertions.Evaluator`
-consumes the observer's stream), teardown (vehicles, recorder, bridges, simulator, discovery in
-reverse order, logs kept, then a sweep by label), finished (the report written). A failure in
-any phase, a failed assertion, the scenario's budget, a Ctrl-C or an error of the runtime all
-end in the teardown: a run never leaves containers behind unless asked to with ``keep``.
-Everything the run did is in ``runs/<run_id>/``: the scenario as run, ``run.json`` (the record,
+budget, the :class:`~fieldproof.schedule.Schedule` starting every entry's occurrences at their
+time, after another entry or when a condition of the stream holds, each performed by its
+registered :class:`~fieldproof.events.Event` on a worker, while the
+:class:`~fieldproof.assertions.Evaluator` consumes the observer's stream), teardown (vehicles,
+recorder, bridges, simulator, discovery in reverse order, logs kept, then a sweep by label),
+finished (the report written). A failure in any phase, a failed assertion, the scenario's
+budget, a Ctrl-C or an error of the runtime all end in the teardown: a run never leaves
+containers behind unless asked to with ``keep``. Everything the run did is in
+``runs/<run_id>/``: the scenario as run, ``run.json`` (the record,
 rewritten at every phase), ``engine.log`` (one JSON object per line), ``samples.jsonl`` and
 ``assertions.jsonl`` (the stream and the verdicts), ``recording/`` (the MCAP), ``report.json``
 and ``report.md``, and the containers' logs.
@@ -40,6 +43,14 @@ station; the bridge and the recorder join the onboard networks, the bridge publi
 all of them. A ``network`` phase between ``recorder`` and ``vehicles`` starts the holders, puts
 each link's profile on it and starts the ground station; the timeline's link events change the
 profiles; the ground station's measurements are checked against them at the end of the run.
+
+Events (task P2-T03): the timeline's entries are dispatched to the events of
+:mod:`fieldproof.events` by ``action``; :func:`plan` runs each event's ``plan`` hook (a goal
+resolved in the map frame, a vehicle checked) and :class:`Run` runs its ``apply`` hook through
+a :class:`RunContext` (commands in the containers, the backend for pauses and kills, the links,
+the log). Every occurrence is in ``run.json`` ``timeline[]`` with its trigger and what it did,
+and in the engine log as ``action.start`` and ``action.end`` lines carrying the same record,
+which the observer relays onto ``/fieldproof/events``.
 """
 
 from __future__ import annotations
@@ -77,8 +88,26 @@ from fieldproof.assertions import (
     Sample,
     observe_plan,
 )
-from fieldproof.backend import Backend, BackendError, ContainerSpec, ExecResult, Mount
+from fieldproof.backend import Backend, BackendError, ContainerSpec, ExecResult, LineSink, Mount
 from fieldproof.config import AUTO, Config
+from fieldproof.dsl import TimelineBase
+from fieldproof.events import (
+    CANCELLED,
+    OK,
+    RUNNING,
+    SKIPPED,
+    TIMEOUT,
+    ActionRecord,
+    PlanContext,
+    VehicleHandle,
+    registry,
+    resolved_data,
+)
+from fieldproof.events import (
+    FAILED as ACTION_FAILED,
+)
+from fieldproof.events.navigation import NAV2_ACTION, NAV2_ACTION_TYPE, goal_status
+from fieldproof.expression import compile_condition
 from fieldproof.manifest import DDS_PROFILE_IN_CONTAINER, Resources, RobotManifest, memory_bytes
 from fieldproof.network import (
     DROP,
@@ -105,16 +134,11 @@ from fieldproof.observer import FileTail
 from fieldproof.report import REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
 from fieldproof.scenario import (
     Assertion,
-    LinkDrop,
-    LinkRestore,
-    LinkSet,
-    NavigateToPose,
     NoCollision,
     Pose,
     ReachPose,
     Scenario,
     ScenarioError,
-    TimelineEntry,
     TopicRate,
     TopicValue,
     Vehicle,
@@ -124,6 +148,7 @@ from fieldproof.scenario import (
     place,
     read_world,
 )
+from fieldproof.schedule import Occurrence, PlannedWhen, Schedule
 from fieldproof.vehicle import ENTRYPOINT_IN_IMAGE, READY_IN_IMAGE, load_vehicle
 from fieldproof_bridge.manifest import ManifestError
 
@@ -158,12 +183,12 @@ BRIDGE_COMMAND = "fieldproof-bridge"
 ROBOTS_PACKAGE = "fieldproof_robots"
 # The spawn launch's default `z`: the reference UGV's base_link height above the ground.
 SPAWN_HEIGHT_M = 0.12
-NAV2_ACTION = "navigate_to_pose"
-NAV2_ACTION_TYPE = "nav2_msgs/action/NavigateToPose"
+__all__ = ["NAV2_ACTION", "NAV2_ACTION_TYPE", "goal_status"]  # re-exported for the tests
 RENDER_DIR = Path("/dev/dri")
 POLL_S = 2.0
 # How often the running phase reads the observer's stream and ticks the assertions.
 EVAL_POLL_S = 0.5
+MIN_POLL_S = 0.05
 # The recorder container: the observer mounted from the engine, the run directory read-write.
 OBSERVER_FILE = Path(observer.__file__).resolve()
 OBSERVER_IN_CONTAINER = "/opt/fieldproof/observer.py"
@@ -251,11 +276,13 @@ class RunTimeoutError(RunFailedError):
 # -------------------------------------------------------------------------------------- plan
 @dataclass(frozen=True)
 class PlannedAction:
-    """A timeline entry; a goal resolved in the world and in the vehicle's map frame."""
+    """A timeline entry resolved by its event's `plan` hook, its `when` resolved too."""
 
-    entry: TimelineEntry
-    goal_world: Pose | None = None
-    goal_map: Pose | None = None
+    entry: TimelineBase
+    resolved: dict[str, Any] = field(default_factory=dict)
+    """What the event's `plan` returned (a goal in the world and in the map frame)."""
+    watch: PlannedWhen | None = None
+    """The entry's `when`, resolved against the plan."""
 
     @property
     def name(self) -> str:
@@ -264,27 +291,35 @@ class PlannedAction:
 
     @property
     def timeout_s(self) -> float:
-        """How long the entry may take (a link event: as long as the budget lets it)."""
-        return self.entry.timeout_s if isinstance(self.entry, NavigateToPose) else math.inf
+        """How long an occurrence may take (no `timeout_s`: as long as the budget lets it)."""
+        timeout = getattr(self.entry, "timeout_s", None)
+        return float(timeout) if timeout is not None else math.inf
+
+    @property
+    def goal_world(self) -> Pose | None:
+        """A `navigate_to_pose` goal in the world."""
+        goal = self.resolved.get("goal_world")
+        return goal if isinstance(goal, Pose) else None
+
+    @property
+    def goal_map(self) -> Pose | None:
+        """A `navigate_to_pose` goal in the vehicle's map frame."""
+        goal = self.resolved.get("goal_map")
+        return goal if isinstance(goal, Pose) else None
 
     def to_dict(self) -> dict[str, Any]:
         """The entry as the dry run shows it."""
         entry = self.entry
-        data: dict[str, Any] = {
+        return {
             "name": self.name,
             "at_s": entry.at,
             "vehicle": entry.vehicle,
-            "action": entry.action,
+            "action": entry.action_name,
+            "trigger": entry.trigger(),
+            **({"when": self.watch.to_dict()} if self.watch is not None else {}),
+            **entry.parameters(),
+            **resolved_data(self.resolved),
         }
-        if isinstance(entry, NavigateToPose):
-            data["goal_world"] = asdict(self.goal_world) if self.goal_world else None
-            data["goal_map"] = asdict(self.goal_map) if self.goal_map else None
-            data["timeout_s"] = entry.timeout_s
-        elif isinstance(entry, LinkSet):
-            data["profile"] = entry.profile
-        elif isinstance(entry, LinkDrop):
-            data["duration_s"] = entry.duration_s
-        return data
 
 
 @dataclass(frozen=True)
@@ -317,6 +352,11 @@ class PlannedVehicle:
     def namespace(self) -> str:
         """The vehicle's namespace (empty at the root)."""
         return self.vehicle.namespace
+
+    @property
+    def container_name(self) -> str:
+        """The name of the vehicle's container."""
+        return self.container.name
 
     def topic(self, name: str) -> str:
         """`name` under the vehicle's namespace (an absolute name stays as written)."""
@@ -662,6 +702,7 @@ def plan(
         record=scenario.outputs.record,
         topics=scenario.outputs.topics,
         run_dir=RUN_DIR_IN_CONTAINER,
+        conditions=[a.watch for a in actions if a.watch is not None],
     )
     recorder = ContainerSpec(
         name=f"fieldproof-{short}-recorder",
@@ -715,16 +756,40 @@ def plan(
 def _plan_actions(
     scenario: Scenario, world: WorldInfo, by_name: dict[str, PlannedVehicle]
 ) -> list[PlannedAction]:
-    """The timeline in order of `at`, goals resolved in the world and the vehicle's map."""
+    """The timeline in order of `at`, each entry resolved by its event, its `when` resolved."""
+    events = registry()
     actions = []
     for index, entry in enumerate(sorted(scenario.timeline, key=lambda e: e.at)):
-        if isinstance(entry, NavigateToPose):
-            goal_world = place(entry.goal, world, f"timeline[{index}].goal")
-            spawn = by_name[entry.vehicle].spawn
-            actions.append(PlannedAction(entry, goal_world, spawn.relative(goal_world)))
-        else:
-            actions.append(PlannedAction(entry))
+        context = PlanContext(
+            world, by_name, links=scenario.network is not None, where=f"timeline[{index}]"
+        )
+        resolved = dict(events[entry.action_name].event.plan(entry, context))
+        watch = _plan_when(entry, f"timeline[{index}].when", world, by_name)
+        actions.append(PlannedAction(entry, resolved, watch))
     return actions
+
+
+def _plan_when(
+    entry: TimelineBase, what: str, world: WorldInfo, by_name: dict[str, PlannedVehicle]
+) -> PlannedWhen | None:
+    """The entry's `when` with its topic absolute, its model and its target in the world."""
+    when = entry.when
+    if when is None:
+        return None
+    vehicle = when.vehicle or entry.vehicle
+    topic = model = target = None
+    if when.topic is not None:
+        if vehicle is not None:
+            topic = by_name[vehicle].topic(when.topic)
+        elif when.topic.startswith("/"):
+            topic = when.topic
+        else:
+            raise ScenarioError(f"{what}.topic: {when.topic!r} needs a vehicle or a leading /")
+    if when.metric in ("x", "y", "z", "yaw", "distance_to"):
+        model = vehicle
+    if when.target is not None:
+        target = place(when.target, world, f"{what}.target")
+    return PlannedWhen(when, topic, model, target, compile_condition(when.condition))
 
 
 def _plan_video(scenario: Scenario, world: WorldInfo, short: str) -> PlannedVideo | None:
@@ -1122,20 +1187,6 @@ class RunLog:
 
 # ------------------------------------------------------------------------------- the record
 @dataclass
-class ActionRecord:
-    """One timeline entry as it ran."""
-
-    name: str
-    action: str
-    vehicle: str
-    at_s: float
-    status: str = "pending"
-    started_at: str | None = None
-    duration_s: float | None = None
-    detail: str = ""
-
-
-@dataclass
 class RunRecord:
     """`run.json`: what the run was and how it went."""
 
@@ -1173,6 +1224,71 @@ class RunRecord:
         """Write the record as JSON."""
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+
+
+WAITING = "waiting"
+NOT_STARTED = ("pending", WAITING)
+
+
+class RunContext:
+    """What the events act through during a run (:class:`fieldproof.events.EventContext`)."""
+
+    def __init__(self, run: Run) -> None:
+        self._run = run
+
+    @property
+    def backend(self) -> Backend:
+        return self._run.backend
+
+    @property
+    def tearing_down(self) -> bool:
+        return self._run.tearing_down
+
+    def vehicle(self, name: str | None) -> PlannedVehicle:
+        if name is None:
+            raise RunError("the entry names no vehicle")
+        return self._run.plan.vehicle(name)
+
+    def exec(
+        self, container: str, argv: Sequence[str], on_line: LineSink | None = None
+    ) -> ExecResult:
+        return self._run.backend.exec(container, argv, on_line)
+
+    def ros2(
+        self,
+        vehicle: VehicleHandle,
+        argv: Sequence[str],
+        *,
+        timeout_s: float,
+        on_line: LineSink | None = None,
+    ) -> ExecResult:
+        command = (ENTRYPOINT_IN_IMAGE, "timeout", "-s", "INT", f"{max(timeout_s, 1.0):.0f}")
+        return self._run.backend.exec(vehicle.container_name, (*command, "ros2", *argv), on_line)
+
+    def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:
+        self._run.log.event(event, message, level=level, **fields)
+
+    def clock(self) -> float:
+        return self._run.clock()
+
+    def hold(self, seconds: float) -> bool:
+        run = self._run
+        deadline = run.clock() + seconds
+        while not run.tearing_down and run.clock() < deadline:
+            run.sleep(min(EVAL_POLL_S, max(deadline - run.clock(), 0.0)))
+        return not run.tearing_down
+
+    def expect_exit(self, container: str) -> None:
+        self._run.expect_exit(container)
+
+    def mark_paused(self, container: str, paused: bool) -> None:
+        self._run.mark_paused(container, paused)
+
+    def apply_link(self, vehicle: str, profile: str, cause: str) -> None:
+        self._run.apply_link(vehicle, profile, cause)
+
+    def link_profile(self, vehicle: str) -> str:
+        return self._run.configured_profile(vehicle)
 
 
 # ---------------------------------------------------------------------------------- the run
@@ -1248,6 +1364,14 @@ class Run:
         self._samples = FileTail(plan.run_dir / SAMPLES_FILE)
         self._observer_errors = 0
         self._last_alive_check = -math.inf
+        self.schedule = Schedule(plan.actions)
+        """When each timeline entry's occurrences start."""
+        self.context = RunContext(self)
+        """What the events act through."""
+        self._expected_exits: set[str] = set()
+        """Containers an event killed: their exit does not end the run."""
+        self._paused: set[str] = set()
+        """Containers an event paused: the teardown resumes them before stopping them."""
 
     # ------------------------------------------------------------------------- the machine
     def execute(self) -> RunRecord:
@@ -1395,7 +1519,7 @@ class Run:
     def _running(self, spec: ContainerSpec) -> None:
         """Raise unless the container is still running (with the tail of its log)."""
         state = self.backend.state(spec.name)
-        if state.running:
+        if state.running or spec.name in self._expected_exits:
             return
         tail = "\n".join(self.backend.logs(spec.name).rstrip().splitlines()[-20:])
         message = f"{spec.role} container {spec.name} exited ({state.exit_code})"
@@ -1738,14 +1862,15 @@ class Run:
                 )
         self._write()
 
-    def _observe(self) -> None:
+    def _observe(self) -> list[Sample]:
         """One poll of the running phase: the stream, the deadlines, the containers."""
-        self._poll_samples()
+        samples = self._poll_samples()
         self._poll_network()
         self._resolve(self.evaluator.tick(self.wall()))
         if self.clock() - self._last_alive_check >= POLL_S:
             self._last_alive_check = self.clock()
             self.check_alive()
+        return samples
 
     # ---------------------------------------------------------------------------- radio links
     def start_links(self) -> None:
@@ -1914,50 +2039,22 @@ class Run:
                 f"link {vehicle} does not match profile {period.profile_name}: {reason}{more}"
             )
 
-    def link_action(self, action: PlannedAction, limit_s: float, record: ActionRecord) -> None:
-        """`link.set`, `link.drop` (restored after `duration_s` if given) or `link.restore`.
-
-        Runs on a worker like a goal; a drop with a duration holds its worker until the link is
-        restored, so the entry ends when the outage does.
-        """
-        entry = action.entry
-        links = self._links()
-        vehicle = entry.vehicle
-        configured = links.links[vehicle]
-        if isinstance(entry, LinkSet):
-            self.apply_link(vehicle, entry.profile, action.name)
-            record.status, record.detail = "ok", f"{entry.profile} applied"
-        elif isinstance(entry, LinkRestore):
-            self.apply_link(vehicle, configured, action.name)
-            record.status, record.detail = "ok", f"{configured} restored"
-        elif isinstance(entry, LinkDrop):
-            self.apply_link(vehicle, DROP, action.name)
-            record.status, record.detail = "ok", "dropped"
-            if entry.duration_s is not None:
-                deadline = self.clock() + min(entry.duration_s, limit_s)
-                while not self.tearing_down and self.clock() < deadline:
-                    self.sleep(min(EVAL_POLL_S, max(deadline - self.clock(), 0.0)))
-                if self.tearing_down:
-                    return
-                if entry.duration_s > limit_s:
-                    record.status = "timeout"
-                    record.detail = f"the budget ended the drop after {limit_s:.0f} s"
-                    return
-                self.apply_link(vehicle, configured, f"{action.name} (restore)")
-                record.detail = f"dropped for {entry.duration_s:g} s, {configured} restored"
-        self.log.event(
-            "action.end",
-            f"{action.name}: {record.detail}",
-            action=action.name,
-            status=record.status,
-        )
-
     def perform(self, action: PlannedAction, limit_s: float, record: ActionRecord) -> None:
-        """Run one timeline entry on a worker."""
-        if isinstance(action.entry, NavigateToPose):
-            self.navigate_to_pose(action, limit_s, record)
-        else:
-            self.link_action(action, limit_s, record)
+        """Run one occurrence of a timeline entry on a worker: its event's `apply` hook.
+
+        The event only touches its own record, the context and the log (which is thread-safe);
+        a record left `running` ends `ok`, an exception ends it `failed`.
+        """
+        registered = registry()[action.entry.action_name]
+        resolved = {**action.resolved, "limit_s": limit_s}
+        try:
+            registered.event.apply(action.entry, resolved, self.context, record)
+        except Exception as error:
+            record.status = ACTION_FAILED
+            record.detail = f"{type(error).__name__}: {error}"
+            raise
+        if record.status == RUNNING:
+            record.status = OK
 
     def start_vehicles(self) -> None:
         """Start every vehicle on the workers, each once the ones it depends on are ready."""
@@ -2070,71 +2167,145 @@ class Run:
             )
         self.check_links()
 
-    def _run_actions(self, started: float, budget: float) -> None:
-        """Start every entry at its time on a worker and settle it when it returns.
+    def _record_for(self, occurrence: Occurrence, t: float) -> ActionRecord:
+        """The record of an occurrence (the first of an entry reuses the record planned for it)."""
+        action: PlannedAction = occurrence.action
+        entry = action.entry
+        with self._lock:
+            for existing in self.record.timeline:
+                if existing.name == occurrence.name and existing.status in NOT_STARTED:
+                    record = existing
+                    break
+            else:
+                record = ActionRecord(occurrence.name, entry.action_name, entry.vehicle, entry.at)
+                self.record.timeline.append(record)
+            record.trigger = entry.trigger()
+            record.occurrence = occurrence.index
+            record.params = entry.parameters()
+            record.t_s = round(t, 3)
+            record.sim_s = self.evaluator.sim_elapsed()
+            record.started_at = utc_now()
+            record.status = RUNNING
+        return record
 
-        Entries run concurrently (three vehicles can drive at once); the main thread keeps
-        observing the run between polls. The first entry that does not end `ok` fails the run
-        at once, and the budget ends it whatever is still running.
+    def _log_action(self, event: str, record: ActionRecord, message: str, level: str) -> None:
+        """An `action.*` line carrying the occurrence's record (relayed to the side channel)."""
+        self.log.event(
+            event,
+            message,
+            level=level,
+            action=record.name,
+            event_action=record.action,
+            vehicle=record.vehicle,
+            occurrence=record.occurrence,
+            status=record.status,
+            t_s=record.t_s,
+            sim_s=record.sim_s,
+            trigger=record.trigger,
+            params=record.params,
+        )
+
+    def _run_actions(self, started: float, budget: float) -> None:  # noqa: PLR0912, PLR0915
+        """Start every occurrence when the schedule says so and settle it when it returns.
+
+        Occurrences run concurrently on workers (three vehicles can drive at once); the main
+        thread keeps observing the run between polls and feeds the stream to the schedule,
+        whose `when` conditions it may trigger. The first occurrence that does not end `ok`
+        fails the run at once; the budget ends it whatever is still running; the timeline ends
+        when the schedule is idle, and what never ran is settled then.
         """
-        pending = list(self.plan.actions)  # in order of `at`
-        records: dict[str, ActionRecord] = {}
-        for action in pending:
-            record = ActionRecord(
-                action.name, action.entry.action, action.entry.vehicle, action.entry.at
-            )
+        schedule = self.schedule
+        for action in self.plan.actions:  # the record lists every entry from the start
+            entry = action.entry
+            record = ActionRecord(action.name, entry.action_name, entry.vehicle, entry.at)
+            record.trigger = entry.trigger()
+            record.params = entry.parameters()
+            if entry.after is not None or entry.when is not None:
+                record.status = WAITING
             self.record.timeline.append(record)
-            records[action.name] = record
-        running: dict[str, tuple[PlannedAction, Future[None], float, float]] = {}
-        while pending or running:
+        running: dict[str, tuple[PlannedAction, Future[None], float, float, ActionRecord]] = {}
+        while True:
             elapsed = self.clock() - started
             if elapsed >= budget:
-                what = f"during {', '.join(running)}" if running else f"before {pending[0].name}"
+                pending = [n for n, st in schedule.entries.items() if not st.done]
+                what = f"during {', '.join(running)}" if running else f"before {pending[0]}"
                 raise RunTimeoutError(f"budget of {budget:g} s passed {what}")
-            while pending and pending[0].entry.at <= elapsed:
-                action = pending.pop(0)
-                record = records[action.name]
+            for name, status, reason in schedule.expire(elapsed):
+                self._settle_one(name, status, reason)
+            for occurrence in schedule.due(elapsed):
+                action = occurrence.action
                 limit = min(action.timeout_s, budget - elapsed)
-                record.started_at = utc_now()
-                record.status = "running"
-                self._resolve(self.evaluator.action(action.name, "started", self.wall()))
+                record = self._record_for(occurrence, elapsed)
+                self._log_action(
+                    "action.start",
+                    record,
+                    f"{record.name}: {record.action}"
+                    + (f" on {record.vehicle}" if record.vehicle else "")
+                    + (f" (occurrence {record.occurrence})" if record.occurrence > 1 else ""),
+                    "info",
+                )
+                self._resolve(self.evaluator.action(record.name, "started", self.wall()))
                 future = self._executor.submit(self.perform, action, limit, record)
-                running[action.name] = (action, future, self.clock(), limit)
+                running[record.name] = (action, future, self.clock(), limit, record)
             # The stream first, so what the vehicles did during an action is judged before the
             # action's own result ends the run.
-            self._observe()
-            failed: tuple[str, PlannedAction, float] | None = None
-            for name in [n for n, (_, f, _, _) in running.items() if f.done()]:
-                action, future, began, limit = running.pop(name)
-                record = records[name]
+            for sample in self._observe():
+                for name in schedule.feed(sample, self.evaluator.elapsed(sample.wall)):
+                    self._triggered(name)
+            failed: tuple[str, PlannedAction, float, ActionRecord] | None = None
+            now = self.clock() - started
+            for name in [n for n, (_, f, _, _, _) in running.items() if f.done()]:
+                action, future, began, limit, record = running.pop(name)
                 record.duration_s = round(self.clock() - began, 3)
                 error = future.exception()
-                if error is not None:
-                    record.status = "failed"
+                if error is not None and record.status != ACTION_FAILED:
+                    record.status = ACTION_FAILED
                     record.detail = f"{type(error).__name__}: {error}"
-                    self.log.event(
-                        "action.end", f"{name}: {record.detail}", level="error", action=name
-                    )
+                level = "info" if record.status == OK else "error"
+                self._log_action("action.end", record, f"{name}: {record.detail}", level)
                 self._resolve(self.evaluator.action(name, "finished", self.wall(), record.status))
-                if record.status != "ok" and failed is None:
-                    failed = (name, action, limit)
+                for triggered in schedule.finished(action.name, record.status, now):
+                    self._triggered(triggered)
+                if record.status != OK and failed is None:
+                    failed = (name, action, limit, record)
             if failed is not None:
-                name, action, limit = failed
-                record = records[name]
-                for other in running:
-                    records[other].status = "cancelled"
-                    records[other].detail = f"cancelled: {name} {record.status}"
+                name, action, limit, record = failed
+                for other in running.values():
+                    other[4].status = CANCELLED
+                    other[4].detail = f"cancelled: {name} {record.status}"
                 self._write()
-                if record.status == "timeout" and limit < action.timeout_s:
+                if record.status == TIMEOUT and limit < action.timeout_s:
                     raise RunTimeoutError(f"budget of {budget:g} s passed during {name}")
                 raise RunFailedError(f"{name}: {record.detail}")
-            if not pending and not running:
+            if not running and schedule.idle(self.clock() - started):
+                self._settle()
                 self._write()
                 break
-            wait = EVAL_POLL_S
-            if pending:
-                wait = min(wait, max(pending[0].entry.at - (self.clock() - started), 0.0))
-            self.sleep(wait)
+            self.sleep(min(EVAL_POLL_S, max(schedule.wait(self.clock() - started), MIN_POLL_S)))
+
+    def _triggered(self, name: str) -> None:
+        self.log.event(
+            "action.triggered", f"{name}: {self.schedule.entries[name].reason}", action=name
+        )
+
+    def _settle(self) -> None:
+        """End the entries that never ran or repeat no more, in the record and the evaluator."""
+        for name, status, reason in self.schedule.settle("the timeline ended"):
+            self._settle_one(name, status, reason)
+
+    def _settle_one(self, name: str, status: str, reason: str) -> None:
+        record = next((r for r in self.record.timeline if r.name == name), None)
+        if record is None or record.status not in NOT_STARTED:
+            return  # a repeated entry: its occurrences carry their own records
+        record.status, record.detail = status, reason
+        self.log.event(
+            "action.skipped" if status == SKIPPED else "action.settled",
+            f"{name}: {reason}",
+            level="warning" if status == SKIPPED else "info",
+            action=name,
+            status=status,
+        )
+        self._resolve(self.evaluator.action(name, "finished", self.wall(), status))
 
     # ------------------------------------------------------------------------------ the video
     def _video_service(self, video: PlannedVideo, request: str) -> ExecResult:
@@ -2220,77 +2391,25 @@ class Run:
         self.log.event("video.error", reason, level="warning", camera=video.get("camera"))
         self._write()
 
-    def navigate_to_pose(self, action: PlannedAction, limit_s: float, record: ActionRecord) -> None:
-        """Send the goal with `ros2 action send_goal` inside the vehicle and read the result.
-
-        Runs on a worker while the main thread observes the run; it only touches its own record
-        and the log (which is thread-safe).
-        """
-        vehicle = self.plan.vehicle(action.entry.vehicle)
-        goal, goal_world = action.goal_map, action.goal_world
-        if goal is None or goal_world is None:
-            raise RunError(f"{action.name}: no goal resolved")
-        message = json.dumps(
-            {
-                "pose": {
-                    "header": {"frame_id": "map"},
-                    "pose": {
-                        "position": {"x": goal.x, "y": goal.y, "z": 0.0},
-                        "orientation": {"z": math.sin(goal.yaw / 2), "w": math.cos(goal.yaw / 2)},
-                    },
-                }
-            }
-        )
-        self.log.event(
-            "action.start",
-            f"{action.name}: {vehicle.name} to ({goal_world.x:g}, {goal_world.y:g}) "
-            f"in the world, ({goal.x:.2f}, {goal.y:.2f}, yaw {goal.yaw:.2f}) in map, "
-            f"limit {limit_s:.0f} s",
-            action=action.name,
-            vehicle=vehicle.name,
-        )
-        result = self.backend.exec(
-            vehicle.container.name,
-            (
-                ENTRYPOINT_IN_IMAGE,
-                "timeout",
-                "-s",
-                "INT",
-                f"{max(limit_s, 1.0):.0f}",
-                "ros2",
-                "action",
-                "send_goal",
-                vehicle.topic(NAV2_ACTION),
-                NAV2_ACTION_TYPE,
-                message,
-            ),
-            lambda line: self.log.event(
-                "action.output", line.rstrip(), level="debug", action=action.name
-            ),
-        )
-        status = goal_status(result)
-        if result.exit_code == 124:
-            record.status, record.detail = "timeout", f"no result within {limit_s:.0f} s"
-        elif status == "SUCCEEDED":
-            record.status, record.detail = "ok", "goal SUCCEEDED"
-        elif status is not None:
-            record.status, record.detail = "failed", f"goal {status}"
-        else:
-            record.status = "failed"
-            record.detail = f"no goal result (exit {result.exit_code}): {result.tail(3)}"
-        level = "info" if record.status == "ok" else "error"
-        self.log.event(
-            "action.end",
-            f"{action.name}: {record.detail}",
-            level=level,
-            action=action.name,
-            status=record.status,
-        )
-
     def check_alive(self) -> None:
-        """Raise if any container of the run exited."""
+        """Raise if any container of the run exited (unless an event killed it)."""
         for spec in self.plan.containers():
             self._running(spec)
+
+    def expect_exit(self, container: str) -> None:
+        """An event is about to kill this container: its exit does not end the run."""
+        self._expected_exits.add(container)
+
+    def mark_paused(self, container: str, paused: bool) -> None:
+        """An event paused (or resumed) this container."""
+        if paused:
+            self._paused.add(container)
+        else:
+            self._paused.discard(container)
+
+    def configured_profile(self, vehicle: str) -> str:
+        """The profile the scenario configures for a vehicle's link."""
+        return self._links().links[vehicle]
 
     def teardown(self) -> None:
         """Stop and remove the run's containers in reverse order, keeping their logs."""
@@ -2308,6 +2427,9 @@ class Run:
             try:
                 if not self.backend.state(spec.name).exists:
                     continue
+                if spec.name in self._paused:
+                    self.backend.unpause(spec.name)
+                    self._paused.discard(spec.name)
                 self.backend.stop(spec.name, self.plan.config.timeouts.teardown_s)
                 if keep_logs:
                     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -2381,14 +2503,6 @@ class Run:
             f"{REPORT_MD}, {REPORT_JSON}, {REPORT_JUNIT}",
             verdict=report["verdict"],
         )
-
-
-def goal_status(result: ExecResult) -> str | None:
-    """The status `ros2 action send_goal` printed (`Goal finished with status: SUCCEEDED`)."""
-    for line in reversed(result.output.splitlines()):
-        if "Goal finished with status:" in line:
-            return line.rsplit(":", 1)[1].strip()
-    return None
 
 
 def leftovers(backend: Backend, run_id: str | None = None) -> list[str]:

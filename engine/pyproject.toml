@@ -49,11 +49,30 @@ Issues = "https://github.com/Dimitrios-Kafetzis/Fieldproof/issues"
 [project.scripts]
 fieldproof = "fieldproof.cli:main"
 
+# The built-in events (task P2-T03, docs/reference/events.md): the engine registers them the
+# way a plugin does, one entry point per action, and loads them directly as well (an engine
+# checkout without its metadata still knows them). A plugin installed next to the engine adds
+# its own under the same group (examples/plugins/example_events).
+[project.entry-points."fieldproof.events"]
+navigate_to_pose = "fieldproof.events.navigation:NavigateToPoseEvent"
+"link.set" = "fieldproof.events.link:LinkSetEvent"
+"link.drop" = "fieldproof.events.link:LinkDropEvent"
+"link.restore" = "fieldproof.events.link:LinkRestoreEvent"
+"container.pause" = "fieldproof.events.container:ContainerPauseEvent"
+"container.resume" = "fieldproof.events.container:ContainerResumeEvent"
+"container.kill" = "fieldproof.events.container:ContainerKillEvent"
+"param.set" = "fieldproof.events.param:ParamSetEvent"
+
 [tool.uv.sources]
 fieldproof-bridge = { path = "../bridge/fieldproof_bridge", editable = true }
+fieldproof-example-events = { path = "../examples/plugins/example_events", editable = true }
 
+# The example event plugin is a development dependency: installed here, it is registered next
+# to the built-ins (`fieldproof events`), its tests run with the engine's, and the example
+# scenario that uses it validates.
 [dependency-groups]
 dev = [
+  "fieldproof-example-events",
   "mcap==1.5.0",
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
@@ -75,7 +94,7 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "../version.txt" }]
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra --strict-markers --strict-config"
-testpaths = ["tests"]
+testpaths = ["tests", "../examples/plugins/example_events/tests"]
 xfail_strict = true
 
 # `make test-engine` runs pytest with --cov: the standards ask for 85 % of the engine's lines

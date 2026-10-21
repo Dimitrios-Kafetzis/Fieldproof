@@ -3,8 +3,9 @@
 :class:`Backend` is the small surface the runner drives containers through: images exist,
 networks exist and go away, a container starts detached (on several networks, or in another
 container's network namespace) or runs to completion, a command runs inside one, its state,
-address and logs can be read, it stops and is removed, the containers and networks of a run are
-found by label, and the host's capacity is known. :mod:`fieldproof.docker_backend` implements it
+address and logs can be read, it is paused, resumed or killed (the container events of task
+P2-T03), it stops and is removed, the containers and networks of a run are found by label, and
+the host's capacity is known. :mod:`fieldproof.docker_backend` implements it
 with the Docker SDK; the runner's tests use a fake, so the state machine is tested without
 Docker. The
 runner calls it from several threads at once (task P2-T01: the vehicles of a fleet start in
@@ -94,6 +95,7 @@ class ContainerState:
     running: bool = False
     exit_code: int | None = None
     health: str | None = None
+    paused: bool = False
 
 
 @dataclass(frozen=True)
@@ -142,6 +144,15 @@ class Backend(Protocol):
 
     def stop(self, name: str, timeout_s: float) -> None:
         """Stop the container, killing it after `timeout_s`."""
+
+    def pause(self, name: str) -> None:
+        """Freeze every process of the container (task P2-T03, `container.pause`)."""
+
+    def unpause(self, name: str) -> None:
+        """Thaw a paused container."""
+
+    def kill(self, name: str, signal: str) -> None:
+        """Send a signal (`SIGKILL`, `SIGTERM`, ...) to the container's main process."""
 
     def remove(self, name: str) -> None:
         """Remove the container (forced)."""

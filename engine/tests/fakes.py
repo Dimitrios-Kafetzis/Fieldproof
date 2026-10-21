@@ -28,6 +28,7 @@ GOAL_OK = (
     "Waiting for an action server to become available...\nGoal finished with status: SUCCEEDED\n"
 )
 LINK_OK = "eth1\nqdisc netem 8001: root refcnt 2 limit 1000 delay 60ms 20ms\n"
+PARAM_OK = "Set parameter successful\n"
 TRAFFIC_OK = (
     '{"out": [{"kind": "prio", "handle": "1:"}, {"kind": "netem", "handle": "20:", '
     '"bytes": 2263618, "packets": 6769, "drops": 12, "backlog": 0}], '
@@ -42,6 +43,7 @@ class FakeContainer:
     running: bool = True
     exit_code: int | None = None
     logs: str = ""
+    paused: bool = False
 
 
 class FakeClock:
@@ -75,6 +77,11 @@ class FakeBackend:
     stopped: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     execs: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    # The container events (task P2-T03): what was paused, resumed and killed, in order, and
+    # what `ros2 param set` answers.
+    paused: list[tuple[str, bool]] = field(default_factory=list)
+    killed: list[tuple[str, str]] = field(default_factory=list)
+    param_result: ExecResult = field(default_factory=lambda: ExecResult(0, PARAM_OK))
     world_polls_needed: int = 2
     bridge_polls_needed: int = 1
     spawn_result: ExecResult = field(
@@ -202,6 +209,8 @@ class FakeBackend:
         container = self.containers[name]
         if not container.running:
             raise BackendError(f"{name}: not running")
+        if container.paused:
+            raise BackendError(f"{name}: container is paused")
         self.polls[name] = self.polls.get(name, 0) + 1
         if name in self.exit_on_poll and self.polls[name] >= self.exit_on_poll[name]:
             container.running, container.exit_code = False, 137
@@ -249,13 +258,15 @@ class FakeBackend:
             self.write_samples(self.samples_on_goal)
             self.write_network(self.network_on_goal)
             return self.goal_result
+        if "param set" in command:
+            return self.param_result
         return self.probe_result
 
     def state(self, name: str) -> ContainerState:
         container = self.containers.get(name)
         if container is None:
             return ContainerState(exists=False)
-        return ContainerState(True, container.running, container.exit_code)
+        return ContainerState(True, container.running, container.exit_code, paused=container.paused)
 
     def logs(self, name: str) -> str:
         return self.containers[name].logs
@@ -265,6 +276,27 @@ class FakeBackend:
             raise BackendError(f"{name}: cannot stop")
         self.containers[name].running = False
         self.stopped.append(name)
+
+    def pause(self, name: str) -> None:
+        container = self.containers.get(name)
+        if container is None or not container.running:
+            raise BackendError(f"{name}: not running")
+        container.paused = True
+        self.paused.append((name, True))
+
+    def unpause(self, name: str) -> None:
+        container = self.containers.get(name)
+        if container is None or not container.paused:
+            raise BackendError(f"{name}: not paused")
+        container.paused = False
+        self.paused.append((name, False))
+
+    def kill(self, name: str, signal: str) -> None:
+        container = self.containers.get(name)
+        if container is None or not container.running:
+            raise BackendError(f"{name}: not running")
+        container.running, container.exit_code, container.paused = False, 137, False
+        self.killed.append((name, signal))
 
     def remove(self, name: str) -> None:
         self.containers.pop(name, None)

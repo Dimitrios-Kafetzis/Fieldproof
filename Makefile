@@ -216,7 +216,7 @@ test-vehicles: ## Vehicle tests: every robot.yaml validates, the generated Docke
 # Needs the stack images (make images), the example vehicle image (make vehicle-image) and the
 # Fuel models (make assets); runs on the host from the engine's environment and drives Docker.
 # FIELDPROOF_IT_KEEP=1 leaves the containers of the vertical-slice test running after a failure.
-test-integration: ## Integration tests (tests/integration): the vertical slice by hand, then `fieldproof run` of the example scenario, an interrupted run, the fleet, the radio links
+test-integration: ## Integration tests (tests/integration): the vertical slice by hand, then `fieldproof run` of the example scenario, an interrupted run, the fleet, the radio links, the events
 	$(UV) sync --locked --project engine
 	$(UV) run --locked --project engine pytest -s -v tests/integration
 

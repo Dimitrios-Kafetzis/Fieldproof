@@ -10,88 +10,99 @@ here are the schema: unknown keys are errors in every section, :func:`json_schem
 JSON Schema for editors and the ``check-jsonschema`` hook, :func:`load_scenario` reads and
 validates a file. What the engine does with a scenario is :mod:`fieldproof.runner`.
 
-The timeline is a stub in v0: it knows ``navigate_to_pose`` and the link events ``link.set``,
-``link.drop`` and ``link.restore`` (the event injection framework is task P2-T03). The
-assertions are the five primitives of task P1-T06 (``reach_pose``, ``within_time``,
-``topic_rate``, ``no_collision``, ``topic_value``), one model each, told apart by ``type``;
-:mod:`fieldproof.assertions` evaluates them.
+The timeline's entries are the registered events of :mod:`fieldproof.events` (task P2-T03):
+each event brings its own entry model, the union of them is the ``timeline[]`` item, told
+apart by ``action``, and every entry carries the triggers of the timeline DSL
+(:mod:`fieldproof.dsl`: ``at``, ``after``, ``when``, ``every``). The assertions are the five
+primitives of task P1-T06 (``reach_pose``, ``within_time``, ``topic_rate``, ``no_collision``,
+``topic_value``), one model each, told apart by ``type``; :mod:`fieldproof.assertions`
+evaluates them.
 """
 
 from __future__ import annotations
 
 import hashlib
-import math
-import re
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import yaml
 from pydantic import (
-    BaseModel,
-    BeforeValidator,
-    ConfigDict,
     Field,
     PositiveFloat,
     PrivateAttr,
     ValidationError,
-    WithJsonSchema,
     field_validator,
     model_validator,
 )
 
+from fieldproof.dsl import (
+    DURATION_SCHEMA,
+    Duration,
+    Placement,
+    ScenarioError,
+    Strict,
+    TimelineBase,
+    When,
+    entry_label,
+    parse_duration,
+)
+from fieldproof.events import entry_union
+from fieldproof.events.link import LINK_ACTIONS, LinkDrop, LinkRestore, LinkSet
+from fieldproof.events.navigation import NavigateToPose
 from fieldproof.expression import ExpressionError, compile_condition
 from fieldproof.manifest import Name, Resources, format_errors
 from fieldproof.network import DROP, PRESETS, LinkProfile
+from fieldproof.world import VIDEO_RECORDER_PLUGIN, Pose, WorldInfo, place, read_world
+
+__all__ = [
+    "API_VERSION",
+    "ASSERTION_TYPES",
+    "DURATION_SCHEMA",
+    "KIND",
+    "LINK_ACTIONS",
+    "SCHEMA_ID",
+    "VIDEO_RECORDER_PLUGIN",
+    "Assertion",
+    "Duration",
+    "LinkDrop",
+    "LinkRestore",
+    "LinkSet",
+    "Metadata",
+    "NavigateToPose",
+    "Network",
+    "NoCollision",
+    "Outputs",
+    "Placement",
+    "Pose",
+    "ReachPose",
+    "Scenario",
+    "ScenarioError",
+    "Strict",
+    "Time",
+    "TimelineBase",
+    "TimelineEntry",
+    "TopicRate",
+    "TopicValue",
+    "Vehicle",
+    "VideoOutput",
+    "When",
+    "WithinTime",
+    "World",
+    "WorldInfo",
+    "entry_label",
+    "json_schema",
+    "load_scenario",
+    "parse_duration",
+    "place",
+    "read_world",
+    "validate_data",
+]
 
 API_VERSION = "fieldproof.dev/v0alpha1"
 KIND = "Scenario"
 SCHEMA_ID = "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/scenario.schema.json"
 # The assertion primitives of task P1-T06.
 ASSERTION_TYPES = ("reach_pose", "within_time", "topic_rate", "no_collision", "topic_value")
-DURATION = re.compile(
-    r"^\s*(?:(\d+(?:\.\d+)?)h)?\s*(?:(\d+(?:\.\d+)?)m)?\s*(?:(\d+(?:\.\d+)?)s)?\s*$"
-)
-
-
-class ScenarioError(ValueError):
-    """The scenario cannot be read, validated or resolved."""
-
-
-def parse_duration(value: Any) -> float:
-    """Seconds from a number or a ``1h2m3.5s`` string (any unit may be left out)."""
-    if isinstance(value, bool):
-        raise ValueError("a duration is a number of seconds or a string such as '90s' or '1m30s'")
-    if isinstance(value, int | float):
-        return float(value)
-    if isinstance(value, str):
-        match = DURATION.match(value)
-        if match and value.strip():
-            hours, minutes, seconds = (float(g) if g else 0.0 for g in match.groups())
-            return hours * 3600.0 + minutes * 60.0 + seconds
-    raise ValueError(f"{value!r} is not a duration ('90s', '1m30s', '0.5s' or a number of seconds)")
-
-
-DURATION_SCHEMA = {
-    "anyOf": [
-        {"type": "number", "minimum": 0},
-        {
-            "type": "string",
-            "pattern": r"^\s*(\d+(\.\d+)?h)?\s*(\d+(\.\d+)?m)?\s*(\d+(\.\d+)?s)?\s*$",
-        },
-    ],
-    "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'.",
-}
-Duration = Annotated[
-    float, BeforeValidator(parse_duration), Field(ge=0), WithJsonSchema(DURATION_SCHEMA)
-]
-
-
-class Strict(BaseModel):
-    """Base of every section: unknown keys are errors, so typos never pass silently."""
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class Metadata(Strict):
@@ -109,29 +120,6 @@ class World(Strict):
         description="World file in the workspace's worlds directory (`depot.sdf`); its named "
         "frames are the poses vehicles spawn at and goals refer to."
     )
-
-
-class Placement(Strict):
-    """A pose in the world: a named frame of the world file, or coordinates.
-
-    `frame` and `x`/`y` are exclusive. `z` is optional with coordinates (the model's default
-    spawn height, or the ground for a goal); `yaw` is in radians.
-    """
-
-    frame: str | None = Field(default=None, description="A `<frame name>` of the world file.")
-    x: float | None = None
-    y: float | None = None
-    z: float | None = None
-    yaw: float | None = None
-
-    @model_validator(mode="after")
-    def _frame_or_coordinates(self) -> Placement:
-        if self.frame is not None:
-            if any(v is not None for v in (self.x, self.y, self.z, self.yaw)):
-                raise ValueError("give either frame or x, y, z, yaw")
-        elif self.x is None or self.y is None:
-            raise ValueError("give either frame or at least x and y")
-        return self
 
 
 class Vehicle(Strict):
@@ -244,64 +232,12 @@ class Time(Strict):
     )
 
 
-class TimelineBase(Strict):
-    """What every timeline entry has: when it starts and its label."""
-
-    at: Duration = Field(
-        default=0.0, description="When, after the vehicles are ready (`30s`, `1m`)."
-    )
-    name: str | None = Field(
-        default=None, description="Label in the run record (default: the action)."
-    )
-
-
-class NavigateToPose(TimelineBase):
-    """Send a Nav2 `NavigateToPose` goal to a vehicle and wait for its result."""
-
-    vehicle: Name = Field(description="The vehicle the goal goes to.")
-    action: Literal["navigate_to_pose"]
-    goal: Placement = Field(description="The goal, in the world (frame or coordinates).")
-    timeout_s: Duration = Field(default=300.0, description="Give up on the result after this long.")
-
-
-class LinkSet(TimelineBase):
-    """Put another profile on a vehicle's radio link (`network.profiles` or a preset)."""
-
-    vehicle: Name = Field(description="The vehicle whose link changes.")
-    action: Literal["link.set"]
-    profile: str = Field(description="The profile from now on.")
-
-
-class LinkDrop(TimelineBase):
-    """Drop a vehicle's radio link: nothing gets through either way.
-
-    With `duration_s` the entry restores the link's configured profile after that long and ends
-    then; without it the link stays down until a `link.restore` or `link.set`.
-    """
-
-    vehicle: Name = Field(description="The vehicle whose link drops.")
-    action: Literal["link.drop"]
-    duration_s: Duration | None = Field(
-        default=None, description="Restore the link after this long (absent: stay down)."
-    )
-
-
-class LinkRestore(TimelineBase):
-    """Bring back the profile the scenario configures for a vehicle's link."""
-
-    vehicle: Name = Field(description="The vehicle whose link is restored.")
-    action: Literal["link.restore"]
-
-
-TimelineEntry = Annotated[
-    NavigateToPose | LinkSet | LinkDrop | LinkRestore, Field(discriminator="action")
-]
-LINK_ACTIONS = ("link.set", "link.drop", "link.restore")
-
-
-def entry_label(entry: TimelineEntry) -> str:
-    """The label of a timeline entry in the record (`name`, or `<action>@<at>s`)."""
-    return entry.name or f"{entry.action}@{entry.at:g}s"
+# The timeline entry: every registered event's entry model, told apart by `action` (built when
+# the module loads, from the registry; the type checker sees the base every entry derives from).
+if TYPE_CHECKING:
+    TimelineEntry = TimelineBase
+else:
+    TimelineEntry = entry_union()
 
 
 # --------------------------------------------------------------------------------- assertions
@@ -560,25 +496,72 @@ class Scenario(Strict):
         return ordered
 
     def _check_timeline(self, names: list[str]) -> None:
-        """The timeline's vehicles exist; link events have links and known profiles."""
+        """The timeline's vehicles exist, `after` names entries, link events have links."""
         if self.network is not None:
             for linked in self.network.links:
                 if linked not in names:
                     raise ValueError(f"network.links: {linked!r} is not a vehicle")
+        labels = [entry_label(e) for e in self.timeline]
+        if len(set(labels)) != len(labels):
+            seen = sorted({label for label in labels if labels.count(label) > 1})
+            raise ValueError(f"timeline: names must be unique ({', '.join(seen)})")
+        by_label = dict(zip(labels, self.timeline, strict=True))
         for index, entry in enumerate(self.timeline):
-            if entry.vehicle not in names:
-                raise ValueError(f"timeline[{index}].vehicle: {entry.vehicle!r} is not a vehicle")
-            if entry.action in LINK_ACTIONS and self.network is None:
+            where = f"timeline[{index}]"
+            if entry.vehicle is not None and entry.vehicle not in names:
+                raise ValueError(f"{where}.vehicle: {entry.vehicle!r} is not a vehicle")
+            self._check_when(entry, where, names)
+            self._check_after(entry, where, labels, by_label)
+            self._check_link_entry(entry, where)
+        self._check_after_cycles(by_label)
+
+    @staticmethod
+    def _check_when(entry: TimelineBase, where: str, names: list[str]) -> None:
+        if entry.when is None:
+            return
+        if entry.when.vehicle is not None and entry.when.vehicle not in names:
+            raise ValueError(f"{where}.when.vehicle: {entry.when.vehicle!r} is not a vehicle")
+        if entry.when.needs_vehicle() and (entry.when.vehicle or entry.vehicle) is None:
+            raise ValueError(
+                f"{where}.when: {entry.when.summary()} needs a vehicle (the entry's or "
+                "when.vehicle)"
+            )
+
+    @staticmethod
+    def _check_after(
+        entry: TimelineBase, where: str, labels: list[str], by_label: dict[str, TimelineBase]
+    ) -> None:
+        for name in entry.after_names:
+            if name not in by_label:
+                known = ", ".join(labels) or "none"
+                raise ValueError(f"{where}.after: {name!r} is not a timeline entry ({known})")
+            if by_label[name] is entry:
+                raise ValueError(f"{where}.after: an entry cannot follow itself")
+            if by_label[name].repeated:
+                raise ValueError(f"{where}.after: {name!r} is a repeated entry (every)")
+
+    def _check_link_entry(self, entry: TimelineBase, where: str) -> None:
+        if entry.action_name in LINK_ACTIONS and self.network is None:
+            raise ValueError(f"{where}: {entry.action_name} needs a network section (radio links)")
+        if isinstance(entry, LinkSet) and self.network is not None:
+            profiles = self.network.known()
+            if entry.profile not in profiles:
                 raise ValueError(
-                    f"timeline[{index}]: {entry.action} needs a network section (radio links)"
+                    f"{where}.profile: unknown profile {entry.profile!r} "
+                    f"(known: {', '.join(sorted(profiles))})"
                 )
-            if isinstance(entry, LinkSet) and self.network is not None:
-                profiles = self.network.known()
-                if entry.profile not in profiles:
-                    raise ValueError(
-                        f"timeline[{index}].profile: unknown profile {entry.profile!r} "
-                        f"(known: {', '.join(sorted(profiles))})"
-                    )
+
+    @staticmethod
+    def _check_after_cycles(by_label: dict[str, TimelineBase]) -> None:
+        def visit(label: str, chain: list[str]) -> None:
+            for name in by_label[label].after_names:
+                if name in chain:
+                    cycle = " -> ".join((*chain[chain.index(name) :], name))
+                    raise ValueError(f"timeline: after forms a cycle: {cycle}")
+                visit(name, [*chain, name])
+
+        for label in by_label:
+            visit(label, [label])
 
     @model_validator(mode="after")
     def _consistent(self) -> Scenario:
@@ -651,83 +634,3 @@ def json_schema() -> dict[str, Any]:
     schema = Scenario.model_json_schema(by_alias=True)
     schema["title"] = "Fieldproof scenario v0"
     return {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": SCHEMA_ID, **schema}
-
-
-# ------------------------------------------------------------------------------------- worlds
-@dataclass(frozen=True)
-class Pose:
-    """A pose in the world: position and heading (roll and pitch are not used)."""
-
-    x: float
-    y: float
-    z: float
-    yaw: float
-
-    def relative(self, other: Pose) -> Pose:
-        """`other` expressed in this pose's frame (a goal in the map frame of a spawn)."""
-        dx, dy = other.x - self.x, other.y - self.y
-        cos, sin = math.cos(self.yaw), math.sin(self.yaw)
-        return Pose(
-            cos * dx + sin * dy,
-            -sin * dx + cos * dy,
-            other.z - self.z,
-            math.remainder(other.yaw - self.yaw, math.tau),
-        )
-
-
-@dataclass(frozen=True)
-class WorldInfo:
-    """What a world file declares that scenarios refer to."""
-
-    file: Path
-    name: str
-    frames: dict[str, Pose]
-    cameras: dict[str, str] = field(default_factory=dict)
-    """Camera sensors with a `CameraVideoRecorder` plugin: sensor name to its service."""
-
-
-VIDEO_RECORDER_PLUGIN = "gz::sim::systems::CameraVideoRecorder"
-
-
-def read_world(file: Path) -> WorldInfo:
-    """The world's name, its named frames and the cameras a video can be recorded from.
-
-    Frames are `<frame name="..."><pose>x y z r p y</pose>`; cameras are the `<sensor
-    type="camera">` elements carrying a `CameraVideoRecorder` plugin (`outputs.video`).
-    """
-    try:
-        root = ET.parse(file).getroot()  # noqa: S314  (a world file of the workspace)
-    except (OSError, ET.ParseError) as error:
-        raise ScenarioError(f"{file}: cannot read the world file: {error}") from error
-    world = root.find("world")
-    if world is None or not world.get("name"):
-        raise ScenarioError(f"{file}: no <world name=...> element")
-    frames: dict[str, Pose] = {}
-    for frame in world.findall("frame"):
-        name = frame.get("name")
-        values = (frame.findtext("pose") or "0 0 0 0 0 0").split()
-        if name and len(values) == 6:
-            x, y, z, _roll, _pitch, yaw = (float(v) for v in values)
-            frames[name] = Pose(x, y, z, yaw)
-    cameras: dict[str, str] = {}
-    for sensor in world.iter("sensor"):
-        if sensor.get("type") != "camera" or not sensor.get("name"):
-            continue
-        for plugin in sensor.findall("plugin"):
-            if plugin.get("name") == VIDEO_RECORDER_PLUGIN and plugin.findtext("service"):
-                cameras[str(sensor.get("name"))] = str(plugin.findtext("service")).strip()
-    return WorldInfo(file, str(world.get("name")), frames, cameras)
-
-
-def place(placement: Placement, world: WorldInfo, what: str) -> Pose:
-    """The world pose of a placement (`z` and `yaw` default to 0 with coordinates)."""
-    if placement.frame is not None:
-        if placement.frame not in world.frames:
-            known = ", ".join(sorted(world.frames)) or "none"
-            raise ScenarioError(
-                f"{what}: world {world.name} has no frame {placement.frame!r} ({known})"
-            )
-        return world.frames[placement.frame]
-    if placement.x is None or placement.y is None:  # the model validator rules this out
-        raise ScenarioError(f"{what}: a placement needs a frame or x and y")
-    return Pose(placement.x, placement.y, placement.z or 0.0, placement.yaw or 0.0)

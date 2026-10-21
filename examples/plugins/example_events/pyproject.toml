@@ -1,0 +1,23 @@
+# An example event plugin for the Fieldproof engine (task P2-T03, docs/reference/events.md).
+# Installed next to the engine (the engine's dev dependency group carries it, so `uv sync
+# --project engine` registers it), it adds the timeline action `example.announce` through the
+# `fieldproof.events` entry point group. Copy this directory to start a plugin of your own.
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fieldproof-example-events"
+version = "0.1.0"
+description = "An example Fieldproof event plugin: example.announce"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = ["fieldproof"]
+
+# One entry point per event: the name is the action, the value the Event subclass.
+[project.entry-points."fieldproof.events"]
+"example.announce" = "fieldproof_example_events:AnnounceEvent"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fieldproof_example_events"]

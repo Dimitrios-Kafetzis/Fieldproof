@@ -17,11 +17,14 @@ from types import FrameType
 from typing import Annotated, Any
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.markup import escape
+from rich.table import Table
 
 from fieldproof.backend import BackendError
 from fieldproof.config import ConfigError, load_config
+from fieldproof.events import parameters_of, registry
 from fieldproof.report import (
     REPORT_JSON,
     REPORT_JUNIT,
@@ -175,6 +178,10 @@ def validate(
                 "with task P2-T04, so this scenario validates but does not run yet",
                 highlight=False,
             )
+    for problem in registry().problems:
+        errors.print(
+            f"warning: event plugin not loaded: {escape(problem)}", style="yellow", highlight=False
+        )
     if failed:
         raise typer.Exit(code=2)
 
@@ -182,6 +189,50 @@ def validate(
 def schema() -> None:
     """Print the JSON Schema of a scenario file."""
     typer.echo(json.dumps(json_schema(), indent=2))
+
+
+def events(
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Print the registry as JSON instead of a table.")
+    ] = False,
+) -> None:
+    """List the timeline actions the engine knows: the built-in events and the installed plugins.
+
+    Each row is an `action` a scenario's timeline can name (docs/reference/events.md), where it
+    comes from (built-in, or the distribution that registered it through the `fieldproof.events`
+    entry point group) and its parameters. A plugin that could not be loaded is reported after
+    the table; exit code 2 then.
+    """
+    events_known = registry()
+    rows = [
+        {
+            "action": action,
+            "source": registered.source,
+            "summary": registered.event.summary,
+            "parameters": parameters_of(registered.entry_type),
+        }
+        for action, registered in sorted(events_known.events.items())
+    ]
+    if json_output:
+        typer.echo(json.dumps({"events": rows, "problems": events_known.problems}, indent=2))
+    else:
+        table = Table(title=f"{len(rows)} timeline action(s)", box=box.SIMPLE_HEAD)
+        table.add_column("Action", style="bold", no_wrap=True)
+        table.add_column("Source", no_wrap=True)
+        table.add_column("Summary")
+        table.add_column("Parameters")
+        for row in rows:
+            table.add_row(
+                str(row["action"]),
+                str(row["source"]),
+                str(row["summary"]),
+                ", ".join(row["parameters"]) or "-",
+            )
+        console.print(table)
+        for problem in events_known.problems:
+            errors.print(f"warning: {escape(problem)}", style="yellow", highlight=False)
+    if events_known.problems:
+        raise typer.Exit(code=2)
 
 
 def run(  # noqa: PLR0917  (Typer reads the options from the signature)
