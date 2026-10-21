@@ -100,7 +100,12 @@ def echo_field(topic: str, field: str, timeout: float = 30.0) -> str | None:
     completed = ros2(
         "topic", "echo", "--once", "--field", field, topic, timeout=timeout, check=False
     )
-    lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    # The CLI interleaves "A message was lost!!!" when a reader falls behind: not the value.
+    lines = [
+        line.strip()
+        for line in completed.stdout.splitlines()
+        if line.strip() and line.strip() != "---" and "message was lost" not in line
+    ]
     if completed.returncode != 0 or not lines:
         return None
     return lines[0]

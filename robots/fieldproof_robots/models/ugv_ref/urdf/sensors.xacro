@@ -118,7 +118,11 @@
     </gazebo>
   </xacro:macro>
 
-  <!-- Single-band GNSS: about one metre horizontal and two metres vertical position noise. -->
+  <!-- Single-band GNSS: about one metre horizontal and two metres vertical position noise.
+       The NavSat sensor applies the horizontal noise to the latitude and longitude it outputs,
+       in degrees, so the stddev is converted from metres (one degree of latitude is 111.32 km;
+       the longitude noise comes out a little under a metre east at the depot's latitude). -->
+  <xacro:property name="metres_per_degree" value="111319.49"/>
   <xacro:macro name="gnss" params="link topic rate horizontal_stddev:=1.0 vertical_stddev:=2.0 velocity_stddev:=0.1">
     <gazebo reference="${link}">
       <sensor name="gps" type="navsat">
@@ -132,7 +136,7 @@
             <horizontal>
               <noise type="gaussian">
                 <mean>0.0</mean>
-                <stddev>${horizontal_stddev}</stddev>
+                <stddev>${horizontal_stddev / metres_per_degree}</stddev>
               </noise>
             </horizontal>
             <vertical>
