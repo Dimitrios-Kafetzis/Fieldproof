@@ -1,11 +1,12 @@
 # Events
 
-The event injection framework of task P2-T03 (session 1 of 2): how a scenario's `timeline`
-says *when* something happens (the timeline DSL: `at`, `after`, `when`, `every`), *what*
-happens (the events: built-in actions and plugins found through Python entry points), how every
-occurrence is recorded (`run.json`, `engine.log`, `/fieldproof/events`), and how to write an
-event plugin. The scenario format around the timeline is in [scenarios.md](scenarios.md); the
-radio link events are detailed in [network.md](network.md#timeline-events).
+The event injection framework of task P2-T03: how a scenario's `timeline` says *when*
+something happens (the timeline DSL: `at`, `after`, `when`, `every`), *what* happens (the
+events: built-in actions and plugins found through Python entry points; the world events on a
+Gazebo plugin, the fault events on the bridge's injectors), how every occurrence is recorded
+(`run.json`, `engine.log`, `/fieldproof/events`), and how to write an event plugin. The
+scenario format around the timeline is in [scenarios.md](scenarios.md); the radio link events
+are detailed in [network.md](network.md#timeline-events).
 
 ```yaml
 timeline:
@@ -107,7 +108,7 @@ for the assertions ([assertions.md](assertions.md#how-a-run-is-observed)).
 ## Built-in events
 
 `fieldproof events` lists every action the engine knows, where it comes from and its
-parameters. The built-ins of this session:
+parameters. The engine-side built-ins (session 1 of the task):
 
 | Action | Fields | Effect |
 | --- | --- | --- |
@@ -120,11 +121,96 @@ parameters. The built-ins of this session:
 
 A `param.set` or a `navigate_to_pose` aimed at a killed or paused container fails (`ros2`
 cannot run there), and a command still running in a container when it is paused freezes with
-it, so a scenario orders such entries with `after` (a list waits for all of them). The world
-and sensor events of the backlog (`spawn_object`, `remove_object`, `teleport`, `set_wind`, `gps.deny`,
-`gps.offset`, `imu.bias`, `sensor.dropout`, `sensor.freeze`, `battery.drain`,
-`actuator.limit`) arrive with the second session of the task, on a Gazebo-side plugin and
-fault-injector nodes between the bridge and the vehicle ([Known limits](#known-limits)).
+it, so a scenario orders such entries with `after` (a list waits for all of them).
+
+### The world events
+
+The world events change the simulated world while it runs, through the `fieldproof::WorldEvents`
+system every Fieldproof world loads ([worlds.md](worlds.md#the-world-events-plugin)): a
+gz-transport service per event under `/world/<name>/fieldproof/`, which the engine calls with
+the `gz service` CLI inside the simulator's container. The plugin applies a request in the
+simulator's next step and answers once it has, with a one-line report that the entry takes as
+its detail (`spawned model crate at (10, 0.8, 0.25, yaw 0)`); a request the plugin refuses (a
+name already taken, a model that does not exist, SDF that does not parse) ends the entry
+`failed` with the reason. None of them needs a `vehicle` (a `when` names its own).
+
+| Action | Fields | Effect |
+| --- | --- | --- |
+| `spawn_object` | `model` (its name in the world), `pose` (a placement: a frame or `x`, `y`, `z`, `yaw`), then either a `shape` (`box` with `size: [x, y, z]`, `cylinder` with `radius` and `length`, `sphere` with `radius`), `static` (true), `mass_kg` (1, for a dynamic shape), `color` (`[r, g, b]`), or a `uri` (`model://<name>` of the simulator's resource path: a Fuel model of the world, a package model) | spawn an obstacle. A shape stands on the placement (its `z` is the ground; the model's centre is half the height above it) and is one link with a box, cylinder or sphere collision and visual, which keeps the real-time factor (a mesh on the ground plane halves it, [worlds.md](worlds.md#physics-step-and-real-time)); a URI model is placed at the pose as it is. The lidar sees a spawned obstacle in its next scan, so a navigation stack reacts to it as to anything else. The name must not be a vehicle's |
+| `remove_object` | `model` | remove a model of the world by name (one spawned by `spawn_object`, or any model the world file declares; not a vehicle, which `container.kill` ends) |
+| `teleport` | `vehicle` or `model`, `pose` (a placement) | move the model to the pose at once, velocities kept. A vehicle keeps its spawn height above the pose's ground `z` (0.12 m for the reference UGV); its stack is not told, so its localisation has to recover (the kidnapped-robot problem, as in the field) |
+| `set_wind` | `velocity: [x, y, z]` (m/s, world frame: x east, y north, z up), `enabled` (true) | set the world's wind: the wind entity's seed and velocity, and Gazebo's WindEffects system (which every Fieldproof world loads) applies the force to the links of the models that enable wind (`<enable_wind>true</enable_wind>`: the aerial and surface vehicles of later phases; the reference UGV does not, so the wind changes nothing it does); `wind_info` reports it |
+
+```yaml
+  - name: spawn_crate                   # half a metre into the drive, a crate ahead
+    when: { vehicle: ugv1, metric: distance_to, target: { frame: spawn_dock }, condition: value > 0.5 }
+    within_s: 3m
+    action: spawn_object
+    model: crate
+    shape: box
+    size: [0.6, 0.6, 0.5]
+    pose: { x: 10.0, y: 0.8 }
+  - name: gust
+    at: 20s
+    action: set_wind
+    velocity: [8.0, 0.0, 0.0]
+  - name: clear_crate
+    after: drive_ahead
+    action: remove_object
+    model: crate
+```
+
+### The fault events
+
+The fault events make a sensor, the drive or the battery misbehave as a failing driver would,
+without touching the vehicle's container: every adapter the bridge bundle runs between the
+simulator's bridge and the vehicle is a **fault injector** ([bridge.md](bridge.md#adapters)):
+the IMU and GNSS adapters, the throttle, the relays of the other sensor topics (the laser scan,
+the odometry) and of the drive command, and the battery node of a manifest with a `power`
+section. A fault is a parameter of the injector, which the event sets with `ros2 param set`
+inside the bridge container (asked again while the CLI's graph lags behind the node, as
+`param.set` does); with `duration_s` the entry holds that long and sets the parameter back
+(`fix denied for 20 s, lifted`), without it the fault stays for the rest of the run. Each event
+resolves its injector when the scenario is validated, from the vehicle's bridge bundle (the
+same generator the bridge container runs), and refuses what the bundle does not route through
+one: the camera topics stay on the C++ path, a manifest without a `power.battery` has no
+battery, a manifest without a GNSS no fix to deny.
+
+| Action | Fields | Effect |
+| --- | --- | --- |
+| `gps.deny` | `vehicle`, `sensor` (the manifest's GNSS sensor; the only one by default), `duration_s` | the receiver reports no fix: `status.status` `STATUS_NO_FIX`, NaN latitude, longitude and altitude, unknown covariance (jamming, a tunnel, a roof) |
+| `gps.offset` | `vehicle`, `sensor`, `east_m`, `north_m`, `up_m` (0), `duration_s` | the fix moved by metres east, north and up at its latitude (multipath, spoofing) |
+| `imu.bias` | `vehicle`, `sensor` (the manifest's IMU), `gyro_radps: [x, y, z]`, `accel_mps2: [x, y, z]` (zeros), `duration_s` | a bias added to the angular velocity and the linear acceleration of every message |
+| `sensor.dropout` | `vehicle`, `sensor`, `duration_s` | the sensor goes silent: its topic stops. `sensor` is a sensor of the manifest (`lidar`, `imu`, `gps`), a drive interface (`odometry`, `joint_states`, `command`: the drive command on its way to the simulator) or `battery`, or one of their topics (`scan`, `/ugv1/odom`) |
+| `sensor.freeze` | `vehicle`, `sensor`, `duration_s` | the sensor hangs: its last message repeats, stamp included (a hung driver; a consumer sees a stale stamp) |
+| `battery.drain` | `vehicle`, `to_pct` (0), `duration_s` (required) | the battery's percentage falls linearly, in simulation time, from where it is to `to_pct` over `duration_s`; the voltage follows between the manifest's empty and full voltage, the status is `DISCHARGING` meanwhile; the entry waits the duration out (`drained to 0 % over 60 s`), so an entry `after` it runs on a flat battery. The reference vehicles simulate no power system: the state is the manifest's figures and the drain, nothing else drains it |
+| `actuator.limit` | `vehicle`, `max_linear_mps`, `max_angular_radps` (one or both), `duration_s` | the actuators deliver no more than these speeds: the drive command is clamped between the vehicle and the simulator (a derated motor controller, a slipping wheel); the vehicle's own `cmd_vel` is recorded as it commanded it, the limited command goes on the hidden `_bridge/cmd_vel` |
+
+```yaml
+  - name: deny_gps                      # 5 s in, no fix for 20 s
+    vehicle: ugv1
+    at: 5s
+    action: gps.deny
+    duration_s: 20s
+  - name: tired_motors                  # after the denial, the drive capped at 0.3 m/s
+    vehicle: ugv1
+    after: deny_gps
+    action: actuator.limit
+    max_linear_mps: 0.3
+  - name: flat_battery
+    vehicle: ugv1
+    at: 10s
+    action: battery.drain
+    to_pct: 5
+    duration_s: 2m
+```
+
+A fault's effect on the stack under test is the stack's business, as in the field: the example
+vehicle navigates by SLAM and odometry and never reads the fix, so a `gps.deny` changes nothing
+about its drive (which the GNSS-denial example shows), while a `sensor.dropout` of its lidar
+stops its costmaps and Nav2 holds. What the assertions can see: the sensor topics the vehicle
+sees (`topic_value` on `gps/fix` `status.status`, `topic_rate` on `scan`), the ground truth and
+the recording.
 
 ## The record
 
@@ -210,15 +296,23 @@ class AnnounceEvent(Event):
   `timeout_s` under the scenario's budget). The `EventContext` offers `vehicle(name)`,
   `ros2(vehicle, argv, timeout_s=..., on_line=...)` (a `ros2` command inside the vehicle's
   container, through the image's entry point, interrupted after `timeout_s` with exit code
-  124), `exec(container, argv, on_line)` (any command in any container of the run), `backend`
-  (the container runtime: `pause`, `unpause`, `kill`, `state`, ...), `log(event, message,
-  **fields)` (a line of `engine.log`, relayed to `/fieldproof/events`), `clock()`,
-  `hold(seconds)` (wait in slices, `False` when the run is ending), `tearing_down`,
+  124), `bridge_ros2(vehicle, argv, timeout_s=..., on_line=...)` (the same inside the
+  vehicle's bridge container, where the fault injectors run; the bridge runs on whether the
+  vehicle's container is paused, killed or behind a link), `gz_service(service,
+  request_type=..., reply_type=..., request=..., timeout_s=...)` (`gz service -s` inside the
+  simulator's container, the request in protobuf text format, the reply printed the same way:
+  the world events), `exec(container, argv, on_line)` (any command in any container of the
+  run), `backend` (the container runtime: `pause`, `unpause`, `kill`, `state`, ...),
+  `log(event, message, **fields)` (a line of `engine.log`, relayed to `/fieldproof/events`),
+  `clock()`, `hold(seconds)` (wait in slices, `False` when the run is ending), `tearing_down`,
   `expect_exit(container)` (a container the event is about to kill), `mark_paused(container,
   paused)` (so the teardown resumes it), `apply_link(vehicle, profile, cause)` and
-  `link_profile(vehicle)` (the radio links). The hook sets `record.status` (`ok`, `failed`,
-  `timeout`) and `record.detail`; a record left `running` ends `ok`, an exception ends it
-  `failed` with the exception's text.
+  `link_profile(vehicle)` (the radio links). A vehicle handle has `name`, `namespace`,
+  `container_name`, `bridge_name`, `spawn`, `topic(name)` and `bundle()`, the plan of its
+  bridge bundle ([bridge.md](bridge.md#the-bundle)): `bundle().injector("lidar")` is the
+  node a fault of the lidar sets, `bundle().fully_qualified(node.name)` its name. The hook
+  sets `record.status` (`ok`, `failed`, `timeout`) and `record.detail`; a record left
+  `running` ends `ok`, an exception ends it `failed` with the exception's text.
 - Registration: the distribution is installed in the engine's environment (`uv add --project
   engine --dev --editable <path>` for a plugin in the workspace, or `pip install` into that
   environment). The engine loads every entry point of the group when it starts; a plugin that
@@ -247,10 +341,31 @@ has moved a metre, `freeze_stack` pauses the container for 3 s once both have en
 `stop_stack` kills it. Seven assertions check the drive and, through `within_time`, that each
 event ran.
 
+`examples/scenarios/ugv_obstacle_replan.yaml` is the first definition-of-done scenario of the
+task: the vehicle drives 4.5 m ahead through the roller door; half a metre into the drive a
+`when` on its distance to the spawn fires `spawn_object` and a 0.6 m crate stands on the
+straight line, 1.7 m ahead and in the lidar's view; Nav2's costmaps take it in, its planner
+routes around it (the door is 4 m wide) and the vehicle reaches the goal without a contact;
+`remove_object` clears the crate once the drive has ended. Six assertions: the crate spawned
+(`within_time`), the goal reached, in time, the path kept being published (`topic_rate` on
+`plan`), no contact, the crate cleared. The integration test adds what the simulator saw: the
+vehicle's ground truth leaving the straight line to pass the crate.
+
+`examples/scenarios/ugv_gps_denied.yaml` is the second: the same drive, with `gps.deny` 5 s in
+for 20 s and a drive back to the dock once both the drive and the denial have ended. Seven
+assertions: the fix present before the denial, absent through a window the denial is sure to
+cover (13 s to 24 s: the parameter's round trip through the CLI and the margin software
+rendering needs in CI), back for the return leg (`topic_value` on `gps/fix` `status.status`,
+`always` and `eventually`), the event run (`within_time`), the goal reached, the return made,
+no contact. The example stack never reads the fix, so the denial changes nothing about the
+drive, which is the point: a vehicle that depended on it would show it here.
+
 ```bash
 uv run --project engine fieldproof events
 uv run --project engine fieldproof validate examples/scenarios/ugv_events.yaml
 uv run --project engine fieldproof run examples/scenarios/ugv_events.yaml
+uv run --project engine fieldproof run examples/scenarios/ugv_obstacle_replan.yaml
+uv run --project engine fieldproof run examples/scenarios/ugv_gps_denied.yaml
 ```
 
 ## Tests
@@ -267,21 +382,62 @@ uv run --project engine fieldproof run examples/scenarios/ugv_events.yaml
   `within_s`, a skipped chain, a failing event, an event raising, a paused container at the
   teardown, a killed container, a sim-time condition, the budget while a condition waits);
   `examples/plugins/example_events/tests/test_announce.py`: the plugin (run with the engine's
-  tests). `make test-engine` runs them all.
+  tests); `test_world_fault_events.py`: the world events (the entries' validation, the SDF of
+  every shape and of a URI model, the poses and services `plan` resolves, the requests `apply`
+  composes and every reply: applied, refused, no answer) and the fault events (the injector
+  each resolves from the bridge bundle by sensor, interface or topic and the refusals, the
+  parameters set and lifted in the bridge, the CLI's lag, a refused value, the budget ending a
+  fault, the run ending during one, the battery's wait). `make test-engine` runs them all.
+- `sim/fieldproof_gz_plugins/test/test_world_events.cpp` (`make test-ros`): the WorldEvents
+  plugin on a headless server ([worlds.md](worlds.md#the-world-events-plugin));
+  `bridge/fieldproof_bridge/test/test_faults.py`: the injectors' logic (the pass-through filter
+  with dropout and freeze, the parameter callback, the GNSS denial and offset, the IMU bias,
+  the command limit, the battery's ramp and state), and `test_generator.py` the routing of
+  every injectable output and the command through them; the bridge contract test runs the
+  real bundle, relays included, against the reference UGV.
 - `tests/integration/test_event_injection.py` (`make test-integration`): the example scenario
   against the real stack: exit code 0, every entry `ok` with its trigger and parameters, the
   seven assertions passed, the vehicle container seen paused and then exited by `docker
   inspect` while its log is kept, the `action.start`, `action.end` and `action.triggered` lines
   of `engine.log`, the three `/announce` messages in the recording, nothing left behind.
+- `tests/integration/test_world_events.py`: the plugin's services against a bare simulator
+  (the compose `sim` service), with the requests the events compose (a crate spawned where
+  asked and `gz model` reporting it, refused the second time, teleported, the wind set and
+  reported by `wind_info`, the crate removed and a second removal refused); then
+  `ugv_obstacle_replan.yaml` end to end: every entry `ok` with the plugin's reports, the six
+  assertions passed, the crate spawned while the vehicle was still north of it, the ground
+  truth showing the vehicle at least 0.57 m off the straight line beside the crate, the
+  `world.changed` lines, nothing left behind.
+- `tests/integration/test_fault_injection.py`: the injectors against the real bridge (the
+  compose `sim` and `bridge` services with the spawned reference UGV, no vehicle stack): each
+  fault set with `ros2 param set` in the bridge container as the events do and observed on the
+  contract topic with `ros2 topic echo` (no fix then a fix, the fix moved 100 m east, the gyro
+  biased, the scan silent then back, the odometry stamp frozen then moving, the battery falling
+  to 50 % with its status, a 1 m/s command leaving the relay at 0.2 m/s); then
+  `ugv_gps_denied.yaml` end to end: `deny_gps` `ok` with the fix denied for 20 s and lifted,
+  both drives `ok`, the seven assertions passed, the `fault.injected` and `fault.lifted` lines,
+  nothing left behind.
 
 ## Known limits
 
-- Session 2 of the task adds the world events (`spawn_object`, `remove_object`, `teleport`,
-  `set_wind`) on a Gazebo-side C++ plugin exposing world-mutation services, the sensor and
-  vehicle fault events (`gps.deny`, `gps.offset`, `imu.bias`, `sensor.dropout`,
-  `sensor.freeze`, `battery.drain`, `actuator.limit`) on ROS-side fault-injector nodes between
-  the bridge and the vehicle, and the definition-of-done scenarios (an obstacle spawned on the
-  planned path with Nav2 replanning, a GPS denial).
+- The fault events reach what the bridge routes through an injector: the IMU, the GNSS fix,
+  the laser scan, the odometry, the joint states, the drive command and the battery of the
+  reference vehicles. The camera topics stay on the C++ path (images at 15 Hz are too heavy
+  for a Python relay) and take no fault; a stack's own topics (what it computes from the
+  sensors) are not the bridge's to fault. A fault applies to every message of the topic, not
+  to one in a hundred: there is no probabilistic dropout yet.
+- The battery is synthetic: the reference vehicles simulate no power system, so the state is
+  the manifest's figures and what `battery.drain` says, and nothing else drains it. A Gazebo
+  battery model (the LinearBatteryPlugin) could feed the same node later.
+- `set_wind` acts on the links that enable wind; the reference UGV does not, so the wind
+  changes nothing about it until the aerial and surface vehicles arrive (P4, P5).
+- A spawned obstacle is a primitive shape or a model of the resource path; a `uri` model's
+  collisions are whatever the model has (a mesh collision on the ground plane halves the
+  real-time factor), and `spawn_object` cannot check that in advance.
+- A fault's parameter takes a round trip through the `ros2` CLI inside the bridge container
+  (one to a few seconds, more while the CLI's graph lags), so an assertion window on a fault
+  starts a few seconds after the entry's `at`; the record's `t_s` and `duration_s` say when it
+  was in place.
 - Times are wall clock from the start of the timeline; `every` drifts with the host's load and
   a `when` fires on the first sample that satisfies it. Sim-time scheduling is task P2-T04's.
 - A `when` reads what the observer streams: topic fields at the topic's rate, the ground truth

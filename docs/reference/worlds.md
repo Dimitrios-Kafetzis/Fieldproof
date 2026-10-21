@@ -7,7 +7,9 @@ Fuel models they include pinned in `assets/fuel.lock`
 ([01-architecture.md](../plan/01-architecture.md#l1-physics-and-sensor-engine)). Every world
 loads the same systems, so any reference vehicle spawns into any of them: Physics,
 UserCommands, SceneBroadcaster, Contact, Sensors (ogre2, headless rendering), Imu and NavSat
-with WGS84 spherical coordinates (an arbitrary origin on the Athens coast, ENU).
+with WGS84 spherical coordinates (an arbitrary origin on the Athens coast, ENU), WindEffects
+(the wind a scenario sets acts on the links that enable it) and Fieldproof's own
+`fieldproof::WorldEvents` ([the world events plugin](#the-world-events-plugin)).
 
 | World | Task | Contents |
 | --- | --- | --- |
@@ -111,6 +113,48 @@ recording, it roughly halves the simulator's real-time factor on a GPU workstati
 service `/spectator/record_video` and copies the MP4 into the run directory
 ([scenarios.md](scenarios.md#video)). Another world offers the same by declaring a camera
 sensor with the plugin and a `<service>` of `/<sensor name>/record_video`.
+
+## The world events plugin
+
+`fieldproof::WorldEvents` (`sim/fieldproof_gz_plugins`, library `fieldproof_world_events`,
+task P2-T03) is the system through which a scenario's timeline changes a world while it runs
+([events.md](events.md#the-world-events)). Attached to a world, it advertises four gz-transport
+services under `/world/<name>/fieldproof/`:
+
+| Service | Request | Effect |
+| --- | --- | --- |
+| `spawn` | `gz.msgs.EntityFactory` (`sdf` or `sdf_filename`, `name`, `pose`, `allow_renaming`) | create the model at the pose, under the given name (refused when the name is taken, unless renaming is allowed: `crate_0`, `crate_1`, ...; refused when the SDF does not parse or holds no model) |
+| `remove` | `gz.msgs.Entity` (`name`) | remove the model of the world called so (refused when there is none) |
+| `teleport` | `gz.msgs.Pose` (`name`, `position`, `orientation`; no orientation means none) | move the model there at once (its velocities are kept) |
+| `set_wind` | `gz.msgs.Wind` (`linear_velocity`, `enable_wind`) | set the world's wind entity (seed and velocity) and tell WindEffects, which pushes the links that enable wind and answers `/world/<name>/wind_info` |
+
+Every request is queued by the service thread and applied against the entity component manager
+in the next `PreUpdate`, the only place a system may change it; the reply, a `gz.msgs.StringMsg`,
+comes once it has been applied: a one-line report (`spawned model crate at (10, 0.8, 0.25, yaw
+0)`) or `error: ...` with the reason. Gazebo's own UserCommands system answers its `create`,
+`remove` and `set_pose` requests when they are queued (its `/blocking` variants wait, but answer a
+bare Boolean), so a client learns neither whether a request was valid nor what happened; the
+scenario engine needs both, since an entry ends `ok` or `failed` on the answer and the next entry
+or an assertion window may depend on the world having changed.
+
+```bash
+sdf="<?xml version='1.0'?><sdf version='1.11'><model name='crate'><static>true</static>"
+sdf+="<link name='l'><collision name='c'><geometry><box><size>0.6 0.6 0.5</size></box>"
+sdf+="</geometry></collision></link></model></sdf>"
+gz service -s /world/depot/fieldproof/spawn --reqtype gz.msgs.EntityFactory \
+    --reptype gz.msgs.StringMsg --timeout 5000 \
+    --req "name: \"crate\" sdf: \"$sdf\" pose { position { x: 10 y: 0.8 z: 0.25 } }"
+gz service -s /world/depot/fieldproof/set_wind --reqtype gz.msgs.Wind --reptype gz.msgs.StringMsg \
+    --timeout 5000 --req 'enable_wind: true linear_velocity { x: 4 }'
+```
+
+The simulation image builds the package into `/opt/fieldproof_sim` and points
+`GZ_SIM_SYSTEM_PLUGIN_PATH` at its `lib` ([containers.md](../setup/containers.md#images)); the dev
+container finds it through the sourced install space of `sim/`. `test_world_events.cpp` (a gtest
+on `gz::sim::TestFixture`, `make test-ros`) runs a headless server with physics and WindEffects
+and calls every service through gz-transport: the pose of a spawned box, a name taken and
+renamed, bad SDF, a teleport with and without an orientation, a removal and a second one, the
+wind seed and `wind_info`; `test_worlds.py` requires the plugin in every world.
 
 ## The asset pipeline
 

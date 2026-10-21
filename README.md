@@ -17,7 +17,8 @@ test with pass/fail assertions, so field testing becomes verification of what al
 > Status: milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2
 > (the scenario engine) is under way with fleets of vehicles (P2-T01), radio links between
 > the vehicles and a ground station (P2-T02) and the event injection framework (P2-T03: the
-> timeline DSL, the event plugins and the engine-side events in its first session). See
+> timeline DSL, the event plugins, the engine-side events, the world events on a Gazebo plugin
+> and the sensor and vehicle faults on the bridge's injectors). See
 > [docs/plan/STATUS.md](docs/plan/STATUS.md).
 
 ## See it run
