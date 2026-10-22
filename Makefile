@@ -56,6 +56,9 @@ ROS_WORKSPACES ?= sim robots bridge
 PYTHON ?= python3
 # Limits of the world tests (tests/worlds); CI relaxes them for software rendering.
 WORLD_TEST_ENV := $(foreach v,FIELDPROOF_WORLD_LOAD_LIMIT_S FIELDPROOF_WORLD_RTF_MIN,$(if $($(v)),-e $(v)=$($(v))))
+# The bridge contract test's rate tolerance for the rendering sensors (issue #69); CI widens it
+# under software rendering.
+ROS_TEST_ENV := $(if $(FIELDPROOF_CONTRACT_RENDER_TOLERANCE),-e FIELDPROOF_CONTRACT_RENDER_TOLERANCE=$(FIELDPROOF_CONTRACT_RENDER_TOLERANCE))
 # The example vehicle (task P1-T04): its manifest, and the base image its build starts from
 # (the same prefix and tag as the stack's images, so `FIELDPROOF_IMAGE_TAG=main` builds on the
 # published base). `make test-vehicles VEHICLE_TEST_FLAGS=--no-build` tests an image already built.
@@ -191,7 +194,7 @@ test-cockpit: ## Cockpit tests: pnpm install from the lock file, TypeScript stri
 # left running; `make down` stops it. Build output lands in <workspace>/build, install and log.
 test-ros: ## ROS workspace tests: colcon build and colcon test of sim/, robots/ and bridge/ in the dev container (ROS_WORKSPACES=...)
 	$(COMPOSE) --profile dev up -d --wait --no-build dev
-	$(COMPOSE) --profile dev exec -T dev tools/ros/colcon.sh test $(ROS_WORKSPACES)
+	$(COMPOSE) --profile dev exec -T $(ROS_TEST_ENV) dev tools/ros/colcon.sh test $(ROS_WORKSPACES)
 
 tidy: ## clang-tidy over the C++ packages in the dev container, using the compile commands of the last test-ros build
 	$(COMPOSE) --profile dev up -d --wait --no-build dev
