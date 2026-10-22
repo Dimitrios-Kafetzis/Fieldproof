@@ -69,9 +69,17 @@ Applied to every interface of the manifest (`drive.command`, `drive.odometry`,
   camera convention, to the optical frame `camera_optical_link`; the point cloud stays in
   `camera_link`).
 - **Adapters**: an IMU output gets the `imu_adapter`, a GNSS fix the `navsat_adapter`, an
-  interface with `gz_rate` the `throttle`. The bridge then publishes on a hidden topic,
-  `<namespace>/_bridge/<topic>` (not shown by `ros2 topic list`), which the adapter reads; the
-  adapter publishes the contract topic with the declared QoS and frame.
+  interface with `gz_rate` the `throttle`, every other output of an injectable type (a laser
+  scan, an odometry, joint states; not the camera topics) the `relay`. The bridge then publishes
+  on a hidden topic, `<namespace>/_bridge/<topic>` (not shown by `ros2 topic list`), which the
+  adapter reads; the adapter publishes the contract topic with the declared QoS and frame. Every
+  adapter is a fault injector (task P2-T03, [Adapters](#adapters)).
+- **The command relay**: the drive command (`geometry_msgs/msg/Twist`) goes through the
+  `command_relay`: the vehicle publishes the contract topic, the relay republishes on the
+  hidden topic the bridge forwards to Gazebo, and the `actuator.limit` event caps the speeds
+  in between.
+- **The battery**: a manifest with a `power.battery` section gets the `battery` node, which
+  publishes the synthetic battery state the `battery.drain` event drains.
 - **Clock**: `/clock` (`rosgraph_msgs/msg/Clock` from `gz.msgs.Clock`) is bridged by the main
   instance unless disabled; the adapters and `robot_state_publisher` run with `use_sim_time`.
 - **TF assembly**: `robot_state_publisher` runs on the manifest's xacro rendered with the same
@@ -85,17 +93,28 @@ Applied to every interface of the manifest (`drive.command`, `drive.odometry`,
 
 rclpy nodes in `fieldproof_bridge/adapters/`, started by the launch file with the parameters the
 generator derived from the manifest (`ros2 run fieldproof_bridge <name> --ros-args -p ...` runs
-one by hand). All take `input`, `output`, `qos_reliability`, `qos_durability`, `qos_depth`.
+one by hand). All take `input`, `output`, `qos_reliability`, `qos_durability`, `qos_depth`, and
+every one is a **fault injector** (task P2-T03): it carries dynamic parameters a scenario's
+timeline sets at run time through the fault events ([events.md](events.md#the-fault-events)) and
+applies them to every message it republishes. The faults every injector offers: `dropout` (publish
+nothing while true: the sensor is silent) and `freeze` (repeat the last message as it was, stamp
+included: the sensor hangs). The vehicle's stack sees the injector's output as the sensor's
+topic, so a fault reaches it the way a failing driver would, and its own container is not touched.
 
-| Node | What it changes | Parameters from the manifest |
-| --- | --- | --- |
-| `imu_adapter` | the covariance diagonals (`stddev²`) of angular velocity and linear acceleration, which the bridge leaves at zero ("unknown") and a localisation stack reads; the orientation covariance stays unknown unless an `orientation_stddev` is given; the frame, if relabelled | `noise.gyro_stddev_radps`, `noise.accel_stddev_mps2`, `noise.orientation_stddev_rad` |
-| `navsat_adapter` | the frame (Gazebo Harmonic's NavSat system sets none, gz-sim issue 2236), the position covariance (`DIAGONAL_KNOWN` from the horizontal and vertical stddev), `status.status = STATUS_FIX`, `status.service` (GPS) | `noise.horizontal_stddev_m`, `noise.vertical_stddev_m` |
-| `throttle` | passes one message per period judged by the header stamps (simulation time), for interfaces Gazebo publishes faster than a real driver: the JointStatePublisher system publishes every physics step (1 kHz) and has no rate setting, the UGV's manifest declares 50 Hz | `gz_rate`, `rate_hz`, `ros_type` |
+| Node | What it changes | Parameters from the manifest | Fault parameters |
+| --- | --- | --- | --- |
+| `imu_adapter` | the covariance diagonals (`stddev²`) of angular velocity and linear acceleration, which the bridge leaves at zero ("unknown") and a localisation stack reads; the orientation covariance stays unknown unless an `orientation_stddev` is given; the frame, if relabelled | `noise.gyro_stddev_radps`, `noise.accel_stddev_mps2`, `noise.orientation_stddev_rad` | `gyro_bias_radps`, `accel_bias_mps2` (three components each, added to every message: `imu.bias`) |
+| `navsat_adapter` | the frame (Gazebo Harmonic's NavSat system sets none, gz-sim issue 2236), the position covariance (`DIAGONAL_KNOWN` from the horizontal and vertical stddev), `status.status = STATUS_FIX`, `status.service` (GPS) | `noise.horizontal_stddev_m`, `noise.vertical_stddev_m` | `deny` (the receiver reports no fix: `STATUS_NO_FIX`, NaN position, unknown covariance: `gps.deny`), `offset_enu_m` (metres east, north and up added to every fix at its latitude: `gps.offset`) |
+| `throttle` | passes one message per period judged by the header stamps (simulation time), for interfaces Gazebo publishes faster than a real driver: the JointStatePublisher system publishes every physics step (1 kHz) and has no rate setting, the UGV's manifest declares 50 Hz | `gz_rate`, `rate_hz`, `ros_type` | |
+| `relay` | republishes the topic as it is (the frame relabelled if the manifest asks), for every other output of an injectable type (laser scans, odometry, joint states, ranges, magnetic field, pressure, temperature, stamped twists and poses): small messages at up to 100 Hz | `ros_type`, `ros_frame_id` | |
+| `command_relay` | the drive command on its way to the simulator: the vehicle publishes the contract topic (`cmd_vel`), the relay republishes on the hidden topic the bridge forwards to Gazebo, clamping the linear and angular speeds to the limits | | `max_linear_mps`, `max_angular_radps` (0: no limit; `actuator.limit`) |
+| `battery` | a synthetic `sensor_msgs/msg/BatteryState` from the manifest's `power.battery` ([manifest.md](manifest.md#model-sections)): 100 % and the full voltage until a drain makes the percentage fall, linearly in simulation time, to a target over a duration; the voltage follows between empty and full, the status is `DISCHARGING` while the drain runs, `FULL` at 100 % and `NOT_CHARGING` otherwise | `rate_hz`, `full_voltage_v`, `empty_voltage_v`, `capacity_ah`, `frame_id` | `percentage` (set the state at once), `drain_to` (0 to 1) then `drain_duration_s` (which starts the ramp: `battery.drain`) |
 
 The Python adapters handle small messages at up to 1 kHz; the camera path stays in C++ through
 the relabelling bridge instance, as [04-engineering-standards.md](../plan/04-engineering-standards.md#languages-and-versions)
-asks for rates above 100 Hz.
+asks for rates above 100 Hz, so the camera topics have no injector. `bridge.yaml` records the
+contract `topic` and the manifest `sensor` (or drive interface, or `battery`) each injector
+serves, which is how the engine finds the node a fault event sets (`Bundle.injector`).
 
 ## The launch file
 
@@ -228,6 +247,9 @@ on the host.
 - `override_frame_id` applies to a whole bridge instance, hence one instance per relabelled frame.
 - The `qos` block covers reliability, durability and depth; deadline, lifespan and liveliness stay
   at the ROS defaults.
+- The camera topics (images, camera info, point clouds) stay on the C++ path and take no fault:
+  `sensor.dropout` and `sensor.freeze` refuse the camera. The battery is synthetic (no power
+  model in the simulation): its state is what the manifest's figures and a drain say.
 - The bridge is one ros_gz bridge per vehicle; in a fleet the first vehicle's bridge publishes
   `/clock` and the others are started with `clock:=false`, so a run whose first vehicle's bridge
   dies loses the clock (the run fails at the next liveness check).

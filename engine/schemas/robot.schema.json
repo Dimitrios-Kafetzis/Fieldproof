@@ -27,6 +27,61 @@
       "title": "ActionCondition",
       "type": "object"
     },
+    "Battery": {
+      "additionalProperties": false,
+      "description": "The vehicle's battery as the bridge reports it (task P2-T03).\n\nThe reference vehicles simulate no power system: the bridge's battery node publishes a\n`sensor_msgs/msg/BatteryState` from these figures, full until a scenario's `battery.drain`\nevent drains it. What the stack does with a flat battery is its business.",
+      "properties": {
+        "ros_topic": {
+          "default": "battery/state",
+          "description": "The topic the state is published on.",
+          "title": "Ros Topic",
+          "type": "string"
+        },
+        "ros_type": {
+          "const": "sensor_msgs/msg/BatteryState",
+          "default": "sensor_msgs/msg/BatteryState",
+          "title": "Ros Type",
+          "type": "string"
+        },
+        "rate_hz": {
+          "default": 1.0,
+          "description": "How often the state is published.",
+          "exclusiveMinimum": 0,
+          "title": "Rate Hz",
+          "type": "number"
+        },
+        "full_voltage_v": {
+          "description": "The voltage at 100 %.",
+          "exclusiveMinimum": 0,
+          "title": "Full Voltage V",
+          "type": "number"
+        },
+        "empty_voltage_v": {
+          "description": "The voltage at 0 %.",
+          "exclusiveMinimum": 0,
+          "title": "Empty Voltage V",
+          "type": "number"
+        },
+        "capacity_ah": {
+          "description": "The capacity in ampere hours.",
+          "exclusiveMinimum": 0,
+          "title": "Capacity Ah",
+          "type": "number"
+        },
+        "frame_id": {
+          "default": "",
+          "description": "The frame of the message header (empty: none).",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "qos": {
+          "$ref": "#/$defs/Qos"
+        }
+      },
+      "required": ["full_voltage_v", "empty_voltage_v", "capacity_ah"],
+      "title": "Battery",
+      "type": "object"
+    },
     "Build": {
       "additionalProperties": false,
       "description": "How the image is built from the vehicle's sources (`fieldproof vehicle build`).",
@@ -857,6 +912,26 @@
       "title": "Odometry",
       "type": "object"
     },
+    "Power": {
+      "additionalProperties": false,
+      "description": "The vehicle's power system: what the bridge reports of it.",
+      "properties": {
+        "battery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Battery"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The battery the bridge reports."
+        }
+      },
+      "title": "Power",
+      "type": "object"
+    },
     "Qos": {
       "additionalProperties": false,
       "description": "QoS profile of a ROS topic (defaults: what the ros_gz bridge publishes with).",
@@ -1468,6 +1543,18 @@
       },
       "title": "Sensors",
       "type": "array"
+    },
+    "power": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Power"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The power system the bridge reports."
     },
     "runtime": {
       "anyOf": [

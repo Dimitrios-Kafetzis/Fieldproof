@@ -198,7 +198,7 @@ def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
         ("time.timeout_s", "soon", "duration"),
         ("time.rtf", 0, "rtf"),
         ("timeline.0.vehicle", "ugv2", r"timeline\[0\].vehicle: 'ugv2' is not a vehicle"),
-        ("timeline.0.action", "teleport", "action"),
+        ("timeline.0.action", "levitate", "action"),
         ("timeline.0.at", -1, "at"),
         ("assertions.0.type", "reach_goal", "assertions.0: .*'reach_goal'"),
         ("assertions.0.name", "Reached", "assertions.0.reach_pose.name"),

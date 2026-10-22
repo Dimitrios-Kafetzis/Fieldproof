@@ -150,6 +150,10 @@ from fieldproof.scenario import (
 )
 from fieldproof.schedule import Occurrence, PlannedWhen, Schedule
 from fieldproof.vehicle import ENTRYPOINT_IN_IMAGE, READY_IN_IMAGE, load_vehicle
+from fieldproof.world import SPAWN_HEIGHT_M
+from fieldproof_bridge.generator import Bundle
+from fieldproof_bridge.generator import plan as bridge_plan
+from fieldproof_bridge.manifest import Manifest as BridgeManifest
 from fieldproof_bridge.manifest import ManifestError
 
 RUN_LABEL = "io.fieldproof.run"
@@ -181,8 +185,6 @@ BRIDGE_ENTRYPOINT = "/usr/local/bin/fieldproof-bridge-entrypoint"
 BRIDGE_COMMAND = "fieldproof-bridge"
 # The package of the reference vehicles' spawn launch files, built into the bridge image.
 ROBOTS_PACKAGE = "fieldproof_robots"
-# The spawn launch's default `z`: the reference UGV's base_link height above the ground.
-SPAWN_HEIGHT_M = 0.12
 __all__ = ["NAV2_ACTION", "NAV2_ACTION_TYPE", "goal_status"]  # re-exported for the tests
 RENDER_DIR = Path("/dev/dri")
 POLL_S = 2.0
@@ -342,6 +344,7 @@ class PlannedVehicle:
     """Whether this vehicle's bridge is the one bridging `/clock` (the first vehicle's is)."""
     bundle_dir: str = BUNDLE_DIR_IN_BRIDGE
     """Where the bridge container writes its bundle (`contract.yaml` for the contract check)."""
+    _bundle: Bundle | None = field(default=None, repr=False, compare=False)
 
     @property
     def name(self) -> str:
@@ -358,12 +361,32 @@ class PlannedVehicle:
         """The name of the vehicle's container."""
         return self.container.name
 
+    @property
+    def bridge_name(self) -> str:
+        """The name of the vehicle's bridge container."""
+        return self.bridge.name
+
     def topic(self, name: str) -> str:
         """`name` under the vehicle's namespace (an absolute name stays as written)."""
         if name.startswith("/"):
             return name
         namespace = self.vehicle.namespace
         return f"/{namespace}/{name}" if namespace else f"/{name}"
+
+    def bundle(self) -> Bundle:
+        """The plan of the bridge bundle the vehicle's bridge runs (same generator, same input)."""
+        bundle = self._bundle
+        if bundle is None:
+            if self.manifest.path is None:
+                raise RunError(f"{self.name}: the manifest has no path to generate the bridge from")
+            bundle = bridge_plan(
+                BridgeManifest.load(self.manifest.path),
+                namespace=self.vehicle.namespace,
+                frame_prefix=self.vehicle.frame_prefix,
+                clock=self.clock,
+            )
+            object.__setattr__(self, "_bundle", bundle)
+        return bundle
 
     def describe(self) -> dict[str, Any]:
         """The vehicle as the record and the reports carry it."""
@@ -1264,6 +1287,33 @@ class RunContext:
     ) -> ExecResult:
         command = (ENTRYPOINT_IN_IMAGE, "timeout", "-s", "INT", f"{max(timeout_s, 1.0):.0f}")
         return self._run.backend.exec(vehicle.container_name, (*command, "ros2", *argv), on_line)
+
+    def bridge_ros2(
+        self,
+        vehicle: VehicleHandle,
+        argv: Sequence[str],
+        *,
+        timeout_s: float,
+        on_line: LineSink | None = None,
+    ) -> ExecResult:
+        command = (BRIDGE_ENTRYPOINT, "timeout", "-s", "INT", f"{max(timeout_s, 1.0):.0f}")
+        return self._run.backend.exec(vehicle.bridge_name, (*command, "ros2", *argv), on_line)
+
+    def gz_service(
+        self,
+        service: str,
+        *,
+        request_type: str,
+        reply_type: str,
+        request: str,
+        timeout_s: float = 10.0,
+    ) -> ExecResult:
+        limit_s = max(int(timeout_s) + 5, PROBE_LIMIT_S)
+        command = (
+            f"timeout {limit_s} gz service -s {shlex.quote(service)} --reqtype {request_type} "
+            f"--reptype {reply_type} --timeout {int(timeout_s * 1000)} --req {shlex.quote(request)}"
+        )
+        return self._run.backend.exec(self._run.plan.sim.name, ("bash", "-lc", command))
 
     def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:
         self._run.log.event(event, message, level=level, **fields)

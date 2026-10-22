@@ -258,15 +258,22 @@ def test_ugv_plan_root_namespace(ugv: Manifest) -> None:
     assert [n.name for n in bundle.nodes] == [
         "ros_gz_bridge",
         "ros_gz_bridge_camera_optical_link",
+        "cmd_vel_relay",
+        "odom_relay",
         "joint_states_throttle",
+        "scan_relay",
         "imu_adapter",
         "gps_adapter",
+        "battery",
         "robot_state_publisher",
     ]
     main = bundle.node("ros_gz_bridge")
     entries = {e.ros_topic: e for e in main.entries}
-    assert entries["/cmd_vel"].direction == "ROS_TO_GZ"
-    assert entries["/odom"].gz_topic == "/odom"
+    assert entries["/_bridge/cmd_vel"].direction == "ROS_TO_GZ", "the command relay in front"
+    assert entries["/_bridge/cmd_vel"].gz_topic == "/cmd_vel"
+    assert "/cmd_vel" not in entries, "the relay owns the contract topic"
+    assert entries["/_bridge/odom"].gz_topic == "/odom"
+    assert entries["/_bridge/scan"].gz_topic == "/scan"
     assert entries["/tf"].gz_topic == "/tf"
     assert entries["/tf"].gz_type == "gz.msgs.Pose_V"
     assert entries["/clock"].gz_topic == "/clock"
@@ -283,20 +290,54 @@ def test_ugv_plan_root_namespace(ugv: Manifest) -> None:
     }
     assert entries["/camera/points"].direction == "GZ_TO_ROS", "points keep camera_link"
     assert bundle.internal_topics == [
+        "/_bridge/cmd_vel",
+        "/_bridge/odom",
         "/_bridge/joint_states",
+        "/_bridge/scan",
         "/_bridge/imu/data",
         "/_bridge/gps/fix",
     ]
+    # The fault injectors (task P2-T03): what each one serves, by sensor and by topic.
+    injectors = {n.name: (n.kind, n.topic, n.sensor) for n in bundle.injectors()}
+    assert injectors == {
+        "cmd_vel_relay": ("command_relay", "/cmd_vel", "command"),
+        "odom_relay": ("relay", "/odom", "odometry"),
+        "joint_states_throttle": ("throttle", "/joint_states", "joint_states"),
+        "scan_relay": ("relay", "/scan", "lidar"),
+        "imu_adapter": ("imu_adapter", "/imu/data", "imu"),
+        "gps_adapter": ("navsat_adapter", "/gps/fix", "gps"),
+        "battery": ("battery", "/battery/state", "battery"),
+    }
+    assert bundle.injector("lidar") is bundle.node("scan_relay")
+    assert bundle.injector("scan") is bundle.node("scan_relay")
+    assert bundle.injector("/scan") is bundle.node("scan_relay")
+    assert bundle.injector("camera") is None, "images stay on the C++ path"
+    assert bundle.injector("tf") is None
+    relay = bundle.node("scan_relay")
+    assert relay.params["type"] == "sensor_msgs/msg/LaserScan"
+    assert relay.params["input"] == "/_bridge/scan"
+    assert relay.params["output"] == "/scan"
+    command = bundle.node("cmd_vel_relay")
+    assert command.params["input"] == "/cmd_vel"
+    assert command.params["output"] == "/_bridge/cmd_vel"
+    battery = bundle.node("battery")
+    assert battery.params["output"] == "/battery/state"
+    assert battery.params["full_voltage"] == 29.4
+    assert battery.params["empty_voltage"] == 21.0
+    assert battery.params["capacity_ah"] == 20.0
+    assert battery.params["rate_hz"] == 1.0
 
 
 def test_ugv_plan_qos_overrides(ugv: Manifest) -> None:
     bundle = plan(ugv)
     main = bundle.node("ros_gz_bridge").params
-    assert main["qos_overrides./scan.publisher.reliability"] == "reliable"
+    assert "qos_overrides./scan.publisher.reliability" not in main, "the relay publishes /scan"
+    assert bundle.node("scan_relay").params["qos_reliability"] == "reliable"
     assert main["qos_overrides./tf.publisher.depth"] == 100
     assert main["qos_overrides./camera/points.publisher.reliability"] == "reliable"
     assert main["qos_overrides./camera/points.publisher.depth"] == 5
-    assert main["qos_overrides./cmd_vel.subscription.depth"] == 10
+    assert "qos_overrides./cmd_vel.subscription.depth" not in main, "the relay subscribes"
+    assert bundle.node("cmd_vel_relay").params["qos_depth"] == 10
     camera = bundle.node("ros_gz_bridge_camera_optical_link").params
     assert camera["qos_overrides./camera/image.publisher.reliability"] == "reliable"
     assert camera["qos_overrides./camera/image.publisher.depth"] == 5
@@ -338,11 +379,18 @@ def test_ugv_plan_contract(ugv: Manifest) -> None:
         "/camera/depth/image",
         "/camera/points",
         "/gps/fix",
+        "/battery/state",
         "/clock",
         "/tf_static",
         "/robot_description",
     }
     assert topics["/cmd_vel"].role == "subscriber"
+    assert topics["/cmd_vel"].via == "cmd_vel_relay"
+    assert topics["/scan"].via == "scan_relay"
+    assert topics["/odom"].via == "odom_relay"
+    assert topics["/battery/state"].via == "battery"
+    assert topics["/battery/state"].type == "sensor_msgs/msg/BatteryState"
+    assert topics["/battery/state"].rate_hz == 1
     assert topics["/scan"].frame_id == "lidar_link"
     assert topics["/scan"].rate_hz == 10
     assert topics["/odom"].child_frame_id == "base_link"
@@ -372,7 +420,13 @@ def test_plan_namespace_and_frame_prefix(ugv: Manifest) -> None:
     assert bundle.namespace == "/ugv1"
     assert bundle.fully_qualified("imu_adapter") == "/ugv1/imu_adapter"
     entries = {e.ros_topic: e for e in bundle.node("ros_gz_bridge").entries}
-    assert entries["/ugv1/scan"].gz_topic == "/ugv1/scan"
+    assert entries["/ugv1/_bridge/scan"].gz_topic == "/ugv1/scan"
+    assert bundle.node("scan_relay").params["output"] == "/ugv1/scan"
+    # Gazebo's header already carries the prefix (the xacro renders it), so no relabelling.
+    assert bundle.node("scan_relay").params["frame_id"] == ""
+    assert bundle.injector("scan") is bundle.node("scan_relay")
+    assert bundle.injector("/ugv1/scan") is bundle.node("scan_relay")
+    assert bundle.node("battery").params["output"] == "/ugv1/battery/state"
     assert entries["/ugv1/tf"].gz_topic == "/ugv1/tf", "the reference TF follows the namespace"
     assert "/tf" not in entries
     assert entries["/clock"].gz_topic == "/clock"
@@ -439,8 +493,20 @@ def test_plan_without_clock_and_tf(ugv: Manifest) -> None:
 
 def test_minimal_plan_needs_no_adapter(minimal: dict[str, Any]) -> None:
     bundle = plan(Manifest(minimal), clock=False, robot_state_publisher=False)
-    assert [n.name for n in bundle.nodes] == ["ros_gz_bridge"]
-    assert bundle.internal_topics == []
+    assert [n.name for n in bundle.nodes] == [
+        "ros_gz_bridge",
+        "cmd_vel_relay",
+        "odom_relay",
+        "joint_states_relay",
+        "scan_relay",
+    ], "the fault injectors, and nothing else"
+    assert bundle.internal_topics == [
+        "/_bridge/cmd_vel",
+        "/_bridge/odom",
+        "/_bridge/joint_states",
+        "/_bridge/scan",
+    ]
+    assert bundle.injector("battery") is None
     assert next(t for t in bundle.topics if t.name == "/joint_states").rate_hz is None
 
 
@@ -469,9 +535,13 @@ def test_write_bundle_files(ugv: Manifest, tmp_path: Path) -> None:
     assert set(params) == {
         "/ugv1/ros_gz_bridge",
         "/ugv1/ros_gz_bridge_camera_optical_link",
+        "/ugv1/cmd_vel_relay",
+        "/ugv1/odom_relay",
         "/ugv1/joint_states_throttle",
+        "/ugv1/scan_relay",
         "/ugv1/imu_adapter",
         "/ugv1/gps_adapter",
+        "/ugv1/battery",
     }
     assert params["/ugv1/gps_adapter"]["ros__parameters"]["frame_id"] == "gps_link"
     assert "config_file" not in params["/ugv1/ros_gz_bridge"]["ros__parameters"], "relocatable"
@@ -483,6 +553,9 @@ def test_write_bundle_files(ugv: Manifest, tmp_path: Path) -> None:
         "kind": "ros_gz_bridge",
         "config": "ros_gz_bridge.yaml",
     }
+    assert {"name": "scan_relay", "kind": "relay", "topic": "/ugv1/scan", "sensor": "lidar"} in (
+        bridge["nodes"]
+    )
     assert bridge["description"]["xacro"] == str(ugv.xacro_path())
     contract = yaml.safe_load((out / "contract.yaml").read_text())
     assert contract["kind"] == "BridgeContract"

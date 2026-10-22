@@ -67,6 +67,7 @@ produces the same contract as for the reference model, under the vehicle's name.
 | `dimensions` | `length_m`, `width_m`, `height_m`, `ground_clearance_m`, `mass_kg` |
 | `drive` | `type`, `wheel_radius_m`, `wheel_separation_m`, `joints`, `limits` (`max_linear_velocity_mps`, `max_angular_velocity_radps`, `max_linear_acceleration_mps2`, `max_angular_acceleration_radps2`) and the four interfaces `command`, `odometry` (`rate_hz`, `frame_id`, `child_frame_id`), `joint_states` (`rate_hz`, `gz_rate`: `physics` or a rate the bridge throttles from), `tf` (`rate_hz`) |
 | `sensors[]` | `name`, `type`, `frame_id`, `rate_hz`, `gz_topic`, `optional`, `resolution`, `horizontal_fov_rad`, `noise` (standard deviations, SI units), `outputs[]` |
+| `power` | `battery` (optional, task P2-T03): the battery as the bridge reports it on `ros_topic` (`battery/state`) as `sensor_msgs/msg/BatteryState` at `rate_hz` (1): `full_voltage_v`, `empty_voltage_v`, `capacity_ah`, `frame_id`, `qos`. The reference vehicles simulate no power system: the bridge's battery node publishes the state from these figures, full until a scenario's `battery.drain` event drains it ([bridge.md](bridge.md#adapters), [events.md](events.md#the-fault-events)) |
 
 Every interface (`drive.*` and `sensors[].outputs[]`) carries `gz_topic`, `gz_type`, `ros_topic`,
 `ros_type` and an optional `qos` block (`reliability`: `reliable` or `best_effort`; `durability`:

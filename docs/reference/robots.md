@@ -117,7 +117,7 @@ block (the camera outputs are reliable with a queue of 5, like image_transport's
 | 2D lidar | 720 beams over 360°, 0.10 to 25 m, 1 cm resolution (SICK TiM / RPLIDAR class) | range σ 0.01 m |
 | IMU | 6-axis MEMS (BMI088 / ICM-42688 class), orientation enabled | gyro σ 0.009 rad/s, bias σ 0.00075 rad/s; accelerometer σ 0.021 m/s², bias σ 0.005 m/s²; slowly varying bias with a 400 s correlation time |
 | RGB-D camera | 640 × 480, 69° horizontal field of view, RGB 0.1 to 10 m, depth 0.2 to 8 m (RealSense D435 class) | pixel σ 0.007 |
-| GNSS | single band without corrections, position and velocity | horizontal σ 1.0 m, vertical σ 2.0 m, velocity σ 0.1 m/s |
+| GNSS | single band without corrections, position and velocity | horizontal σ 1.0 m, vertical σ 2.0 m, velocity σ 0.1 m/s (the NavSat sensor applies the horizontal noise to the latitude and longitude it outputs, in degrees, so the macro converts the metres: one degree of latitude is 111.32 km; issue #63) |
 
 The figures approximate mid-range commercial units; P6-T03 replaces them with values calibrated
 from field logs. Every parameter is a xacro macro argument in `sensors.xacro`.

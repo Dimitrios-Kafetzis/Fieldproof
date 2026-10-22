@@ -140,7 +140,8 @@ def world_ready() -> bool:
 def ground_truth_xy() -> tuple[float, float]:
     """The model's position in the world, from the server's pose topic."""
     text = sim_exec(f"gz topic -e -t /world/{WORLD}/pose/info -n 1 --json-output", timeout=60)
-    data = json.loads(text[text.index("{") :])
+    # `-n 1` can still flush a second message under load (#65): decode the first object only.
+    data, _ = json.JSONDecoder().raw_decode(text[text.index("{") :])
     for pose in data.get("pose", []):
         if pose.get("name") == MODEL:
             position = pose.get("position", {})

@@ -230,6 +230,36 @@ class Sensor(Strict):
 
 
 # ----------------------------------------------------------------------------- runtime section
+class Battery(Strict):
+    """The vehicle's battery as the bridge reports it (task P2-T03).
+
+    The reference vehicles simulate no power system: the bridge's battery node publishes a
+    `sensor_msgs/msg/BatteryState` from these figures, full until a scenario's `battery.drain`
+    event drains it. What the stack does with a flat battery is its business.
+    """
+
+    ros_topic: str = Field("battery/state", description="The topic the state is published on.")
+    ros_type: Literal["sensor_msgs/msg/BatteryState"] = "sensor_msgs/msg/BatteryState"
+    rate_hz: PositiveFloat = Field(1.0, description="How often the state is published.")
+    full_voltage_v: PositiveFloat = Field(description="The voltage at 100 %.")
+    empty_voltage_v: PositiveFloat = Field(description="The voltage at 0 %.")
+    capacity_ah: PositiveFloat = Field(description="The capacity in ampere hours.")
+    frame_id: str = Field("", description="The frame of the message header (empty: none).")
+    qos: Qos = Field(default_factory=Qos)
+
+    @model_validator(mode="after")
+    def _voltages(self) -> Battery:
+        if self.empty_voltage_v >= self.full_voltage_v:
+            raise ValueError("empty_voltage_v must be below full_voltage_v")
+        return self
+
+
+class Power(Strict):
+    """The vehicle's power system: what the bridge reports of it."""
+
+    battery: Battery | None = Field(None, description="The battery the bridge reports.")
+
+
 class Repo(Strict):
     """A repository `vcs import` clones into the workspace at a pinned commit."""
 
@@ -556,6 +586,7 @@ class RobotManifest(Strict):
     dimensions: Dimensions | None = None
     drive: Drive | None = None
     sensors: list[Sensor] = Field(default_factory=list)
+    power: Power | None = Field(None, description="The power system the bridge reports.")
     runtime: Runtime | None = None
 
     _path: Path | None = PrivateAttr(default=None)

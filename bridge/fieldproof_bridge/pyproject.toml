@@ -24,6 +24,9 @@ contract_check = "fieldproof_bridge.contract:main"
 imu_adapter = "fieldproof_bridge.adapters.imu:main"
 navsat_adapter = "fieldproof_bridge.adapters.navsat:main"
 throttle = "fieldproof_bridge.adapters.throttle:main"
+relay = "fieldproof_bridge.adapters.relay:main"
+command_relay = "fieldproof_bridge.adapters.command:main"
+battery = "fieldproof_bridge.adapters.battery:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "fieldproof_bridge.__version__" }

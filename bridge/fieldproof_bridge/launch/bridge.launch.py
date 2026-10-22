@@ -10,7 +10,8 @@ With `manifest`, the bundle is generated at launch time into a temporary directo
 find it); with `bundle`, a directory written by the generator is used as it is and the other
 arguments are ignored (they are recorded in it). The nodes started are those of the bundle's
 bridge.yaml: one `parameter_bridge` per configuration file (QoS overrides and
-`override_frame_id` from params.yaml), one adapter node per hidden bridge topic, and
+`override_frame_id` from params.yaml), one adapter or relay node per hidden bridge topic (the
+fault injectors of task P2-T03), the battery of the manifest's `power` section, and
 `robot_state_publisher` on the manifest's xacro rendered with the bundle's arguments, its `/tf`
 and `/tf_static` remapped to the vehicle's TF topics (under the namespace when the manifest's
 `tf` interface is relative, task P2-T01).
@@ -31,7 +32,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 from fieldproof_bridge.generator import generate
 from launch import LaunchDescription
 
-ADAPTERS = ("imu_adapter", "navsat_adapter", "throttle")
+ADAPTERS = ("imu_adapter", "navsat_adapter", "throttle", "relay", "command_relay", "battery")
 
 
 def xacro_argument(value: Any) -> str:

@@ -240,6 +240,19 @@ def test_every_sensor_declares_noise(sdf_model: ET.Element) -> None:
             assert float(text(n, "stddev")) > 0, name
 
 
+def test_gnss_position_noise_is_in_degrees(manifest: Manifest, sdf_model: ET.Element) -> None:
+    """The NavSat sensor applies its horizontal noise to latitude and longitude, in degrees."""
+    gps = next(s for s in manifest["sensors"] if s["type"] == "navsat")
+    element = sensors(sdf_model)[gps["name"]]
+    horizontal = element.find("navsat/position_sensing/horizontal/noise")
+    vertical = element.find("navsat/position_sensing/vertical/noise")
+    assert horizontal is not None
+    assert vertical is not None
+    metres = float(gps["noise"]["horizontal_stddev_m"])
+    assert float(text(horizontal, "stddev")) == pytest.approx(metres / 111319.49, rel=1e-6)
+    assert float(text(vertical, "stddev")) == float(gps["noise"]["vertical_stddev_m"]), "metres"
+
+
 def test_chassis_contact_sensor_reports_ground_truth(sdf_model: ET.Element) -> None:
     """The contact sensor (task P1-T06) watches the chassis collision only and is not bridged."""
     ((name, element),) = contact_sensors(sdf_model).items()
