@@ -63,6 +63,8 @@ NETEM_LIMIT = 1000
 
 DROP = "drop"
 """The profile a dropped link carries: every packet lost, both ways."""
+DROP_EDGE_TOLERANCE = 1
+"""Replies a dropped period may still count: a probe in flight when the drop began (issue #67)."""
 PASSED = "passed"
 FAILED = "failed"
 INSUFFICIENT = "insufficient"
@@ -367,9 +369,14 @@ class LinkPeriod:
         if self.profile.dropped:
             if sent < MIN_PROBES:
                 return INSUFFICIENT, f"{sent} probe(s) while dropped, {MIN_PROBES} needed"
-            if received:
+            if received > DROP_EDGE_TOLERANCE:
                 return FAILED, f"{received} of {sent} probe(s) answered while the link was dropped"
-            return PASSED, f"none of {sent} probe(s) answered while the link was dropped"
+            answered = (
+                f"{received} of {sent} probe(s) answered at the edge of the drop (tolerated)"
+                if received
+                else f"none of {sent} probe(s) answered while the link was dropped"
+            )
+            return PASSED, answered
         if received < MIN_REPLIES:
             return INSUFFICIENT, f"{received} reply(ies) of {sent} probe(s), {MIN_REPLIES} needed"
         expected = expected_latency_ms(self.profile)

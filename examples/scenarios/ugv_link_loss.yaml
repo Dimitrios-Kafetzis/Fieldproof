@@ -46,9 +46,10 @@ timeline:
     name: link_outage
     vehicle: ugv1
     action: link.drop
-    duration_s: 20s # then lte_rural again
+    duration_s: 30s # then lte_rural again (the lease expires: a rediscovery, docs/reference/network.md)
 assertions:
-  # The vehicle notices: link_state false within 10 s of the drop (2 s of simulation time).
+  # The vehicle notices: link_state false within 15 s of the drop (2 s of simulation time; a
+  # CI runner under software rendering has reported it 4 to 9 s after the drop).
   - name: reports_link_lost
     type: topic_value
     topic: link_state
@@ -57,9 +58,9 @@ assertions:
     condition: not value
     mode: eventually
     after_s: 5s
-    within_s: 15s
+    within_s: 20s
   # It holds position while the link is down (wheel odometry from the simulator: the speed the
-  # vehicle actually has), from 8 s after the drop until just before the restore.
+  # vehicle actually has), from 13 s after the drop until just before the restore.
   - name: holds_while_lost
     type: topic_value
     topic: odom
@@ -67,8 +68,8 @@ assertions:
     field: twist.twist.linear.x
     condition: abs(value) < 0.05
     mode: always
-    after_s: 13s
-    within_s: 24s
+    after_s: 18s
+    within_s: 33s
   # Its failsafe commands nothing but zero during the same window.
   - name: commands_zero_while_lost
     type: topic_value
@@ -77,9 +78,10 @@ assertions:
     field: linear.x
     condition: value == 0
     mode: always
-    after_s: 13s
-    within_s: 24s
-  # The heartbeat comes back over the restored link and the vehicle reports it.
+    after_s: 18s
+    within_s: 33s
+  # The heartbeat comes back over the restored link (after a rediscovery: the 30 s drop outlasts
+  # the DDS lease) and the vehicle reports it.
   - name: reports_link_back
     type: topic_value
     topic: link_state
@@ -87,8 +89,8 @@ assertions:
     field: data
     condition: value
     mode: eventually
-    after_s: 25s
-    within_s: 40s
+    after_s: 35s
+    within_s: 60s
   # It resumes the mission and reaches its goal (ground truth from Gazebo).
   - name: reached_goal
     type: reach_pose
@@ -98,7 +100,7 @@ assertions:
   - name: arrived_in_time
     type: within_time
     action: drive_along_hall
-    max_s: 4m
+    max_s: 5m
   - name: no_collision
     type: no_collision
     vehicle: ugv1

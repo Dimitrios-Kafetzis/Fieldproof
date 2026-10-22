@@ -87,8 +87,8 @@ def link_window(start: float, rtt_ms: float | None, sent: int = 10) -> dict[str,
 
 
 def stream(start: float) -> list[dict[str, Any]]:
-    """What the vehicle did, `t` seconds into the timeline: drive, hold from 7.5 s, resume at 27 s,
-    arrive at the goal."""
+    """What the vehicle did, `t` seconds into the timeline: drive, hold from 7.5 s, resume at 37 s
+    (the 30 s drop lifted at 35 s, the heartbeat back), arrive at the goal."""
     samples: list[dict[str, Any]] = []
 
     def at(t: float, **sample: Any) -> None:
@@ -96,14 +96,14 @@ def stream(start: float) -> list[dict[str, Any]]:
 
     at(2.0, kind="value", topic="/link_state", field="data", value=True)
     at(7.5, kind="value", topic="/link_state", field="data", value=False)
-    at(27.0, kind="value", topic="/link_state", field="data", value=True)
-    for t in range(1, 46):
-        moving = t < 8 or t >= 27
+    at(37.0, kind="value", topic="/link_state", field="data", value=True)
+    for t in range(1, 56):
+        moving = t < 8 or t >= 37
         speed = 0.4 if moving else 0.0
         at(t, kind="value", topic="/odom", field="twist.twist.linear.x", value=speed)
         at(t + 0.5, kind="value", topic="/cmd_vel", field="linear.x", value=speed)
-    at(44.0, kind="pose", model="ugv1", x=-2.0, y=15.0, z=0.1, yaw=0.0)
-    at(45.0, kind="clock", rtf=1.0)
+    at(54.0, kind="pose", model="ugv1", x=-2.0, y=15.0, z=0.1, yaw=0.0)
+    at(55.0, kind="clock", rtf=1.0)
     return samples
 
 
@@ -251,7 +251,7 @@ def test_link_loss_topology(resolved: Plan) -> None:  # noqa: PLR0915
         "vehicle": "ugv1",
         "action": "link.drop",
         "trigger": {"at_s": 5.0},
-        "duration_s": 20.0,
+        "duration_s": 30.0,
     }
     holder_dict = next(c for c in data["containers"] if c["role"] == "link")
     assert holder_dict["networks"] == [radio]
@@ -377,10 +377,10 @@ def test_link_loss_run(resolved: Plan) -> None:  # noqa: PLR0915
     )
     ground_config = json.loads((resolved.run_dir / GROUND_CONFIG).read_text())
     assert ground_config["links"][0]["host"] == "ugv1"
-    # The timeline: the drop ran its 20 s and restored the profile.
+    # The timeline: the drop ran its 30 s and restored the profile.
     outage = next(a for a in record.timeline if a.name == "link_outage")
     assert outage.status == "ok"
-    assert outage.detail == "dropped for 20 s, lte_rural restored"
+    assert outage.detail == "dropped for 30 s, lte_rural restored"
     # Every assertion of the example held on the scripted stream.
     assert {a["name"]: a["status"] for a in record.assertions} == {
         "reports_link_lost": "passed",
@@ -407,7 +407,7 @@ def test_link_loss_run(resolved: Plan) -> None:  # noqa: PLR0915
     assert dropped["status"] == "passed"
     assert dropped["measured"]["replies"] == 0
     assert dropped["measured"]["probes"] >= 190
-    assert dropped["to_s"] - dropped["from_s"] == pytest.approx(20.0, abs=1.0)
+    assert dropped["to_s"] - dropped["from_s"] == pytest.approx(30.0, abs=1.0)
     assert restored["status"] == "insufficient"
     assert [e["event"] for e in log].count("link.passed") == 2
     run_json = json.loads((resolved.run_dir / "run.json").read_text())

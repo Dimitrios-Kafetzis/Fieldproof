@@ -218,8 +218,14 @@ def test_dropped_period_verdict() -> None:
     assert period.verdict()[0] == INSUFFICIENT
     period.windows.append(LinkWindow.from_sample(window(101.0, [], sent=10)))
     assert period.verdict() == (PASSED, "none of 15 probe(s) answered while the link was dropped")
+    # One reply, a probe in flight when the drop began, is tolerated (#67); two are not.
     period.windows.append(LinkWindow.from_sample(window(102.0, [120.0], sent=10)))
-    assert period.verdict() == (FAILED, "1 of 25 probe(s) answered while the link was dropped")
+    assert period.verdict() == (
+        PASSED,
+        "1 of 25 probe(s) answered at the edge of the drop (tolerated)",
+    )
+    period.windows.append(LinkWindow.from_sample(window(103.0, [118.0], sent=10)))
+    assert period.verdict() == (FAILED, "2 of 35 probe(s) answered while the link was dropped")
     data = period.to_dict(origin=90.0)
     assert data["expected"]["latency_ms"] is None
     assert data["expected"]["loss_pct"] == 100.0
