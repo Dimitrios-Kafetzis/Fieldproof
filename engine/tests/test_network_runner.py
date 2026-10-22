@@ -136,7 +136,12 @@ class LinkBackend(FakeBackend):
         if "send_goal" in " ".join(argv):
             start = now - GOAL_S
             self.write_samples(stream(start))
-            self.write_network([link_window(start + s * 0.04, self.rtt_ms, 1) for s in range(25)])
+            # The bring-up windows before the timeline (slow, as discovery saturates the link)
+            # and the first second of the initial period after it.
+            self.write_network(
+                [link_window(start - 3.0 + s * 0.1, self.rtt_ms * 4, 1) for s in range(20)]
+                + [link_window(now + s * 0.04, self.rtt_ms, 1) for s in range(25)]
+            )
         return result
 
 

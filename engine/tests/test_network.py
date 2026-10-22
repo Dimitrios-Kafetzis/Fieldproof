@@ -212,6 +212,28 @@ def test_period_measurement_and_verdict() -> None:
     assert lossy.measured()["loss_pct"] == pytest.approx(10.0)
 
 
+def test_initial_period_is_judged_from_the_timeline() -> None:
+    """The bring-up windows before the timeline stay in the record but not in the verdict."""
+    period = LinkPeriod("ugv1", "lte_rural", LTE, start=100.0, cause="initial")
+    for s in range(25):  # the bring-up: round trips three times the profile's
+        period.windows.append(LinkWindow.from_sample(window(100.0 + s, [360.0], sent=1)))
+    for s in range(25):  # the timeline: the profile's round trips
+        period.windows.append(LinkWindow.from_sample(window(130.0 + s, [120.0], sent=1)))
+    assert period.verdict()[0] == FAILED
+    period.judged_from = 130.0
+    assert len(period.judged()) == 25
+    assert period.measured()["replies"] == 25
+    assert period.verdict()[0] == PASSED
+    assert period.to_dict(origin=130.0)["judged_from_s"] == 0.0
+    monitor = LinkMonitor({"ugv1": "lte_rural"})
+    first = monitor.change("ugv1", "lte_rural", LTE, 100.0, "initial")
+    monitor.start_timeline(130.0)
+    assert monitor.origin == 130.0
+    assert first.judged_from == 130.0
+    later = monitor.change("ugv1", "drop", DROP_PROFILE, 140.0, "cut")
+    assert later.judged_from is None
+
+
 def test_dropped_period_verdict() -> None:
     period = LinkPeriod("ugv1", "drop", DROP_PROFILE, start=100.0, cause="cut")
     period.windows = [LinkWindow.from_sample(window(100.0, [], sent=5))]

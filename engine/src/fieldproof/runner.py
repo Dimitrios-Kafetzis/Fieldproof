@@ -2190,8 +2190,8 @@ class Run:
         started = self.clock()
         self._poll_samples()
         self.evaluator.start(self.wall())
-        if self.monitor is not None:
-            self.monitor.origin = self.evaluator.start_wall
+        if self.monitor is not None and self.evaluator.start_wall is not None:
+            self.monitor.start_timeline(self.evaluator.start_wall)
         self.log.event(
             "timeline.start",
             f"{len(self.plan.actions)} action(s), {len(self.plan.assertions)} assertion(s), "
