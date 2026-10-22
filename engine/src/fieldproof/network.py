@@ -63,8 +63,10 @@ NETEM_LIMIT = 1000
 
 DROP = "drop"
 """The profile a dropped link carries: every packet lost, both ways."""
-DROP_EDGE_TOLERANCE = 1
-"""Replies a dropped period may still count: a probe in flight when the drop began (issue #67)."""
+DROP_EDGE_TOLERANCE = 3
+"""Replies a dropped period may still count: the probes in flight when the drop began (ten a
+second, a round trip of up to 120 ms on the presets, and a holder busy applying the drop; a
+slow runner has counted two; issue #67)."""
 PASSED = "passed"
 FAILED = "failed"
 INSUFFICIENT = "insufficient"

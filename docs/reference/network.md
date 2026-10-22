@@ -222,7 +222,7 @@ odometry below 0.05 m/s and `cmd_vel` zero from 13 s after the drop to just befo
 and the windows are wall clock (runner v0, sim-time deadlines are task P2-T04's), so they leave
 room for a simulation below real time: on the CI runner, with software rendering, the vehicle
 has reported the link lost between 4 and 9 s after the drop (issue #67). A dropped period
-tolerates one answered probe, the one in flight when the drop began.
+tolerates up to three answered probes, those in flight when the drop began.
 
 ## DDS over a radio link
 
