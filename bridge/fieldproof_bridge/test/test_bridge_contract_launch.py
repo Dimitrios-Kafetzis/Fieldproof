@@ -163,7 +163,14 @@ class TestBridgeContract(unittest.TestCase):
         cls.node = rclpy.create_node("bridge_contract_test")
         cls.stop_spinning = spin_in_background(cls.node)
         cls.contract = Contract.load(BUNDLE)
-        checker = ContractChecker(cls.node, cls.contract)
+        # Software rendering on a loaded CI runner cannot hold the rendering sensors' rates
+        # (issue #69): the workflow widens their tolerance; the default is the contract's 10 %.
+        render_tolerance = os.environ.get("FIELDPROOF_CONTRACT_RENDER_TOLERANCE")
+        checker = ContractChecker(
+            cls.node,
+            cls.contract,
+            render_tolerance=float(render_tolerance) if render_tolerance else None,
+        )
         cls.findings = checker.run(TIMEOUT_S)
 
     @classmethod

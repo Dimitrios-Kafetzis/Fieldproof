@@ -196,7 +196,8 @@ where a driver uses it.
 ## Checking a running stack
 
 ```bash
-ros2 run fieldproof_bridge contract_check /tmp/ugv_ref_bridge [--timeout 300] [--samples 10] [--tolerance 0.1]
+ros2 run fieldproof_bridge contract_check /tmp/ugv_ref_bridge [--timeout 300] [--samples 10] \
+    [--tolerance 0.1] [--render-tolerance 0.5]
 ```
 
 `fieldproof_bridge.contract.ContractChecker` subscribes to every published topic of
@@ -210,7 +211,7 @@ starts, and records the counts in `run.json` ([scenarios.md](scenarios.md#fleets
 | `graph` | a publisher (or, for the drive command, a subscription) of the contract's type exists |
 | `qos` | every endpoint has the contract's reliability and durability (the graph does not report the depth) |
 | `frame` | every message carries the contract's `frame_id` (and `child_frame_id`); for a TF topic, every transform listed in `frames` arrives |
-| `rate` | the rate over the header stamps (simulation time, so a slow renderer cannot fail it; the first stamp is discarded because Gazebo publishes it when the sensor is created, off its grid) is within the tolerance of `rate_hz`, per transform for TF |
+| `rate` | the rate over the header stamps (simulation time; the first stamp is discarded because Gazebo publishes it when the sensor is created, off its grid) is within the tolerance of `rate_hz`, per transform for TF; the rendering sensors (images, camera info, point clouds, laser scans) take `--render-tolerance` when given, since under software rendering on a loaded CI runner their thread falls behind the physics even in simulation time (the contract test reads `FIELDPROOF_CONTRACT_RENDER_TOLERANCE`, which the CI workflow sets to 0.5; issue #69) |
 | `topics` | no topic other than the contract's (and `/parameter_events`, `/rosout`) is visible under the namespace |
 
 ### The contract test

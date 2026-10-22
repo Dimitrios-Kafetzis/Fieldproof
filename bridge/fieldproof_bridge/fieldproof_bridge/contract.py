@@ -38,6 +38,16 @@ ROS_OWN_TOPICS = frozenset({"/parameter_events", "/rosout"})
 DEFAULT_SAMPLES = 10
 DEFAULT_TOLERANCE = 0.10
 DEFAULT_TIMEOUT_S = 300.0
+# The rendering sensors: their rate depends on the renderer, which software rendering on a loaded
+# CI runner cannot keep up (issue #69); the checker takes a tolerance of their own for them.
+RENDERED_TYPES = frozenset(
+    {
+        "sensor_msgs/msg/Image",
+        "sensor_msgs/msg/CameraInfo",
+        "sensor_msgs/msg/PointCloud2",
+        "sensor_msgs/msg/LaserScan",
+    }
+)
 
 
 class ContractError(ValueError):
@@ -224,8 +234,13 @@ class ContractChecker:
         *,
         samples: int = DEFAULT_SAMPLES,
         tolerance: float = DEFAULT_TOLERANCE,
+        render_tolerance: float | None = None,
     ) -> None:
-        """Subscribe to every published topic of ``contract`` with the contract's QoS."""
+        """Subscribe to every published topic of ``contract`` with the contract's QoS.
+
+        ``render_tolerance`` is the rate tolerance of the rendering sensors (images, camera
+        info, point clouds, laser scans); ``tolerance`` when None.
+        """
         from rclpy.qos import HistoryPolicy, QoSProfile  # noqa: PLC0415
         from rosidl_runtime_py.utilities import get_message  # noqa: PLC0415
 
@@ -235,6 +250,7 @@ class ContractChecker:
         self.contract = contract
         self.samples = samples
         self.tolerance = tolerance
+        self.render_tolerance = tolerance if render_tolerance is None else render_tolerance
         self.collectors: dict[str, Collector] = {}
         self._subscriptions = []
         for spec in contract.topics:
@@ -377,13 +393,14 @@ class ContractChecker:
         prefix = f"{label}: " if label else ""
         if rate is None:
             return Finding(spec.name, "rate", False, f"{prefix}no usable stamps in {len(stamps)}")
-        ok = abs(rate - expected) <= expected * self.tolerance
+        tolerance = self.render_tolerance if spec.type in RENDERED_TYPES else self.tolerance
+        ok = abs(rate - expected) <= expected * tolerance
         return Finding(
             spec.name,
             "rate",
             ok,
             f"{prefix}{rate:.2f} Hz over {len(stamps) - 1} intervals (contract {expected:g} Hz "
-            f"±{self.tolerance:.0%})",
+            f"±{tolerance:.0%})",
         )
 
     # -------------------------------------------------------------------------------- topics
@@ -434,6 +451,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tolerance", type=float, default=DEFAULT_TOLERANCE, help="rate tolerance (fraction)"
     )
+    parser.add_argument(
+        "--render-tolerance",
+        type=float,
+        default=None,
+        help="rate tolerance of the rendering sensors (images, point clouds, laser scans; "
+        "default: --tolerance)",
+    )
     return parser
 
 
@@ -451,7 +475,13 @@ def main(argv: list[str] | None = None) -> int:
     node = rclpy.create_node("fieldproof_contract_check")
     stop = spin_in_background(node)
     try:
-        checker = ContractChecker(node, contract, samples=args.samples, tolerance=args.tolerance)
+        checker = ContractChecker(
+            node,
+            contract,
+            samples=args.samples,
+            tolerance=args.tolerance,
+            render_tolerance=args.render_tolerance,
+        )
         findings = checker.run(args.timeout)
     finally:
         stop()

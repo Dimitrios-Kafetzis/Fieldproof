@@ -30,14 +30,14 @@ vehicles:
       frame: spawn_dock # (10, 3), facing the roller door at y = 0
 time:
   mode: sim
-  timeout_s: 10m
+  timeout_s: 12m
 timeline:
   - at: 0s
     name: drive_ahead
     vehicle: ugv1
     action: navigate_to_pose
     goal: { x: 10.0, y: -1.5, yaw: -1.5708 } # 4.5 m ahead, through the door, into the yard
-    timeout_s: 5m
+    timeout_s: 8m
   - name: spawn_crate
     when: # the first ground-truth sample half a metre from the spawn: the vehicle is moving
       vehicle: ugv1
@@ -68,7 +68,7 @@ assertions:
   - name: arrived_in_time # 25 s on a GPU host; 200 s under software rendering on a CI runner
     type: within_time
     action: drive_ahead
-    max_s: 6m
+    max_s: 8m
   - name: kept_planning # Nav2 kept publishing its path while it drove (the replans among them)
     type: topic_rate
     topic: plan

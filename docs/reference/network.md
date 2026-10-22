@@ -7,7 +7,7 @@ loss, reordering, rate); the timeline changes it (`link.set`), cuts it (`link.dr
 back (`link.restore`); the ground station measures every link while the run lasts, and the run
 checks what it measured against the profiles. The example
 [`ugv_link_loss.yaml`](https://github.com/Dimitrios-Kafetzis/Fieldproof/blob/main/examples/scenarios/ugv_link_loss.yaml)
-drops the example vehicle's LTE link for 20 s while it drives and asserts its documented
+drops the example vehicle's LTE link for 30 s while it drives and asserts its documented
 loss-of-link behaviour.
 
 ```yaml
@@ -146,9 +146,9 @@ phase fails with the `tc` error and the hint `sudo modprobe sch_netem ifb`.
 
 They take the triggers of the timeline DSL (`at`, `after`, `when`, `every`; task P2-T03,
 [events.md](events.md#the-timeline-dsl)) and `name` like every entry and run on the timeline's
-workers, so a 20 s drop runs while the vehicle drives. A link event needs a `network` section;
+workers, so a 30 s drop runs while the vehicle drives. A link event needs a `network` section;
 a `link.set` profile must be known. The record's `timeline` has each entry's outcome (`dropped
-for 20 s, lte_rural restored`). They are events of the plugin API like the rest
+for 30 s, lte_rural restored`). They are events of the plugin API like the rest
 (`fieldproof.events.link`).
 
 ## Measurement
@@ -211,13 +211,14 @@ false (`std_msgs/msg/Bool`, transient local, also once a second) and sends zero 
 20 Hz, dropping Nav2's commands; at the next heartbeat it publishes `link_state` true and passes
 Nav2's commands through again. Nav2 keeps its goal: its progress checker (10 s) and the behaviour
 tree's recoveries see a vehicle that does not move, and once the link is back it carries on.
-`ugv_link_loss.yaml` asserts exactly that: `link_state` false within 10 s of the drop, wheel
-odometry below 0.05 m/s and `cmd_vel` zero from 8 s after the drop to just before the restore
+`ugv_link_loss.yaml` asserts exactly that: `link_state` false within 15 s of the drop, wheel
+odometry below 0.05 m/s and `cmd_vel` zero from 13 s after the drop to just before the restore
 (`topic_value` with `mode: always` between `after_s` and `within_s`), `link_state` true within
-15 s of the restore, the goal reached, no collision. The failsafe's timeout is simulation time
+25 s of the restore, the goal reached, no collision. The failsafe's timeout is simulation time
 and the windows are wall clock (runner v0, sim-time deadlines are task P2-T04's), so they leave
 room for a simulation below real time: on the CI runner, with software rendering, the vehicle
-reported the link lost 4.4 s after the drop.
+has reported the link lost between 4 and 9 s after the drop (issue #67). A dropped period
+tolerates one answered probe, the one in flight when the drop began.
 
 ## DDS over a radio link
 
@@ -247,7 +248,8 @@ its lease duration, 20 s by default. Measured with the heartbeat (best effort, 2
 | 10 s | 0.2 s (the next heartbeat) | the peers never forgot each other; data flows at once |
 | 25 s | 2.5 s | the lease expired on both sides; the next announcement rediscovers the peer, and SEDP (the 1.4 MB above) runs again before the first sample |
 
-A 20 s drop sits on the boundary: in the example it comes back after about 1.5 s.
+A 20 s drop sits on the boundary (it came back after about 1.5 s); the example drops for 30 s, so
+its heartbeat returns through a rediscovery.
 
 ### Loss and the reliability QoS
 

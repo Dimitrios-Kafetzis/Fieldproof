@@ -12,7 +12,7 @@ reply), comes back (replies again), and loses its shaping.
 
 ``test_02``: ``fieldproof run examples/scenarios/ugv_link_loss.yaml``, the scenario of the
 definition of done: the example vehicle drives along the depot's hall over a rural LTE link
-that drops for 20 s. Exit code 0; the seven assertions passed (the vehicle reports the link
+that drops for 30 s. Exit code 0; the seven assertions passed (the vehicle reports the link
 lost, holds position and commands zero while it is down, reports it back, and reaches its
 goal); every link period the ground station measured passed against its profile (the run
 verifies with ``network.verify: fail``); the MCAP holds ``/link_state`` and the
@@ -312,7 +312,7 @@ def test_02_link_loss_scenario(tmp_path: Path) -> None:
     assert network["traffic"]["ugv1"]["out"]["bytes"] > 0
     outage = next(a for a in record["timeline"] if a["name"] == "link_outage")
     assert outage["status"] == "ok"
-    assert outage["detail"] == "dropped for 20 s, lte_rural restored"
+    assert outage["detail"] == "dropped for 30 s, lte_rural restored"
     report = (run_dir / "report.md").read_text()
     assert "## Radio links" in report
     (mcap,) = sorted((run_dir / "recording").glob("*.mcap"))
