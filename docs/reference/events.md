@@ -117,6 +117,7 @@ parameters. The engine-side built-ins (session 1 of the task):
 | `container.pause` | `vehicle`, `duration_s` (optional) | pause the vehicle's container (`docker pause`: every process of the stack under test freezes while the simulator and the bridge go on, so the vehicle's last command stands in the world until the stack resumes; a container that is paused answers no `exec`); with `duration_s` the entry resumes the container after that long and ends then, without it the container stays paused until a `container.resume` (the teardown resumes it before stopping it) |
 | `container.resume` | `vehicle` | resume the paused container |
 | `container.kill` | `vehicle`, `signal` (`SIGKILL` by default; `SIGTERM`, `SIGINT`, `SIGHUP`) | send the signal to the vehicle's container; the run then expects the container gone (its exit does not end the run, its log is still kept), and the assertions decide what the exit meant for the fleet |
+| `sim.pause`, `sim.resume`, `sim.step` | `duration_s` (pause: optional, wall clock) / none / `steps` or `duration_s` | the simulator's clock, through the world's `/world/<name>/control` service ([time.md](time.md#pausing-resuming-and-stepping)): a pause stops the physics and every node on simulation time (the clock keeps publishing the time it stopped at); a step advances a paused world by physics steps or simulation seconds and pauses again; refused in lockstep mode, where the engine steps the clock |
 | `param.set` | `vehicle`, `node` (relative to the vehicle's namespace, or absolute), `parameter`, `value` (a boolean, a number or a string, which stays a string however it looks), `timeout_s` (30 s) | `ros2 param set` inside the vehicle's container; `ok` when the node accepted the value, `failed` when it refused it (a parameter callback) or is not found within `timeout_s` (the CLI's graph lags behind the stack for a few seconds, so the event asks again once a second), `timeout` when the node does not answer. Whether the node *uses* a value changed at run time is the node's business, as in the field |
 
 A `param.set` or a `navigate_to_pose` aimed at a killed or paused container fails (`ros2`
@@ -228,7 +229,8 @@ Every occurrence of a timeline entry is recorded three times over:
   `occurrence`, `status`, `t_s`, `sim_s`, `trigger`, `params`), plus `action.triggered` when an
   `after` or a `when` fires, `action.skipped` and `action.settled` when the timeline ends, and
   the events' own lines (`action.goal`, `container.paused`, `container.resumed`,
-  `container.killed`, `link.applied`, and the commands' output as `action.output` at `debug`);
+  `container.killed`, `link.applied`, `sim.paused`, `sim.stepped`, `sim.resumed`, and the
+  commands' output as `action.output` at `debug`);
 - `/fieldproof/events` in the recording, since the observer relays every line of `engine.log`
   onto that side channel as it is written ([assertions.md](assertions.md#recording)); the MCAP
   holds the run's events next to the topics they changed.
@@ -441,8 +443,10 @@ uv run --project engine fieldproof run examples/scenarios/ugv_gps_denied.yaml
   (one to a few seconds, more while the CLI's graph lags), so an assertion window on a fault
   starts a few seconds after the entry's `at`; the record's `t_s` and `duration_s` say when it
   was in place.
-- Times are wall clock from the start of the timeline; `every` drifts with the host's load and
-  a `when` fires on the first sample that satisfies it. Sim-time scheduling is task P2-T04's.
+- Times are wall clock from the start of the timeline in `sim` and `realtime` mode, so `every`
+  drifts with the host's load and a `when` fires on the first sample that satisfies it; in
+  lockstep mode ([time.md](time.md#lockstep)) they are simulation seconds from the origin and
+  the world waits at every due time, which is what makes a run repeatable.
 - A `when` reads what the observer streams: topic fields at the topic's rate, the ground truth
   at 10 Hz, the clock once a second. Expressions over several topics, or over a window of
   samples, are not supported; chain entries with `after` or use several entries instead.

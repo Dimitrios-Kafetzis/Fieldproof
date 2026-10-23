@@ -119,4 +119,5 @@ nav:
       - Assertions, recording and reports: reference/assertions.md
       - Radio links: reference/network.md
       - Events: reference/events.md
+      - Time and determinism: reference/time.md
       - Worlds: reference/worlds.md
