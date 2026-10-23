@@ -327,11 +327,14 @@ def test_monitor_excludes_paused_windows_and_knows_the_world_pace() -> None:
     assert monitor.drift_s == pytest.approx(-2.0), (
         "the pause's first second counts (none was before)"
     )
+    assert monitor.feed(clock_sample(106.0, 4.5, 0.5)) is None, "sim mode records, never warns"
+    assert monitor.violations == 1
     assert monitor.verdict is None
     summary = monitor.summary()
     assert summary["paused_s"] == 2.0
     assert summary["max_drift_s"] is None
-    assert summary["rtf"]["windows"] == 2
+    assert summary["rtf"]["windows"] == 3
+    assert summary["violations"] == 1
     assert ClockMonitor(Time(mode="sim", rtf=0.5)).target_rtf == 0.5
     assert ClockMonitor(Time(mode="lockstep")).target_rtf == 1.0
     assert ClockMonitor(Time(mode="lockstep", rtf=4.0)).target_rtf == 4.0

@@ -105,10 +105,13 @@ class ClockMonitor:
         self.rtfs.append(rtf)
         if abs(rtf - target) > self.time.tolerance:
             self.violations += 1
-            return (
-                f"real-time factor {rtf:.3f} over the last window, target {target:g} "
-                f"± {self.time.tolerance:g}; drift {self.drift_s:+.3f} s"
-            )
+            # Only the real-time-locked mode promised the pace; a free-running world that is
+            # slower than its target is recorded, not warned about every second.
+            if self.time.mode == "realtime":
+                return (
+                    f"real-time factor {rtf:.3f} over the last window, target {target:g} "
+                    f"± {self.time.tolerance:g}; drift {self.drift_s:+.3f} s"
+                )
         return None
 
     @property

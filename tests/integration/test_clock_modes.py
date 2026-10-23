@@ -126,46 +126,38 @@ def metrics_messages(run_dir: Path) -> list[dict[str, Any]]:
 
 
 @pytest.mark.integration
-def test_01_realtime_scenario_and_clock_command(tmp_path: Path) -> None:  # noqa: PLR0915
+def test_01_realtime_scenario_and_clock_command(tmp_path: Path) -> None:
     run_id = f"it-realtime-{os.getpid()}"
     run_dir = tmp_path / run_id
+    # Kept: the clock command is exercised on the simulator once the run has its verdict, when
+    # no goal is in flight (the example stack's lifecycle manager shuts Nav2 down after 4 s
+    # without a heartbeat on the wall clock, and a pause by hand on a loaded runner lasts that).
     command = [*FIELDPROOF, "run", str(REALTIME), "--runs-dir", str(tmp_path), "--run-id", run_id]
+    command += ["--keep"]
     print(f"$ {shlex.join(command)}", flush=True)  # noqa: T201
     started = time.monotonic()
-    with subprocess.Popen(  # noqa: S603
-        command, env=ENV, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    ) as process:
-        try:
-            wait_for_phase(run_dir, "running", PHASE_TIMEOUT_S)
-            # The clock command on the running simulator: status, a pause, status, resume.
-            status = fieldproof("clock", str(run_dir), "status")
-            assert status.returncode == 0, status.stderr
-            assert "world depot running at simulation time" in status.stdout
-            paused = fieldproof("clock", str(run_dir), "pause")
-            assert paused.returncode == 0, paused.stderr
-            assert "pause accepted (pause: true)" in paused.stdout
-            # Short: the example stack's lifecycle manager shuts the stack down after 4 s
-            # without a heartbeat on the wall clock (the kind of watchdog a pause reveals).
-            time.sleep(1.0)
-            status = fieldproof("clock", str(run_dir), "status", "--json")
-            assert status.returncode == 0, status.stderr
-            stats = json.loads(status.stdout)
-            assert stats["paused"] is True
-            assert stats["sim_time_s"] > 0.0
-            resumed = fieldproof("clock", str(run_dir), "resume")
-            assert resumed.returncode == 0, resumed.stderr
-            stdout, stderr = process.communicate(timeout=RUN_TIMEOUT_S)
-        except BaseException:
-            process.kill()
-            raise
-    elapsed = time.monotonic() - started
-    print(f"exit {process.returncode} after {elapsed:.0f} s", flush=True)  # noqa: T201
-    print(stdout[-6000:], flush=True)  # noqa: T201
-    if process.returncode != 0:
-        print(stderr[-4000:], flush=True)  # noqa: T201
-        print_run_logs(run_dir)
-    assert process.returncode == 0, stderr[-2000:]
+    try:
+        completed = subprocess.run(  # noqa: S603
+            command, env=ENV, capture_output=True, text=True, timeout=RUN_TIMEOUT_S, check=False
+        )
+        elapsed = time.monotonic() - started
+        print(f"exit {completed.returncode} after {elapsed:.0f} s", flush=True)  # noqa: T201
+        print(completed.stdout[-6000:], flush=True)  # noqa: T201
+        if completed.returncode != 0:
+            print(completed.stderr[-4000:], flush=True)  # noqa: T201
+            print_run_logs(run_dir)
+        assert completed.returncode == 0, completed.stderr[-2000:]
+        check_realtime_record(run_dir)
+        check_clock_command(run_dir)
+    finally:
+        left = containers_of(run_id)
+        if left:
+            subprocess.run(["docker", "rm", "-f", *left], check=False, capture_output=True)  # noqa: S603, S607
     assert containers_of(run_id) == []
+
+
+def check_realtime_record(run_dir: Path) -> None:
+    """The record, the log, the reports and the metrics of the real-time-locked run."""
     record = json.loads((run_dir / "run.json").read_text())
     assert record["status"] == "passed", record["reason"]
     assert record["time"]["mode"] == "realtime"
@@ -178,7 +170,6 @@ def test_01_realtime_scenario_and_clock_command(tmp_path: Path) -> None:  # noqa
     assert clock["drift_s"] is not None
     assert clock["rtf"]["windows"] >= 3
     assert clock["sim_elapsed_s"] > 5.0
-    assert clock["paused_s"] >= 1.0, "the pause by hand shows in the clock"
     assert clock["max_drift_s"] == 2.0
     assert clock["on_drift"] == "warn"
     if STRICT:
@@ -191,8 +182,6 @@ def test_01_realtime_scenario_and_clock_command(tmp_path: Path) -> None:  # noqa
     assert mode["target_rtf"] == 1.0
     assert ("clock.locked" in names) != ("clock.drifted" in names)
     assert any(e["event"] == "sim.rtf" and e["rtf"] == 1.0 for e in events)
-    paused_samples = [s for s in samples(run_dir, "clock") if s.get("paused")]
-    assert paused_samples, "the observer saw the world paused"
     assert {a["name"]: a["status"] for a in record["assertions"]} == {
         "reached_goal": "passed",
         "arrived_in_time": "passed",
@@ -211,7 +200,36 @@ def test_01_realtime_scenario_and_clock_command(tmp_path: Path) -> None:  # noqa
     assert "drift_s" in last
     assert "paused" in last
     assert "gz_rtf" in last
-    assert any(m.get("paused") for m in metrics), "the pause reached the metrics"
+
+
+def check_clock_command(run_dir: Path) -> None:
+    """`fieldproof clock` on the kept simulator: status, a pause that holds the clock, resume."""
+    status = fieldproof("clock", str(run_dir), "status")
+    assert status.returncode == 0, status.stderr
+    assert "world depot running at simulation time" in status.stdout
+    paused = fieldproof("clock", str(run_dir), "pause")
+    assert paused.returncode == 0, paused.stderr
+    assert "pause accepted (pause: true)" in paused.stdout
+    first = fieldproof("clock", str(run_dir), "status", "--json")
+    assert first.returncode == 0, first.stderr
+    stats = json.loads(first.stdout)
+    assert stats["paused"] is True
+    assert stats["sim_time_s"] > 0.0
+    time.sleep(1.0)
+    second = fieldproof("clock", str(run_dir), "status", "--json")
+    assert json.loads(second.stdout)["sim_time_s"] == stats["sim_time_s"], "the clock stood still"
+    stepped = fieldproof("clock", str(run_dir), "step", "--seconds", "0.5")
+    assert stepped.returncode == 0, stepped.stderr
+    assert "step accepted (multi_step: 500 pause: true)" in stepped.stdout
+    time.sleep(2.0)
+    third = json.loads(fieldproof("clock", str(run_dir), "status", "--json").stdout)
+    assert third["paused"] is True
+    assert third["sim_time_s"] == pytest.approx(stats["sim_time_s"] + 0.5, abs=0.01)
+    resumed = fieldproof("clock", str(run_dir), "resume")
+    assert resumed.returncode == 0, resumed.stderr
+    time.sleep(1.0)
+    final = fieldproof("clock", str(run_dir), "status")
+    assert "running at simulation time" in final.stdout
 
 
 @pytest.mark.integration

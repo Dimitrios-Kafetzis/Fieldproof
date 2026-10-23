@@ -252,7 +252,7 @@ class Time(Strict):
     tolerance: PositiveFloat = Field(
         default=0.1,
         description="Allowed deviation of the measured real-time factor from the target over a "
-        "metrics window (a `clock.drift` warning past it).",
+        "metrics window (counted in the record; a `clock.drift` warning in realtime mode).",
     )
     max_drift_s: PositiveFloat = Field(
         default=1.0,

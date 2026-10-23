@@ -4993,7 +4993,7 @@
         },
         "tolerance": {
           "default": 0.1,
-          "description": "Allowed deviation of the measured real-time factor from the target over a metrics window (a `clock.drift` warning past it).",
+          "description": "Allowed deviation of the measured real-time factor from the target over a metrics window (counted in the record; a `clock.drift` warning in realtime mode).",
           "exclusiveMinimum": 0,
           "title": "Tolerance",
           "type": "number"
