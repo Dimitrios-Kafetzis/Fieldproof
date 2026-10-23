@@ -1075,6 +1075,7 @@ def test_sim_clock_events(config: Config, clock: FakeClock, tmp_path: Path) -> N
     by_name = {a.name: a for a in resolved.actions}
     assert by_name["nudge"].resolved == {
         "service": "/world/depot/control",
+        "world": "depot",
         "steps": 50,
         "step_s": 0.001,
     }

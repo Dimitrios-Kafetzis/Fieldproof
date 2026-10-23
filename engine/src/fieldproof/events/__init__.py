@@ -223,6 +223,13 @@ class EventContext(Protocol):
         (`data: "..."` for a `gz.msgs.StringMsg`). The call is interrupted after `timeout_s`.
         """
 
+    def gz_topic(self, topic: str, *, timeout_s: float = 10.0) -> ExecResult:
+        """One message of a Gazebo topic (`gz topic -e -n 1`) inside the simulator's container.
+
+        The message is printed in protobuf text format (the world's statistics, for example,
+        which :func:`fieldproof.world.parse_stats` reads).
+        """
+
     def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:
         """Record an event in the run's log (relayed to `/fieldproof/events`)."""
 

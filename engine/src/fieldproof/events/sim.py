@@ -19,9 +19,12 @@ from pydantic import Field, PositiveInt, model_validator
 
 from fieldproof.dsl import Duration, PositiveDuration, ScenarioError, TimelineBase
 from fieldproof.events import OK, TIMEOUT, ActionRecord, Event, EventContext, PlanContext
+from fieldproof.world import parse_stats
 
 WORLD_CONTROL_TYPE = "gz.msgs.WorldControl"
 BOOLEAN_TYPE = "gz.msgs.Boolean"
+STEP_POLL_S = 0.25
+"""How often `sim.step` reads the world's statistics while the steps run."""
 
 
 class SimPause(TimelineBase):
@@ -71,7 +74,7 @@ class SimEvent(Event):
                 f"{context.where}: {self.action} does not combine with time.mode lockstep, "
                 "where the engine steps the clock"
             )
-        return {"service": f"/world/{context.world.name}/control"}
+        return {"service": f"/world/{context.world.name}/control", "world": context.world.name}
 
     def control(self, context: EventContext, resolved: Mapping[str, Any], request: str) -> bool:
         """One `WorldControl` request; whether the world accepted it."""
@@ -172,17 +175,42 @@ class SimStepEvent(SimEvent):
         context: EventContext,
         record: ActionRecord,
     ) -> None:
-        """Step (pausing first if the world ran)."""
+        """Step (pausing first if the world ran) and wait until the world has taken the steps.
+
+        The world runs the steps at its real-time factor and pauses at the end, which would
+        undo a `sim.resume` sent meanwhile, so the entry ends only once the statistics show
+        the world paused past the target (or `limit_s` passed).
+        """
         steps = int(resolved["steps"])
         advance = steps * float(resolved["step_s"])
+        before = parse_stats(context.gz_topic(f"/world/{resolved['world']}/stats").output)
+        target = before["sim_time_s"] + advance - 1e-6
         if not self.control(context, resolved, f"multi_step: {steps} pause: true"):
             record.status, record.detail = "failed", "the world refused to step"
             return
+        context.started(record)
+        deadline = context.clock() + min(float(resolved.get("limit_s", 60.0)), 60.0 + advance * 10)
+        stats = before
+        while context.clock() < deadline and not context.tearing_down:
+            stats = parse_stats(context.gz_topic(f"/world/{resolved['world']}/stats").output)
+            if stats["paused"] and stats["sim_time_s"] >= target:
+                break
+            if not context.hold(STEP_POLL_S):
+                return
+        else:
+            record.status = TIMEOUT
+            record.detail = (
+                f"the world did not reach {target:.3f} s paused within the limit "
+                f"(at {stats['sim_time_s']:.3f} s, {'paused' if stats['paused'] else 'running'})"
+            )
+            return
         context.log(
             "sim.stepped",
-            f"{steps} physics step(s), {advance:g} s of simulation",
+            f"{steps} physics step(s), {advance:g} s of simulation, paused at "
+            f"{stats['sim_time_s']:.3f} s",
             action=record.name,
             steps=steps,
+            sim_s=stats["sim_time_s"],
         )
         record.status, record.detail = OK, f"{steps} step(s), {advance:g} s, paused"
 

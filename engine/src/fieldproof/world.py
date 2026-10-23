@@ -7,10 +7,12 @@ turns a :class:`~fieldproof.dsl.Placement` into a :class:`Pose` of the world.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from fieldproof.dsl import Placement, ScenarioError
 
@@ -117,3 +119,37 @@ def place(placement: Placement, world: WorldInfo, what: str) -> Pose:
     if placement.x is None or placement.y is None:  # the model validator rules this out
         raise ScenarioError(f"{what}: a placement needs a frame or x and y")
     return Pose(placement.x, placement.y, placement.z or 0.0, placement.yaw or 0.0)
+
+
+def parse_stats(text: str) -> dict[str, Any]:
+    """The fields of a `gz.msgs.WorldStatistics` as `gz topic -e` prints it (task P2-T04).
+
+    `paused`, `sim_time_s`, `real_time_s`, `iterations` and `rtf`.
+    """
+    stats: dict[str, Any] = {"paused": "paused: true" in text}
+    section: str | None = None
+    values: dict[str, dict[str, int]] = {"sim_time": {}, "real_time": {}}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith(("sim_time", "real_time")):
+            section = line.split()[0]
+            if "}" in line:
+                section = None
+            continue
+        if line.startswith("}"):
+            section = None
+            continue
+        key, _, value = line.partition(":")
+        key, value = key.strip(), value.strip()
+        if section in values and key in ("sec", "nsec") and value.isdigit():
+            values[section][key] = int(value)
+        elif key == "iterations" and value.isdigit():
+            stats["iterations"] = int(value)
+        elif key == "real_time_factor":
+            with contextlib.suppress(ValueError):
+                stats["rtf"] = float(value)
+    for name, parts in values.items():
+        stats[f"{name}_s"] = parts.get("sec", 0) + parts.get("nsec", 0) / 1e9
+    stats.setdefault("iterations", 0)
+    stats.setdefault("rtf", 0.0)
+    return stats

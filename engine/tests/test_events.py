@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 import pytest
-from fakes import FakeBackend, FakeContainer
+from fakes import FakeBackend, FakeContainer, world_stats
 from pydantic import Field, TypeAdapter
 from typer.testing import CliRunner
 
@@ -88,6 +88,7 @@ class Context:
         self.t = 0.0
         self.events: list[tuple[str, str, dict[str, Any]]] = []
         self.started_records: list[str] = []
+        self.stats_calls = 0
         self.ros2_calls: list[tuple[str, tuple[str, ...], float]] = []
         self.ros2_result = ExecResult(0, "")
         self.ros2_results: list[ExecResult] = []
@@ -174,6 +175,10 @@ class Context:
         if self.stop_after_hold:
             self.tearing_down = True
         return not self.tearing_down
+
+    def gz_topic(self, topic: str, *, timeout_s: float = 10.0) -> ExecResult:
+        self.stats_calls += 1
+        return ExecResult(0, world_stats(10.0 + self.stats_calls, paused=True))
 
     def started(self, record: ActionRecord) -> None:
         self.started_records.append(record.name)

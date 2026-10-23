@@ -9,7 +9,6 @@ scenario file; ``report`` renders the report of a run directory again.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import signal
 import sys
@@ -57,6 +56,7 @@ from fieldproof.scenario import (
     json_schema,
     load_scenario,
 )
+from fieldproof.world import parse_stats
 from fieldproof_bridge.manifest import ManifestError
 
 console = Console()
@@ -580,37 +580,6 @@ def clock_request(
     if seconds is not None:
         count = max(1, round(seconds / step_s))
     return f"multi_step: {count} pause: true"
-
-
-def parse_stats(text: str) -> dict[str, Any]:
-    """The fields of a `gz.msgs.WorldStatistics` as `gz topic -e` prints it."""
-    stats: dict[str, Any] = {"paused": "paused: true" in text}
-    section: str | None = None
-    values: dict[str, dict[str, int]] = {"sim_time": {}, "real_time": {}}
-    for raw in text.splitlines():
-        line = raw.strip()
-        if line.startswith(("sim_time", "real_time")):
-            section = line.split()[0]
-            if "}" in line:
-                section = None
-            continue
-        if line.startswith("}"):
-            section = None
-            continue
-        key, _, value = line.partition(":")
-        key, value = key.strip(), value.strip()
-        if section in values and key in ("sec", "nsec") and value.isdigit():
-            values[section][key] = int(value)
-        elif key == "iterations" and value.isdigit():
-            stats["iterations"] = int(value)
-        elif key == "real_time_factor":
-            with contextlib.suppress(ValueError):
-                stats["rtf"] = float(value)
-    for name, parts in values.items():
-        stats[f"{name}_s"] = parts.get("sec", 0) + parts.get("nsec", 0) / 1e9
-    stats.setdefault("iterations", 0)
-    stats.setdefault("rtf", 0.0)
-    return stats
 
 
 def compare(

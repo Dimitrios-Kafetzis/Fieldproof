@@ -39,6 +39,17 @@ TRAFFIC_OK = (
 )
 
 
+def world_stats(sim_s: float, *, paused: bool) -> str:
+    """A `gz.msgs.WorldStatistics` as `gz topic -e` prints it."""
+    seconds = int(sim_s)
+    return (
+        f"sim_time {{\n  sec: {seconds}\n  nsec: {round((sim_s - seconds) * 1e9)}\n}}\n"
+        f"real_time {{\n  sec: {seconds}\n  nsec: 0\n}}\n"
+        + ("paused: true\n" if paused else "real_time_factor: 1.0\n")
+        + f"iterations: {seconds * 1000}\nstep_size {{\n  nsec: 1000000\n}}\n"
+    )
+
+
 @dataclass
 class FakeContainer:
     spec: ContainerSpec
@@ -217,6 +228,9 @@ class FakeBackend:
     """What the simulator answers a world event's service (`gz service` on the sim container)."""
     control_result: ExecResult = field(default_factory=lambda: ExecResult(0, "data: true\n"))
     """What the world's control service answers (`sim.pause`, `sim.step`, `sim.resume`)."""
+    stats_calls: int = 0
+    """How often the world's statistics were read (`sim.step` polls them); each answer is one
+    second of simulation further, paused."""
     controls: list[str] = field(default_factory=list)
     """The `WorldControl` requests made, in order."""
     world_polls_needed: int = 2
@@ -370,6 +384,9 @@ class FakeBackend:
             return self.rtf_result
         if role == "sim" and "/fieldproof/" in command:
             return self.world_result
+        if role == "sim" and "gz topic -e" in command and "/stats" in command:
+            self.stats_calls += 1
+            return ExecResult(0, world_stats(10.0 + self.stats_calls, paused=True))
         if role == "sim" and "/control" in command:
             request = command.split("--req ", 1)[1]
             self.controls.append(request.strip("'"))

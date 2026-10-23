@@ -1438,6 +1438,11 @@ class RunContext:
         )
         return self._run.backend.exec(self._run.plan.sim.name, ("bash", "-lc", command))
 
+    def gz_topic(self, topic: str, *, timeout_s: float = 10.0) -> ExecResult:
+        limit_s = max(int(timeout_s) + 5, PROBE_LIMIT_S)
+        command = f"timeout {limit_s} gz topic -e -n 1 -t {shlex.quote(topic)}"
+        return self._run.backend.exec(self._run.plan.sim.name, ("bash", "-lc", command))
+
     def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:
         self._run.log.event(event, message, level=level, **fields)
 

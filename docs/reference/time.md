@@ -43,7 +43,10 @@ real-time factor.
 
 The observer's clock manager ([assertions.md](assertions.md#how-a-run-is-observed)) subscribes
 to the world's statistics (`/world/<name>/stats`: whether the world is paused, its own
-real-time factor) and adds to the `/fieldproof/metrics` side channel and the `clock` samples of
+real-time factor), makes its requests to the world's control service through a helper process
+of its own (`observer.py --world-control`, a gz-transport node that subscribes to nothing, since
+a request from a node that also delivers Python callbacks loses its reply now and then), and
+adds to the `/fieldproof/metrics` side channel and the `clock` samples of
 the stream, once a second: `mode`, `target_rtf`, `drift_s` (simulation seconds gained or lost
 against the wall clock at the target pace since the observer's first sample), `paused` and
 `gz_rtf`. The engine's clock monitor reads the samples of the timeline and writes `run.json`'s
