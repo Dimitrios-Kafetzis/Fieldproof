@@ -1,0 +1,76 @@
+# The simulator clock events (task P2-T04): the drive of ugv_nav_to_goal with the clock paused
+# four seconds in (`sim.pause`: the physics and every node on simulation time stand still, the
+# clock keeps publishing the time it stopped at), nudged by half a second of simulation while
+# paused (`sim.step`), and resumed once the observer has seen the real-time factor collapse
+# (`sim.resume` triggered by `when: {metric: rtf}`), which is the evidence the pause reached
+# the stream. The drive then goes on to the goal; the drift monitor leaves the pause out.
+#
+#   fieldproof run examples/scenarios/ugv_sim_control.yaml
+#
+# `fieldproof clock <run> pause|resume|step|status` does the same by hand on a running run.
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: ugv_sim_control
+  description: The example UGV's drive with the simulator paused, stepped and resumed meanwhile
+  tags: [nav, ugv, clock]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    spawn:
+      frame: spawn_dock
+time:
+  mode: sim
+  timeout_s: 10m
+timeline:
+  - at: 0s
+    name: drive_ahead
+    vehicle: ugv1
+    action: navigate_to_pose
+    goal: { x: 10.0, y: -1.0, yaw: -1.5708 }
+    timeout_s: 5m
+  - at: 4s
+    name: freeze
+    action: sim.pause # no duration: paused until thaw
+  - at: 2s
+    after: freeze
+    name: nudge
+    action: sim.step
+    duration_s: 0.5 # 500 physics steps, then paused again
+  - at: 2s
+    name: thaw
+    when: { metric: rtf, condition: value < 0.05 } # the observer saw the clock stop
+    within_s: 40s
+    action: sim.resume
+assertions:
+  - name: reached_goal
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: 10.0, y: -1.0 }
+    tolerance_m: 0.5
+  - name: arrived_in_time
+    type: within_time
+    action: drive_ahead
+    max_s: 4m
+  - name: paused_and_seen
+    type: within_time
+    action: thaw # skipped, and this fails, unless the pause showed in the metrics
+    max_s: 60s
+  - name: nudged
+    type: within_time
+    action: nudge
+    max_s: 60s
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+outputs:
+  logs: true
+  record: true
+  topics:
+    - /clock
+    - /odom
+    - /cmd_vel
+    - /fieldproof/metrics
+    - /fieldproof/events

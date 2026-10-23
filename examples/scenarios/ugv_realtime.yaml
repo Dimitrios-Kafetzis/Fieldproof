@@ -1,0 +1,65 @@
+# The real-time-locked mode (task P2-T04, ADR-0006): the drive of ugv_nav_to_goal with the
+# simulator's real-time factor pinned to 1.0 and the drift between simulation time and the wall
+# clock measured over the timeline: a `clock.drift` warning for every metrics window outside
+# the tolerance, and the lock's verdict (`locked` or `drifted` against max_drift_s) in the record
+# and the report. A GPU host holds the lock; a CI runner with software rendering cannot (the
+# simulator runs well below real time there), which is why this example only warns: set
+# `on_drift: fail` where the host is known to keep up (fidelity tiers T2 and T3 require it).
+#
+#   fieldproof run examples/scenarios/ugv_realtime.yaml
+#   fieldproof report runs/<run_id>   # the Clock line: measured RTF, drift, verdict
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: ugv_realtime
+  description: The example UGV drives 4 m ahead with the simulator locked to real time
+  tags: [nav, ugv, clock, realtime]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    spawn:
+      frame: spawn_dock
+time:
+  mode: realtime
+  tolerance: 0.2 # a window's real-time factor outside 1.0 ± 0.2 is warned about
+  max_drift_s: 2.0 # the drift over the timeline that loses the lock
+  on_drift: warn # fail: a lost lock fails the run (for hosts that hold real time)
+  timeout_s: 10m
+timeline:
+  - at: 0s
+    name: drive_ahead
+    vehicle: ugv1
+    action: navigate_to_pose
+    goal: { x: 10.0, y: -1.0, yaw: -1.5708 }
+    timeout_s: 5m
+assertions:
+  - name: reached_goal
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: 10.0, y: -1.0 }
+    tolerance_m: 0.5
+  - name: arrived_in_time
+    type: within_time
+    action: drive_ahead
+    max_s: 4m
+  - name: lidar_streams
+    type: topic_rate
+    topic: scan
+    vehicle: ugv1
+    min_hz: 2.0
+    window_s: 5s
+    after_s: 5s
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+outputs:
+  logs: true
+  record: true
+  topics:
+    - /clock
+    - /odom
+    - /cmd_vel
+    - /scan
+    - /fieldproof/metrics

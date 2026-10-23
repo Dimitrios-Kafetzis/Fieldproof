@@ -1,0 +1,93 @@
+# Lockstep mode (task P2-T04, ADR-0006): the drive of ugv_nav_to_goal with the simulator
+# stepped 0.1 s at a time, each step only once the vehicle's clock agent has acknowledged the
+# previous one, the world held at every timeline due time and while a goal is being accepted,
+# and the timeline, the assertions and the record counting simulation time. With the seed fixed,
+# two runs of this file follow the same trajectory within the stack's own non-determinism:
+#
+#   fieldproof run examples/scenarios/ugv_lockstep.yaml --run-id lockstep-a
+#   fieldproof run examples/scenarios/ugv_lockstep.yaml --run-id lockstep-b
+#   fieldproof compare runs/lockstep-a runs/lockstep-b
+#
+# docs/reference/time.md describes the mode; tests/integration/test_determinism.py runs it twice.
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: ugv_lockstep
+  description: The example UGV drives 4 m ahead with the simulator stepped in lockstep with it
+  tags: [nav, ugv, clock, determinism]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    spawn:
+      frame: spawn_dock
+seed: 7 # the simulator's noise and the run's random numbers; any run repeats with its seed
+time:
+  mode: lockstep
+  step_s: 0.1 # 100 physics steps of the depot's 1 ms per acknowledgement
+  rtf: 1.0 # a step runs no faster than real time, so the stack gets its wall-clock share
+  ack_timeout_s: 30 # a vehicle that does not acknowledge a step within this fails the run
+  timeout_s: 15m # the wall-clock budget; everything below counts simulation time
+timeline:
+  - at: 1s # of simulation time after the clock locked: the goal is sent with the world paused there
+    name: drive_ahead
+    vehicle: ugv1
+    action: navigate_to_pose
+    goal: { x: 10.0, y: -1.0, yaw: -1.5708 }
+    timeout_s: 5m
+assertions:
+  - name: reached_goal
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: 10.0, y: -1.0 }
+    tolerance_m: 0.5
+  # Simulation seconds: the drive takes about 15 s of simulation on a GPU host and more where
+  # the stack is starved, and the stepping gives the stack at least real time per step.
+  - name: arrived_in_time
+    type: within_time
+    action: drive_ahead
+    max_s: 3m
+  - name: lidar_streams
+    type: topic_rate
+    topic: scan
+    vehicle: ugv1
+    min_hz: 2.0
+    window_s: 5s
+    after_s: 5s
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+  - name: speed_limit
+    type: topic_value
+    topic: cmd_vel
+    vehicle: ugv1
+    field: linear.x
+    condition: value <= 1.5
+  # The odometry's position streams into samples.jsonl (the conditions always hold), so two
+  # runs' odometry can be compared sample by sample in simulation time (`fieldproof compare`
+  # does the same with the ground truth; tests/integration/test_determinism.py does both).
+  - name: odom_x
+    type: topic_value
+    topic: odom
+    vehicle: ugv1
+    field: pose.pose.position.x
+    condition: abs(value) < 1000
+  - name: odom_y
+    type: topic_value
+    topic: odom
+    vehicle: ugv1
+    field: pose.pose.position.y
+    condition: abs(value) < 1000
+outputs:
+  logs: true
+  record: true
+  topics:
+    - /clock
+    - /tf
+    - /tf_static
+    - /odom
+    - /cmd_vel
+    - /scan
+    - /plan
+    - /rosout
