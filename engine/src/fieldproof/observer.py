@@ -46,6 +46,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import Executor, ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import IO, Any, Protocol
@@ -83,7 +84,7 @@ LOCKSTEP_LEAD_S = 0.5
 """How far ahead of the current simulation time the origin is put, so the request lands."""
 LOCKSTEP_EPS = 1e-6
 """Tolerance when comparing simulation times on the step grid."""
-WORLD_CONTROL_TIMEOUT_MS = 5000
+WORLD_CONTROL_TIMEOUT_MS = 2000
 FIELD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)?((?:\[\d+\])*)$")
 
 
@@ -362,6 +363,9 @@ class RclpyRos:
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
         )
+        from rclpy.clock import Clock, ClockType  # noqa: PLC0415
+
+        self._steady = Clock(clock_type=ClockType.STEADY_TIME)
         self._handles: list[Any] = []
 
     def now_sim(self) -> float | None:
@@ -390,8 +394,13 @@ class RclpyRos:
         return publish
 
     def timer(self, period_s: float, callback: Callable[[], None]) -> None:
-        """See :class:`Ros`."""
-        self._handles.append(self.node.create_timer(period_s, callback))
+        """See :class:`Ros`.
+
+        On the steady clock, not the node's simulation clock: the observer keeps measuring,
+        relaying and (in lockstep) stepping while the world is paused, when a sim-time timer
+        would never fire again (task P2-T04).
+        """
+        self._handles.append(self.node.create_timer(period_s, callback, clock=self._steady))
 
     def spin_once(self, timeout_s: float) -> None:
         """See :class:`Ros`."""
@@ -495,12 +504,17 @@ class ClockManager:
         *,
         clock: Callable[[], float] = time.time,
         error: Callable[[str], None] | None = None,
+        pool: Executor | None = None,
     ) -> None:
         self.sink = sink
         self.gz = gz
         self.ros = ros
         self.clock = clock
         self.report_error = error or (lambda _message: None)
+        self.pool = pool
+        """Where the world-control requests run (None: inline). The real observer gives a
+        worker thread, so a slow or lost reply never stalls the spin that delivers the
+        acknowledgements and the commands; the acknowledgements confirm a step, not the reply."""
         self.world = str(config.get("world", ""))
         self.mode = str(config.get("mode", "sim"))
         self.target_rtf = float(config.get("target_rtf") or 1.0)
@@ -586,6 +600,9 @@ class ClockManager:
                     self.command(data)
         if self.target is None or self.requested_at is None:
             return
+        if self.reached():
+            self.advance()  # nobody to wait for (no vehicle), or acknowledged meanwhile
+            return
         now = self.clock()
         waited = now - self.requested_at
         if waited > self.ack_timeout_s and not self.timed_out:
@@ -649,8 +666,19 @@ class ClockManager:
         self.requested_at = self.clock()
         self.reported_at = None
         self.timed_out = False
-        if not self.gz.world_control(self.service, run_to_sim_time=target):
-            self.report_error(f"lockstep: {self.service} refused run_to_sim_time {target:.3f}")
+        gz = self.gz
+
+        def send() -> None:
+            if not gz.world_control(self.service, run_to_sim_time=target):
+                self.report_error(
+                    f"lockstep: no reply to run_to_sim_time {target:.3f} from {self.service} "
+                    "(the acknowledgements decide whether the step was taken)"
+                )
+
+        if self.pool is None:
+            send()
+        else:
+            self.pool.submit(send)
 
     def missing(self) -> list[str]:
         """The vehicles that have not acknowledged the step in flight."""
@@ -739,6 +767,7 @@ class Observer:
         recorder: Recorder | None = None,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
+        pool: Executor | None = None,
     ) -> None:
         self.config = config
         self.sink = sink
@@ -774,6 +803,7 @@ class Observer:
             ros,
             clock=clock,
             error=self.error,
+            pool=pool,
         )
 
     # ----------------------------------------------------------------------------- set-up
@@ -1033,7 +1063,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             recorder_command(record["output"], record.get("topics", [])), sys.stdout
         )
     gz = None if args.no_gazebo else GzTransport()
-    observer = Observer(config, sink, RclpyRos(), gz, recorder=recorder)
+    observer = Observer(
+        config,
+        sink,
+        RclpyRos(),
+        gz,
+        recorder=recorder,
+        pool=ThreadPoolExecutor(max_workers=1, thread_name_prefix="fieldproof-clock"),
+    )
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda _signum, _frame: observer.stop())
     return observer.run()

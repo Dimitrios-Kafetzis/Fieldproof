@@ -3,7 +3,10 @@
 # clock keeps publishing the time it stopped at), nudged by half a second of simulation while
 # paused (`sim.step`), and resumed once the observer has seen the real-time factor collapse
 # (`sim.resume` triggered by `when: {metric: rtf}`), which is the evidence the pause reached
-# the stream. The drive then goes on to the goal; the drift monitor leaves the pause out.
+# the stream. The drive then goes on to the goal; the drift monitor leaves the pause out. The
+# pause stays short: the example stack's lifecycle manager watches its servers' heartbeats on
+# the wall clock (4 s) and shuts the stack down past that, which is the kind of watchdog a
+# pause is there to reveal.
 #
 #   fieldproof run examples/scenarios/ugv_sim_control.yaml
 #
@@ -34,12 +37,12 @@ timeline:
   - at: 4s
     name: freeze
     action: sim.pause # no duration: paused until thaw
-  - at: 2s
+  - at: 1s
     after: freeze
     name: nudge
     action: sim.step
     duration_s: 0.5 # 500 physics steps, then paused again
-  - at: 2s
+  - at: 0.5s
     name: thaw
     when: { metric: rtf, condition: value < 0.05 } # the observer saw the clock stop
     within_s: 40s

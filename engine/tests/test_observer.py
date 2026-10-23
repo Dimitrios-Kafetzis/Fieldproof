@@ -605,8 +605,10 @@ def test_main_reads_the_config(run_dir: Path, monkeypatch: pytest.MonkeyPatch) -
     created: dict[str, Any] = {}
 
     class StubObserver:
-        def __init__(self, cfg: Any, sink: Any, ros: Any, gz: Any, *, recorder: Any) -> None:
-            created.update(cfg=cfg, ros=ros, gz=gz, recorder=recorder)
+        def __init__(
+            self, cfg: Any, sink: Any, ros: Any, gz: Any, *, recorder: Any, pool: Any = None
+        ) -> None:
+            created.update(cfg=cfg, ros=ros, gz=gz, recorder=recorder, pool=pool)
             sink.close()
 
         def run(self) -> int:

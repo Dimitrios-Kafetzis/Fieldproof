@@ -248,7 +248,10 @@ def test_lockstep_refused_request_and_bad_commands_are_errors(tmp_path: Path) ->
     rig.gz.refuse.add("/world/depot/control")
     rig.gz.stats["/world/depot/stats"](stats(1.0, paused=False))
     rig.command(CMD_LOCKSTEP)
-    assert rig.errors == ["lockstep: /world/depot/control refused run_to_sim_time 1.500"]
+    assert rig.errors == [
+        "lockstep: no reply to run_to_sim_time 1.500 from /world/depot/control (the "
+        "acknowledgements decide whether the step was taken)"
+    ]
     with rig.control_file.open("a") as file:
         file.write("not json\n")
         file.write(json.dumps({"cmd": "dance"}) + "\n")
