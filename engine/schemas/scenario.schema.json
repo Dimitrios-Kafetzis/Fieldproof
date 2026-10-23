@@ -5581,7 +5581,7 @@
         }
       ],
       "default": null,
-      "description": "The seed of the run's random numbers (the simulator's noise, the events); absent: drawn per run and recorded, so any run can be repeated with its seed.",
+      "description": "The seed of the run's random numbers (the simulator's noise, the events); absent: Gazebo's default seed, 0, so unseeded runs are alike; recorded either way.",
       "title": "Seed"
     },
     "timeline": {

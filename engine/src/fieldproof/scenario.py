@@ -515,7 +515,7 @@ class Scenario(Strict):
         ge=0,
         le=SEED_MAX,
         description="The seed of the run's random numbers (the simulator's noise, the events); "
-        "absent: drawn per run and recorded, so any run can be repeated with its seed.",
+        "absent: Gazebo's default seed, 0, so unseeded runs are alike; recorded either way.",
     )
     timeline: list[TimelineEntry] = Field(default_factory=list)
     assertions: list[Assertion] = Field(default_factory=list)

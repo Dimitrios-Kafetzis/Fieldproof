@@ -10,7 +10,7 @@ of a scenario are apart.
 ## The `time` section
 
 ```yaml
-seed: 7                   # optional: the run's random numbers (drawn and recorded when absent)
+seed: 7                   # optional: the run's random numbers (Gazebo's default, 0, when absent)
 time:
   mode: sim               # sim (default) | realtime | lockstep
   rtf: null               # target real-time factor (sim: the world's own when null;
@@ -33,7 +33,7 @@ time:
 | `step_s` | `lockstep`: the simulation time of one step, a whole number of the world's physics steps (`<max_step_size>`, 1 ms in the depot; a value that is not is refused at validation) |
 | `ack_timeout_s` | `lockstep`: wall-clock seconds the clock manager waits for every vehicle's acknowledgement of a step before the run fails (`lockstep: step N ... not acknowledged by <vehicle>`) |
 | `timeout_s` | the wall-clock budget of the run from the moment every vehicle is ready, in every mode |
-| `seed` (top level) | an integer from 0 to 2^31 - 1 (Gazebo's launcher converts it to a C `int`). The simulator is started with `gz sim --seed <seed>`, which seeds Gazebo's random number generator (the sensors' Gaussian noise, the wind), every container of the run gets `FIELDPROOF_SEED`, and the record and the report carry it. Absent, a seed is drawn for the run and recorded, so any run can be repeated with `fieldproof run --seed <seed>` |
+| `seed` (top level) | an integer from 0 to 2^31 - 1 (Gazebo's launcher converts it to a C `int`). The simulator is started with `gz sim --seed <seed>`, which seeds Gazebo's random number generator (the sensors' Gaussian noise, the wind), every container of the run gets `FIELDPROOF_SEED`, and the record and the report carry it. Absent, the run uses Gazebo's own default seed, 0 (so unseeded runs keep the noise sequence they always had and two of them are alike) and records it; `fieldproof run --seed <seed>` or a scenario's `seed` varies it |
 
 `fieldproof validate` prints a note on what the mode means for the run; `fieldproof run
 --dry-run` shows the resolved `time` section, the seed and the world's physics step and

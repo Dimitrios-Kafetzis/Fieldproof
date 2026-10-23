@@ -166,7 +166,7 @@ def check_realtime_record(run_dir: Path) -> None:
     record = json.loads((run_dir / "run.json").read_text())
     assert record["status"] == "passed", record["reason"]
     assert record["time"]["mode"] == "realtime"
-    assert isinstance(record["seed"], int)
+    assert record["seed"] == 0, "the example names no seed: Gazebo's default"
     clock = record["clock"]
     print(f"clock: {json.dumps(clock)}", flush=True)  # noqa: T201
     assert clock["mode"] == "realtime"

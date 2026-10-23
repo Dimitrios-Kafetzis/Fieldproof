@@ -188,7 +188,7 @@ def test_plan_resolves_the_example(resolved: Plan, config: Config, tmp_path: Pat
         str(resolved.seed),
         "depot.sdf",
     )
-    assert 0 <= resolved.seed <= 2**31 - 1, "drawn for the run (the example sets none)"
+    assert resolved.seed == 0, "Gazebo's default seed: the example sets none"
     assert sim.env["FIELDPROOF_SEED"] == str(resolved.seed)
     assert sim.env["LIBGL_ALWAYS_SOFTWARE"] == "1"
     assert sim.env["GZ_PARTITION"] == "fieldproof"

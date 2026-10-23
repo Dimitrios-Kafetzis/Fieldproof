@@ -59,7 +59,6 @@ import hashlib
 import json
 import math
 import os
-import random
 import re
 import shlex
 import threading
@@ -204,6 +203,9 @@ RUN_DIR_IN_CONTAINER = "/fieldproof/run"
 GROUND_FILE = Path(ground.__file__).resolve()
 GROUND_IN_CONTAINER = "/opt/fieldproof/ground.py"
 GROUND_HOSTNAME = "ground"
+# The seed of a run that names none (task P2-T04): Gazebo's own default, so unseeded runs keep
+# the noise sequence they always had and two of them are alike; a scenario or `--seed` varies it.
+DEFAULT_SEED = 0
 # The lockstep clock agent (task P2-T04), mounted like the observer into a container of the
 # bridge image that shares the vehicle container's network namespace.
 LOCKSTEP_FILE = Path(lockstep.__file__).resolve()
@@ -658,7 +660,7 @@ def plan(  # noqa: PLR0915
 ) -> Plan:
     """Resolve the scenario against the workspace; raise :class:`ScenarioError` if it cannot run.
 
-    `seed` overrides the scenario's; without either, one is drawn for the run (and recorded).
+    `seed` overrides the scenario's; without either the run uses Gazebo's default seed, 0.
     """
     worlds_dir = config.resolve(config.stack.worlds)
     world_file = worlds_dir / scenario.world.file
@@ -845,11 +847,11 @@ def _check_step(time_section: Time, world: WorldInfo) -> None:
 
 
 def _plan_seed(scenario: Scenario, seed: int | None) -> int:
-    """The run's seed: the override, the scenario's, or one drawn now."""
+    """The run's seed: the override, the scenario's, or Gazebo's own default."""
     if seed is None:
         seed = scenario.seed
     if seed is None:
-        seed = random.SystemRandom().randrange(SEED_MAX + 1)
+        seed = DEFAULT_SEED
     if not 0 <= seed <= SEED_MAX:
         raise ScenarioError(f"seed: {seed} is not between 0 and {SEED_MAX}")
     return seed
