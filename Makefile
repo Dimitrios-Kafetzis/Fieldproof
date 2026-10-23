@@ -226,7 +226,8 @@ test-integration: ## Integration tests (tests/integration): the vertical slice b
 	$(UV) run --locked --project engine pytest -s -v tests/integration
 
 # Two lockstep runs and their comparison (task P2-T04), too slow for every PR: the nightly
-# scenario workflow runs it; PYTEST_FLAGS="--basetemp runs/determinism" keeps the run directories.
+# scenario workflow runs it; PYTEST_FLAGS="--basetemp runs/determinism" keeps the run directories
+# (pytest creates the base directory but not its parent, so `runs` must exist).
 test-determinism: ## Determinism test (tests/integration/test_determinism.py): the lockstep scenario twice, trajectories and odometry compared
 	$(UV) sync --locked --project engine
 	FIELDPROOF_DETERMINISM=1 $(UV) run --locked --project engine pytest -s -v $(PYTEST_FLAGS) tests/integration/test_determinism.py
