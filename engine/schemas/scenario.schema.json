@@ -3905,6 +3905,582 @@
       "title": "SetWind",
       "type": "object"
     },
+    "SimPause": {
+      "additionalProperties": false,
+      "description": "Pause the simulator's clock (every stack on simulation time stands still with it).\n\nWith `duration_s` the entry resumes the world after that long of wall-clock time and ends\nthen; without it the world stays paused until a `sim.resume` or a `sim.step`.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the entry acts on.",
+          "title": "Vehicle"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "sim.pause",
+          "title": "Action",
+          "type": "string"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resume after this long on the wall clock (absent: stay paused).",
+          "title": "Duration S"
+        }
+      },
+      "required": ["action"],
+      "title": "SimPause",
+      "type": "object"
+    },
+    "SimResume": {
+      "additionalProperties": false,
+      "description": "Resume the simulator's clock.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the entry acts on.",
+          "title": "Vehicle"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "sim.resume",
+          "title": "Action",
+          "type": "string"
+        }
+      },
+      "required": ["action"],
+      "title": "SimResume",
+      "type": "object"
+    },
+    "SimStep": {
+      "additionalProperties": false,
+      "description": "Advance the simulator by a number of physics steps (or a duration) and pause it again.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the entry acts on.",
+          "title": "Vehicle"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "sim.step",
+          "title": "Action",
+          "type": "string"
+        },
+        "steps": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Physics steps to take (the world's `max_step_size` each).",
+          "title": "Steps"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Simulation seconds to advance by (instead of `steps`).",
+          "title": "Duration S"
+        }
+      },
+      "required": ["action"],
+      "title": "SimStep",
+      "type": "object"
+    },
     "SpawnObject": {
       "additionalProperties": false,
       "description": "Spawn an obstacle into the world: a primitive shape, or a model of the resource path.",
@@ -4392,12 +4968,12 @@
     },
     "Time": {
       "additionalProperties": false,
-      "description": "The clock of the run (ADR-0006).",
+      "description": "The clock of the run (ADR-0006, task P2-T04; docs/reference/time.md).\n\n`sim`: the simulator free-runs at the target real-time factor and the timeline is scheduled\non the wall clock. `realtime`: the real-time factor is pinned to 1.0 and the drift between\nsimulation time and the wall clock is monitored over the timeline, warned about and, with\n`on_drift: fail`, fails the run past `max_drift_s`. `lockstep`: the simulator advances in\nsteps of `step_s` only once every vehicle has acknowledged the previous one (a clock agent\nin each vehicle's network namespace), the engine holds it at every timeline due time and\nwhile an event is being started, and the timeline and the assertions run in simulation time.",
       "properties": {
         "mode": {
           "default": "sim",
-          "description": "`sim`: simulated time on /clock at the target real-time factor; `realtime`: real-time-locked mode (task P2-T04).",
-          "enum": ["sim", "realtime"],
+          "description": "`sim`: simulated time on /clock at the target real-time factor; `realtime`: real-time-locked (RTF 1.0, drift monitored); `lockstep`: stepped, the simulator waiting for every vehicle's acknowledgement.",
+          "enum": ["sim", "realtime", "lockstep"],
           "title": "Mode",
           "type": "string"
         },
@@ -4412,14 +4988,42 @@
             }
           ],
           "default": null,
-          "description": "Target real-time factor (absent: the world's own setting).",
+          "description": "Target real-time factor (absent: the world's own setting). In `realtime` mode it is 1.0; in `lockstep` mode it is the pace cap of a step (1.0 by default).",
           "title": "Rtf"
         },
         "tolerance": {
           "default": 0.1,
-          "description": "Allowed deviation of the real-time factor from the target.",
+          "description": "Allowed deviation of the measured real-time factor from the target over a metrics window (a `clock.drift` warning past it).",
           "exclusiveMinimum": 0,
           "title": "Tolerance",
+          "type": "number"
+        },
+        "max_drift_s": {
+          "default": 1.0,
+          "description": "`realtime`: the drift between simulation time and the wall clock tolerated over the timeline (simulation seconds minus wall-clock seconds).",
+          "exclusiveMinimum": 0,
+          "title": "Max Drift S",
+          "type": "number"
+        },
+        "on_drift": {
+          "default": "fail",
+          "description": "`realtime`: what a drift past `max_drift_s` does: fail the run or warn.",
+          "enum": ["fail", "warn"],
+          "title": "On Drift",
+          "type": "string"
+        },
+        "step_s": {
+          "default": 0.1,
+          "description": "`lockstep`: simulation seconds per step (a multiple of the world's physics step).",
+          "exclusiveMinimum": 0,
+          "title": "Step S",
+          "type": "number"
+        },
+        "ack_timeout_s": {
+          "default": 30.0,
+          "description": "`lockstep`: wall-clock seconds a vehicle may take to acknowledge a step before the run fails.",
+          "exclusiveMinimum": 0,
+          "title": "Ack Timeout S",
           "type": "number"
         },
         "timeout_s": {
@@ -4958,8 +5562,27 @@
         "mode": "sim",
         "rtf": null,
         "tolerance": 0.1,
+        "max_drift_s": 1.0,
+        "on_drift": "fail",
+        "step_s": 0.1,
+        "ack_timeout_s": 30.0,
         "timeout_s": 600.0
       }
+    },
+    "seed": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The seed of the run's random numbers (the simulator's noise, the events); absent: drawn per run and recorded, so any run can be repeated with its seed.",
+      "title": "Seed"
     },
     "timeline": {
       "items": {
@@ -4983,6 +5606,9 @@
             "sensor.dropout": "#/$defs/SensorDropout",
             "sensor.freeze": "#/$defs/SensorFreeze",
             "set_wind": "#/$defs/SetWind",
+            "sim.pause": "#/$defs/SimPause",
+            "sim.resume": "#/$defs/SimResume",
+            "sim.step": "#/$defs/SimStep",
             "spawn_object": "#/$defs/SpawnObject",
             "teleport": "#/$defs/Teleport"
           },
@@ -5045,6 +5671,15 @@
           },
           {
             "$ref": "#/$defs/ActuatorLimit"
+          },
+          {
+            "$ref": "#/$defs/SimPause"
+          },
+          {
+            "$ref": "#/$defs/SimResume"
+          },
+          {
+            "$ref": "#/$defs/SimStep"
           },
           {
             "$ref": "#/$defs/Announce"

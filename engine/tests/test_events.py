@@ -87,6 +87,7 @@ class Context:
         self.tearing_down = False
         self.t = 0.0
         self.events: list[tuple[str, str, dict[str, Any]]] = []
+        self.started_records: list[str] = []
         self.ros2_calls: list[tuple[str, tuple[str, ...], float]] = []
         self.ros2_result = ExecResult(0, "")
         self.ros2_results: list[ExecResult] = []
@@ -173,6 +174,9 @@ class Context:
         if self.stop_after_hold:
             self.tearing_down = True
         return not self.tearing_down
+
+    def started(self, record: ActionRecord) -> None:
+        self.started_records.append(record.name)
 
     def expect_exit(self, container: str) -> None:
         self.exits.add(container)

@@ -59,6 +59,7 @@ BUILTIN_MODULES = (
     "fieldproof.events.param",
     "fieldproof.events.world",
     "fieldproof.events.faults",
+    "fieldproof.events.sim",
 )
 BUILTIN = "built-in"
 # Statuses of an action record.
@@ -147,6 +148,8 @@ class PlanContext:
     """Whether the scenario has radio links (a `network` section)."""
     where: str = "timeline[]"
     """The entry being planned, for error messages (`timeline[2]`)."""
+    time_mode: str = "sim"
+    """The scenario's `time.mode` (`sim`, `realtime`, `lockstep`; task P2-T04)."""
 
     def vehicle(self, name: str | None, what: str = "vehicle") -> VehicleHandle:
         """The vehicle called `name`, or a :class:`ScenarioError` naming `where.what`."""
@@ -228,6 +231,14 @@ class EventContext(Protocol):
 
     def hold(self, seconds: float) -> bool:
         """Wait this long (or until the run ends; then False), in slices."""
+
+    def started(self, record: ActionRecord) -> None:
+        """Tell the run the event's effect is in place (a goal accepted, a fault set).
+
+        In lockstep mode (task P2-T04) the simulator is held at the occurrence's start time
+        until every occurrence starting then has said so, or returned, or held it for ten
+        seconds; an event that does not call it holds the clock until `apply` returns.
+        """
 
     def expect_exit(self, container: str) -> None:
         """Tell the run that this container may exit from now on (a kill)."""

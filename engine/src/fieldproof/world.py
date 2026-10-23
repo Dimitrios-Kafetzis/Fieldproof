@@ -18,6 +18,10 @@ VIDEO_RECORDER_PLUGIN = "gz::sim::systems::CameraVideoRecorder"
 # The spawn launch's default `z`: the reference UGV's base_link height above the ground, which
 # a spawn and a teleport of a vehicle add to the ground pose.
 SPAWN_HEIGHT_M = 0.12
+# Gazebo's defaults when a world declares no `<physics>` (task P2-T04: a lockstep step is a
+# multiple of the physics step, and `sim.step` counts physics steps).
+DEFAULT_STEP_S = 0.001
+DEFAULT_RTF = 1.0
 
 
 @dataclass(frozen=True)
@@ -54,13 +58,18 @@ class WorldInfo:
     frames: dict[str, Pose]
     cameras: dict[str, str] = field(default_factory=dict)
     """Camera sensors with a `CameraVideoRecorder` plugin: sensor name to its service."""
+    step_s: float = DEFAULT_STEP_S
+    """The physics step (`<physics><max_step_size>`), in seconds."""
+    rtf: float = DEFAULT_RTF
+    """The world's own real-time factor (`<physics><real_time_factor>`)."""
 
 
 def read_world(file: Path) -> WorldInfo:
     """The world's name, its named frames and the cameras a video can be recorded from.
 
     Frames are `<frame name="..."><pose>x y z r p y</pose>`; cameras are the `<sensor
-    type="camera">` elements carrying a `CameraVideoRecorder` plugin (`outputs.video`).
+    type="camera">` elements carrying a `CameraVideoRecorder` plugin (`outputs.video`); the
+    physics step and real-time factor come from `<physics>` (Gazebo's defaults without one).
     """
     try:
         root = ET.parse(file).getroot()  # noqa: S314  (a world file of the workspace)
@@ -83,7 +92,17 @@ def read_world(file: Path) -> WorldInfo:
         for plugin in sensor.findall("plugin"):
             if plugin.get("name") == VIDEO_RECORDER_PLUGIN and plugin.findtext("service"):
                 cameras[str(sensor.get("name"))] = str(plugin.findtext("service")).strip()
-    return WorldInfo(file, str(world.get("name")), frames, cameras)
+    physics = world.find("physics")
+    step_s, rtf = DEFAULT_STEP_S, DEFAULT_RTF
+    if physics is not None:
+        try:
+            step_s = float(physics.findtext("max_step_size") or DEFAULT_STEP_S)
+            rtf = float(physics.findtext("real_time_factor") or DEFAULT_RTF)
+        except ValueError as error:
+            raise ScenarioError(f"{file}: cannot read the <physics> element: {error}") from error
+        if step_s <= 0:
+            raise ScenarioError(f"{file}: <physics><max_step_size> must be positive")
+    return WorldInfo(file, str(world.get("name")), frames, cameras, step_s, rtf)
 
 
 def place(placement: Placement, world: WorldInfo, what: str) -> Pose:

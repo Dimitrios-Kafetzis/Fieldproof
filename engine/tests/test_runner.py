@@ -178,7 +178,18 @@ def test_plan_resolves_the_example(resolved: Plan, config: Config, tmp_path: Pat
     sim = resolved.sim
     assert sim.name == "fieldproof-abc123-sim"
     assert sim.image == config.image("sim")
-    assert sim.command == ("gz", "sim", "-s", "-r", "--headless-rendering", "depot.sdf")
+    assert sim.command == (
+        "gz",
+        "sim",
+        "-s",
+        "-r",
+        "--headless-rendering",
+        "--seed",
+        str(resolved.seed),
+        "depot.sdf",
+    )
+    assert 0 <= resolved.seed <= 2**31 - 1, "drawn for the run (the example sets none)"
+    assert sim.env["FIELDPROOF_SEED"] == str(resolved.seed)
     assert sim.env["LIBGL_ALWAYS_SOFTWARE"] == "1"
     assert sim.env["GZ_PARTITION"] == "fieldproof"
     assert sim.devices == ()
@@ -319,7 +330,11 @@ def test_plan_resolves_the_timeline(resolved: Plan) -> None:
     assert action.goal_map.yaw == pytest.approx(0.0)
     data = resolved.to_dict()
     assert data["run_id"] == resolved.run_id
-    assert data["containers"][0]["command"] == "gz sim -s -r --headless-rendering depot.sdf"
+    assert data["containers"][0]["command"] == (
+        f"gz sim -s -r --headless-rendering --seed {resolved.seed} depot.sdf"
+    )
+    assert data["seed"] == resolved.seed
+    assert data["world"]["step_s"] == 0.001
     assert data["timeline"][0]["goal_map"]["x"] == pytest.approx(4.0)
     assert data["vehicles"][0]["spawn"]["yaw"] == -1.5708
     json.dumps(data)
@@ -960,12 +975,147 @@ def test_missing_fuel_models(example: Scenario, clock: FakeClock, tmp_path: Path
     assert "(make assets)" in str(record.reason)
 
 
-def test_realtime_is_refused(config: Config, clock: FakeClock, tmp_path: Path) -> None:
-    scenario = scenario_variant(lambda d: d["time"].update(mode="realtime"))
+def test_realtime_run_holds_the_lock(config: Config, clock: FakeClock, tmp_path: Path) -> None:
+    """The real-time-locked mode (task P2-T04): RTF pinned to 1, the drift judged."""
+    scenario = scenario_variant(lambda d: d["time"].update(mode="realtime", max_drift_s=1.0))
     resolved = plan(scenario, config, runs_dir=tmp_path, render="software", token=SUFFIX)
-    record, _ = execute(resolved, ready_backend(resolved), clock)
-    assert record.status == Status.ERROR
-    assert "P2-T04" in str(record.reason)
+    backend = ready_backend(resolved, clock)
+    backend.samples_on_goal = [
+        {"kind": "clock", "sim": 20.0, "rtf": None, "paused": False, "wall_offset_s": -10.0},
+        *GOOD_SAMPLES[:-1],
+        {"kind": "clock", "sim": 30.0, "rtf": 1.0, "paused": False},
+    ]
+    backend.goal_duration_s = 10.0
+    record, _ = execute(resolved, backend, clock)
+    log_file = resolved.run_dir / LOG_FILE
+    assert record.status == Status.PASSED, record.reason
+    rtf_calls = [c for _, c in backend.execs if "set_physics" in " ".join(c)]
+    assert len(rtf_calls) == 1
+    assert "real_time_factor: 1" in " ".join(rtf_calls[0])
+    clock_record = record.clock
+    assert clock_record is not None
+    assert clock_record["mode"] == "realtime"
+    assert clock_record["target_rtf"] == 1.0
+    assert clock_record["verdict"] == "locked"
+    assert clock_record["origin_sim_s"] == 20.0
+    assert clock_record["sim_elapsed_s"] == 10.0
+    assert clock_record["drift_s"] == pytest.approx(0.0, abs=1e-6)
+    assert clock_record["violations"] == 0
+    assert clock_record["rtf"]["windows"] == 1
+    assert record.seed == resolved.seed
+    events = [json.loads(line) for line in log_file.read_text().splitlines()]
+    by_event = {e["event"]: e for e in events}
+    assert "time.mode realtime" in by_event["clock.mode"]["message"]
+    assert by_event["clock.locked"]["message"].startswith("real-time lock held: drift +0.000 s")
+    assert "clock.drift" not in by_event
+    report = json.loads((resolved.run_dir / REPORT_JSON).read_text())
+    assert report["clock"]["verdict"] == "locked"
+    assert report["seed"] == resolved.seed
+    markdown = (resolved.run_dir / REPORT_MD).read_text()
+    assert "- Clock: mode `realtime`, target RTF 1.00, measured 1.00" in markdown
+    assert "**locked** (drift budget 1.0 s, on drift: fail)" in markdown
+    assert f"seed {resolved.seed}" in markdown
+
+
+@pytest.mark.parametrize("on_drift", ["fail", "warn"])
+def test_realtime_run_that_drifts(
+    config: Config, clock: FakeClock, tmp_path: Path, on_drift: str
+) -> None:
+    scenario = scenario_variant(
+        lambda d: d["time"].update(mode="realtime", max_drift_s=1.0, on_drift=on_drift)
+    )
+    resolved = plan(scenario, config, runs_dir=tmp_path, render="software", token=SUFFIX)
+    backend = ready_backend(resolved, clock)
+    # Ten wall-clock seconds of goal, three of simulation: the lock is lost.
+    backend.samples_on_goal = [
+        {"kind": "clock", "sim": 20.0, "rtf": None, "paused": False, "wall_offset_s": -10.0},
+        *GOOD_SAMPLES[:-1],
+        {"kind": "clock", "sim": 23.0, "rtf": 0.3, "paused": False},
+    ]
+    backend.goal_duration_s = 10.0
+    record, _ = execute(resolved, backend, clock)
+    events = [json.loads(line) for line in (resolved.run_dir / LOG_FILE).read_text().splitlines()]
+    drifts = [e for e in events if e["event"] == "clock.drift"]
+    assert len(drifts) == 1
+    assert drifts[0]["message"].startswith("real-time factor 0.300 over the last window")
+    assert record.clock is not None
+    assert record.clock["verdict"] == "drifted"
+    assert record.clock["drift_s"] == pytest.approx(-7.0)
+    assert record.clock["violations"] == 1
+    if on_drift == "fail":
+        assert record.status == Status.FAILED
+        assert str(record.reason).startswith("real-time lock lost: drift -7.000 s")
+        assert not any(e["event"] == "clock.drifted" for e in events)
+    else:
+        assert record.status == Status.PASSED, record.reason
+        (warned,) = [e for e in events if e["event"] == "clock.drifted"]
+        assert warned["level"] == "warning"
+
+
+def test_sim_clock_events(config: Config, clock: FakeClock, tmp_path: Path) -> None:
+    """`sim.pause`, `sim.step` and `sim.resume` (task P2-T04) on the world's control service."""
+
+    def mutate(data: dict[str, Any]) -> None:
+        data["timeline"] += [
+            {"name": "freeze", "at": "0s", "action": "sim.pause", "duration_s": 2},
+            {"name": "nudge", "at": "0s", "after": "freeze", "action": "sim.step", "steps": 50},
+            {
+                "name": "blink",
+                "at": "0s",
+                "after": "nudge",
+                "action": "sim.step",
+                "duration_s": 0.25,
+            },
+            {"name": "thaw", "at": "0s", "after": "blink", "action": "sim.resume"},
+        ]
+
+    resolved = plan(
+        scenario_variant(mutate), config, runs_dir=tmp_path, render="software", token=SUFFIX
+    )
+    by_name = {a.name: a for a in resolved.actions}
+    assert by_name["nudge"].resolved == {
+        "service": "/world/depot/control",
+        "steps": 50,
+        "step_s": 0.001,
+    }
+    assert by_name["blink"].resolved["steps"] == 250
+    backend = ready_backend(resolved, clock)
+    record, _ = execute(resolved, backend, clock)
+    assert record.status == Status.PASSED, record.reason
+    assert backend.controls == [
+        "pause: true",
+        "pause: false",
+        "multi_step: 50 pause: true",
+        "multi_step: 250 pause: true",
+        "pause: false",
+    ]
+    details = {a.name: a.detail for a in record.timeline}
+    assert details["freeze"] == "paused for 2 s, resumed"
+    assert details["nudge"] == "50 step(s), 0.05 s, paused"
+    assert details["blink"] == "250 step(s), 0.25 s, paused"
+    assert details["thaw"] == "resumed"
+    log_file = resolved.run_dir / LOG_FILE
+    events = [json.loads(line)["event"] for line in log_file.read_text().splitlines()]
+    assert [e for e in events if e in {"sim.paused", "sim.resumed", "sim.stepped"}] == [
+        "sim.paused",
+        "sim.resumed",
+        "sim.stepped",
+        "sim.stepped",
+        "sim.resumed",
+    ]
+    backend.control_result = ExecResult(0, "data: false\n")
+    record, _ = execute(resolved, backend, clock)
+    assert record.status == Status.FAILED
+    assert "freeze: the world refused to pause" in str(record.reason)
+
+
+def test_sim_clock_events_are_refused_in_lockstep(config: Config, tmp_path: Path) -> None:
+    def mutate(data: dict[str, Any]) -> None:
+        data["time"].update(mode="lockstep")
+        data["timeline"].append({"at": "1s", "action": "sim.pause"})
+
+    with pytest.raises(ScenarioError, match=r"timeline\[1\]: sim.pause does not combine"):
+        plan(scenario_variant(mutate), config, runs_dir=tmp_path, render="software")
 
 
 def test_world_never_ready(resolved: Plan, clock: FakeClock) -> None:

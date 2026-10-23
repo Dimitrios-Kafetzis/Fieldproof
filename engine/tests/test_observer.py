@@ -241,6 +241,8 @@ class FakeGz:
     def __init__(self, refuse: set[str] | None = None) -> None:
         self.poses: dict[str, Callable[[Any], None]] = {}
         self.contacts: dict[str, Callable[[Any], None]] = {}
+        self.stats: dict[str, Callable[[Any], None]] = {}
+        self.controls: list[tuple[str, bool | None, int | None, float | None]] = []
         self.refuse = refuse or set()
 
     def subscribe_poses(self, topic: str, callback: Callable[[Any], None]) -> bool:
@@ -254,6 +256,23 @@ class FakeGz:
             return False
         self.contacts[topic] = callback
         return True
+
+    def subscribe_stats(self, topic: str, callback: Callable[[Any], None]) -> bool:
+        if topic in self.refuse:
+            return False
+        self.stats[topic] = callback
+        return True
+
+    def world_control(
+        self,
+        service: str,
+        *,
+        pause: bool | None = None,
+        multi_step: int | None = None,
+        run_to_sim_time: float | None = None,
+    ) -> bool:
+        self.controls.append((service, pause, multi_step, run_to_sim_time))
+        return service not in self.refuse
 
 
 class FakeClock:

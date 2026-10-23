@@ -13,7 +13,9 @@ the samples that decided it, counts and extremes, in simulation time where the s
 
 Times: ``t`` is seconds after the timeline started, on the wall clock the engine and the
 containers share; deadlines (``within_s``, ``max_s``, ``after_s``) are in this time, as the
-timeline's ``at`` is in runner v0.
+timeline's ``at`` is. In lockstep mode (task P2-T04) the evaluator counts simulation seconds
+from the origin the clock was locked at instead (``sim_base``), so the deadlines and the
+timeline share the stepped clock and a run's verdicts repeat from one run to the next.
 """
 
 from __future__ import annotations
@@ -625,9 +627,13 @@ CHECKERS: dict[str, type[Checker]] = {
 class Evaluator:
     """Feeds the observer's stream and the timeline's events to every assertion's checker."""
 
-    def __init__(self, planned: Iterable[PlannedAssertion]) -> None:
+    def __init__(self, planned: Iterable[PlannedAssertion], *, sim_base: bool = False) -> None:
         self.checkers = [CHECKERS[p.type](p) for p in planned]
         self.start_wall: float | None = None
+        self.sim_base = sim_base
+        """Whether `t` counts simulation seconds from `origin_sim` (lockstep mode, task
+        P2-T04) instead of wall-clock seconds from `start_wall`."""
+        self.origin_sim: float | None = None
         self.samples = 0
         self.last_sim: float | None = None
         self.first_sim: float | None = None
@@ -649,12 +655,33 @@ class Evaluator:
         return [r for r in self.results if r.status == PENDING]
 
     def elapsed(self, wall: float) -> float:
-        """Seconds since the timeline started (negative before, 0 when it has not)."""
+        """Wall-clock seconds since the timeline started (-inf when it has not)."""
         return wall - self.start_wall if self.start_wall is not None else -math.inf
 
-    def start(self, wall: float) -> None:
-        """The timeline starts now."""
+    def now(self, wall: float) -> float:
+        """The timeline's time now: `elapsed(wall)`, or in simulation time the last sample's."""
+        if not self.sim_base:
+            return self.elapsed(wall)
+        if self.origin_sim is None or self.last_sim is None:
+            return -math.inf
+        return round(self.last_sim - self.origin_sim, 6)
+
+    def time_of(self, sample: Sample) -> float:
+        """The timeline's time of a sample: its wall clock, or its simulation time."""
+        if not self.sim_base:
+            return self.elapsed(sample.wall)
+        if self.origin_sim is None:
+            return -math.inf
+        sim = sample.sim if sample.sim is not None else self.last_sim
+        return round(sim - self.origin_sim, 6) if sim is not None else -math.inf
+
+    def start(self, wall: float, origin_sim: float | None = None) -> None:
+        """The timeline starts now (at `origin_sim` on the simulation clock, in lockstep)."""
         self.start_wall = wall
+        if self.sim_base:
+            self.origin_sim = origin_sim
+            self.first_sim = origin_sim
+            self.last_sim = origin_sim
 
     def _collect(self, before: list[str]) -> list[Result]:
         return [
@@ -667,7 +694,7 @@ class Evaluator:
         """One observation; returns the assertions it resolved."""
         before = [c.result.status for c in self.checkers]
         self.samples += 1
-        if sample.sim is not None:
+        if sample.sim is not None and (self.last_sim is None or sample.sim >= self.last_sim):
             self.last_sim = sample.sim
             if (
                 self.first_sim is None
@@ -675,7 +702,7 @@ class Evaluator:
                 and sample.wall >= self.start_wall
             ):
                 self.first_sim = sample.sim
-        t = self.elapsed(sample.wall)
+        t = self.time_of(sample)
         for checker in self.checkers:
             checker.on_sample(sample, t)  # a resolved checker keeps what it tracks for evidence
         return self._collect(before)
@@ -699,7 +726,9 @@ class Evaluator:
         if self.start_wall is None:
             return []
         before = [c.result.status for c in self.checkers]
-        t = self.elapsed(wall)
+        t = self.now(wall)
+        if math.isinf(t):
+            return []
         for checker in self.checkers:
             if not checker.done:
                 checker.on_tick(t)
@@ -710,7 +739,7 @@ class Evaluator:
     ) -> list[Result]:
         """A timeline action `started` or `finished` with `status`."""
         before = [c.result.status for c in self.checkers]
-        t = self.elapsed(wall)
+        t = self.now(wall)
         for checker in self.checkers:
             if not checker.done:
                 checker.on_action(label, event, t, status)
@@ -719,7 +748,9 @@ class Evaluator:
     def finish(self, wall: float) -> list[Result]:
         """The timeline completed: settle every pending assertion."""
         before = [c.result.status for c in self.checkers]
-        t = self.elapsed(wall) if self.start_wall is not None else 0.0
+        t = self.now(wall) if self.start_wall is not None else 0.0
+        if math.isinf(t):
+            t = 0.0
         for checker in self.checkers:
             if not checker.done:
                 checker.on_tick(t)

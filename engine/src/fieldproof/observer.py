@@ -16,7 +16,15 @@ and starts it on ``observe.json`` (:func:`fieldproof.assertions.observe_plan`). 
   ``/fieldproof/metrics`` (once a second: simulation time, real-time factor, rates, poses) and
   ``/fieldproof/network`` (the ground station's link measurements, task P2-T02, when the run has
   radio links), all as ``std_msgs/msg/String`` carrying JSON, so the recording holds the whole
-  run.
+  run;
+- manages the clock (task P2-T04, :class:`ClockManager`): it follows the world's statistics
+  (paused, the simulator's own real-time factor), reports the drift between simulation time and
+  the wall clock in the metrics and, in lockstep mode, steps the world through its
+  ``/world/<name>/control`` service: one step of ``step_s`` at a time, the next only once every
+  vehicle's clock agent (:mod:`fieldproof.lockstep`, in the vehicle's network namespace) has
+  acknowledged the previous one on ``/fieldproof/lockstep``, up to the hold the engine sets
+  through ``clock.jsonl`` in the run directory (the next due time of the timeline), so the
+  engine starts every entry at an exact simulation time.
 
 It writes ``{"kind": "ready"}`` once everything is up, and stops cleanly on SIGTERM (the
 recorder is sent SIGINT and waited for, so the MCAP is finalised). Like the readiness probe, it
@@ -54,6 +62,28 @@ RECORDER_WARMUP_S = 2.0
 # After the last side-channel messages are published, the recorder gets this long to receive
 # them before it is stopped (the final verdicts are written just before the teardown).
 RELAY_GRACE_S = 1.0
+# The clock protocol between the engine and the observer (task P2-T04; fieldproof.clock reads
+# these): the engine appends commands to CLOCK_FILE in the run directory, the observer answers
+# with `clock` samples. The clock agents acknowledge steps on ACK_TOPIC.
+CLOCK_FILE = "clock.jsonl"
+ACK_TOPIC = "/fieldproof/lockstep"
+ACK_TYPE = "std_msgs/msg/String"
+CMD_LOCKSTEP = "lockstep"
+"""Pause the world at the next step boundary (the origin) and hold there."""
+CMD_RUN_UNTIL = "run_until"
+"""Step until `t_s` simulation seconds after the origin (rounded up to the step grid; null:
+no limit) and hold there."""
+CMD_RELEASE = "release"
+"""Let the world run free again."""
+CONTROL_PERIOD_S = 0.05
+"""How often the command file is read and the step in flight is checked."""
+WAITING_REPORT_S = 1.0
+"""How often a step waiting for acknowledgements is reported."""
+LOCKSTEP_LEAD_S = 0.5
+"""How far ahead of the current simulation time the origin is put, so the request lands."""
+LOCKSTEP_EPS = 1e-6
+"""Tolerance when comparing simulation times on the step grid."""
+WORLD_CONTROL_TIMEOUT_MS = 5000
 FIELD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)?((?:\[\d+\])*)$")
 
 
@@ -281,6 +311,19 @@ class Gz(Protocol):
     def subscribe_contacts(self, topic: str, callback: Callable[[Any], None]) -> bool:
         """`gz.msgs.Contacts` messages."""
 
+    def subscribe_stats(self, topic: str, callback: Callable[[Any], None]) -> bool:
+        """`gz.msgs.WorldStatistics` messages."""
+
+    def world_control(
+        self,
+        service: str,
+        *,
+        pause: bool | None = None,
+        multi_step: int | None = None,
+        run_to_sim_time: float | None = None,
+    ) -> bool:
+        """A `gz.msgs.WorldControl` request to the world's control service; its answer."""
+
 
 class RclpyRos:
     """ROS through rclpy, with `use_sim_time`."""
@@ -364,13 +407,19 @@ class GzTransport:
     """Gazebo transport through the `gz.transport13` bindings."""
 
     def __init__(self) -> None:
+        from gz.msgs10.boolean_pb2 import Boolean  # noqa: PLC0415
         from gz.msgs10.contacts_pb2 import Contacts  # noqa: PLC0415
         from gz.msgs10.pose_v_pb2 import Pose_V  # noqa: PLC0415
+        from gz.msgs10.world_control_pb2 import WorldControl  # noqa: PLC0415
+        from gz.msgs10.world_stats_pb2 import WorldStatistics  # noqa: PLC0415
         from gz.transport13 import Node  # noqa: PLC0415
 
         self._node = Node()
         self._pose_v = Pose_V
         self._contacts = Contacts
+        self._stats = WorldStatistics
+        self._world_control = WorldControl
+        self._boolean = Boolean
 
     def subscribe_poses(self, topic: str, callback: Callable[[Any], None]) -> bool:
         """See :class:`Gz`."""
@@ -379,6 +428,301 @@ class GzTransport:
     def subscribe_contacts(self, topic: str, callback: Callable[[Any], None]) -> bool:
         """See :class:`Gz`."""
         return bool(self._node.subscribe(self._contacts, topic, callback))
+
+    def subscribe_stats(self, topic: str, callback: Callable[[Any], None]) -> bool:
+        """See :class:`Gz`."""
+        return bool(self._node.subscribe(self._stats, topic, callback))
+
+    def world_control(
+        self,
+        service: str,
+        *,
+        pause: bool | None = None,
+        multi_step: int | None = None,
+        run_to_sim_time: float | None = None,
+    ) -> bool:
+        """See :class:`Gz`."""
+        request = self._world_control()
+        if pause is not None:
+            request.pause = pause
+        if multi_step is not None:
+            request.multi_step = multi_step
+        if run_to_sim_time is not None:
+            seconds = int(run_to_sim_time)
+            request.run_to_sim_time.sec = seconds
+            request.run_to_sim_time.nsec = round((run_to_sim_time - seconds) * 1e9)
+        ok, reply = self._node.request(
+            service, request, self._world_control, self._boolean, WORLD_CONTROL_TIMEOUT_MS
+        )
+        return bool(ok) and bool(getattr(reply, "data", False))
+
+
+# -------------------------------------------------------------------------- the clock manager
+def on_grid(t: float, step_s: float) -> float:
+    """`t` rounded to the nearest multiple of the step (the simulator pauses on the grid)."""
+    return round(round(t / step_s) * step_s, 9)
+
+
+def next_on_grid(t: float, step_s: float) -> float:
+    """The first multiple of the step at or after `t`."""
+    return round(math.ceil(t / step_s - LOCKSTEP_EPS) * step_s, 9)
+
+
+def step_of(sim: float, step_s: float) -> int:
+    """The step a simulation time is in (the number of whole steps since 0)."""
+    return math.floor(sim / step_s + LOCKSTEP_EPS)
+
+
+class ClockManager:
+    """Follows the world's clock and, in lockstep mode, steps it (task P2-T04).
+
+    The world's statistics give `paused` and the simulator's real-time factor for the metrics
+    in every mode. In lockstep mode the engine's commands come from the clock file: `lockstep`
+    pauses the world at the next step boundary (the origin of the timeline's clock); `run_until`
+    sets how far past the origin the stepping may go (rounded up to the grid); `release` lets
+    the world run free. A step is requested with `run_to_sim_time` and counts as reached once
+    every vehicle's agent has acknowledged a simulation time at or past it; the next step is
+    requested at once unless the hold is reached. A step nobody acknowledges within
+    `ack_timeout_s` is reported as a `lockstep.timeout` sample, which fails the run.
+    """
+
+    def __init__(
+        self,
+        config: Mapping[str, Any],
+        sink: Sink,
+        gz: Gz | None,
+        ros: Ros,
+        *,
+        clock: Callable[[], float] = time.time,
+        error: Callable[[str], None] | None = None,
+    ) -> None:
+        self.sink = sink
+        self.gz = gz
+        self.ros = ros
+        self.clock = clock
+        self.report_error = error or (lambda _message: None)
+        self.world = str(config.get("world", ""))
+        self.mode = str(config.get("mode", "sim"))
+        self.target_rtf = float(config.get("target_rtf") or 1.0)
+        self.step_s = float(config.get("step_s") or 0.1)
+        self.vehicles = [str(v) for v in config.get("vehicles", [])]
+        self.ack_timeout_s = float(config.get("ack_timeout_s") or 30.0)
+        self.control = (
+            FileTail(Path(config["control_file"])) if config.get("control_file") else None
+        )
+        self.service = f"/world/{self.world}/control"
+        # The world as its statistics last reported it.
+        self.sim: float | None = None
+        self.paused: bool | None = None
+        self.gz_rtf: float | None = None
+        self.iterations = 0
+        # Lockstep state.
+        self.acks: dict[str, float] = {}
+        """Per vehicle, the simulation time its agent last acknowledged."""
+        self.origin: float | None = None
+        self.hold_t: float | None = None
+        """How far past the origin the stepping may go (None: no limit)."""
+        self.target: float | None = None
+        """The absolute simulation time of the step in flight (None: none)."""
+        self.requested_at: float | None = None
+        self.reported_at: float | None = None
+        self.step_index = 0
+        self.held = False
+        self.locked = False
+        self.released = False
+        self.timed_out = False
+        self.steps = 0
+        self.holds = 0
+        self.max_wait_s = 0.0
+        self.wait_total_s = 0.0
+
+    @property
+    def lockstep(self) -> bool:
+        """Whether this run steps the world."""
+        return self.mode == "lockstep"
+
+    def start(self) -> None:
+        """Subscribe to the world's statistics and, in lockstep mode, to the acknowledgements."""
+        if self.gz is not None and self.world:
+            topic = f"/world/{self.world}/stats"
+            if not self.gz.subscribe_stats(topic, self.on_stats):
+                self.report_error(f"cannot subscribe to {topic}")
+        if self.lockstep:
+            self.ros.subscribe(ACK_TOPIC, ACK_TYPE, self.on_ack)
+            self.ros.timer(CONTROL_PERIOD_S, self.poll)
+
+    # ---------------------------------------------------------------------------- inputs
+    def on_stats(self, message: Any) -> None:
+        """A `WorldStatistics` message: the simulator's own view of its clock."""
+        stamp = getattr(message, "sim_time", None)
+        if stamp is not None:
+            self.sim = float(getattr(stamp, "sec", 0)) + float(getattr(stamp, "nsec", 0)) / 1e9
+        self.paused = bool(getattr(message, "paused", False))
+        self.iterations = int(getattr(message, "iterations", 0))
+        if not self.paused:
+            self.gz_rtf = round(float(getattr(message, "real_time_factor", 0.0)), 3)
+
+    def on_ack(self, message: Any) -> None:
+        """An acknowledgement of a vehicle's clock agent."""
+        try:
+            data = json.loads(str(getattr(message, "data", "")))
+            vehicle, sim = str(data["vehicle"]), float(data["sim"])
+        except (ValueError, KeyError, TypeError):
+            return
+        if sim >= self.acks.get(vehicle, -math.inf):
+            self.acks[vehicle] = sim
+        self.advance()
+
+    def poll(self) -> None:
+        """The engine's new commands, and the step in flight against the acknowledgement limit."""
+        if self.control is not None:
+            for line in self.control.lines():
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    self.report_error(f"clock command not JSON: {line!r}")
+                    continue
+                if isinstance(data, dict):
+                    self.command(data)
+        if self.target is None or self.requested_at is None:
+            return
+        now = self.clock()
+        waited = now - self.requested_at
+        if waited > self.ack_timeout_s and not self.timed_out:
+            self.timed_out = True
+            missing = self.missing()
+            self.sink.emit(
+                "lockstep.timeout",
+                self.target,
+                step=self.step_index,
+                waited_s=round(waited, 3),
+                missing=missing,
+                acks=dict(self.acks),
+            )
+            self.report_error(
+                f"lockstep: step {self.step_index} (sim {self.target:.3f} s) not acknowledged by "
+                f"{', '.join(missing) or 'anyone'} within {self.ack_timeout_s:g} s"
+            )
+        elif self.reported_at is None or now - self.reported_at >= WAITING_REPORT_S:
+            self.reported_at = now
+            self.emit_clock(waiting=self.missing(), waited_s=round(waited, 3))
+
+    def command(self, data: Mapping[str, Any]) -> None:
+        """One command of the engine."""
+        cmd = data.get("cmd")
+        if cmd == CMD_LOCKSTEP:
+            self.begin()
+        elif cmd == CMD_RUN_UNTIL:
+            limit = data.get("t_s")
+            self.hold_t = None if limit is None else next_on_grid(float(limit), self.step_s)
+            self.held = False
+            self.advance()
+        elif cmd == CMD_RELEASE:
+            self.release()
+        else:
+            self.report_error(f"unknown clock command: {data!r}")
+
+    # --------------------------------------------------------------------------- stepping
+    def begin(self) -> None:
+        """Pause the world at the next step boundary: the origin."""
+        if self.origin is not None or self.gz is None:
+            return
+        now_sim = self.sim if self.sim is not None else (self.ros.now_sim() or 0.0)
+        origin = next_on_grid(now_sim + LOCKSTEP_LEAD_S, self.step_s)
+        self.origin, self.hold_t, self.step_index, self.released = origin, 0.0, 0, False
+        self.request(origin)
+
+    def release(self) -> None:
+        """Let the world run free; nothing is stepped from now on."""
+        self.released = True
+        self.target = None
+        self.hold_t = None
+        if self.gz is not None and self.origin is not None:
+            self.gz.world_control(self.service, pause=False)
+        self.emit_clock(released=True)
+
+    def request(self, target: float) -> None:
+        """Ask the world to run to `target` and pause; the step is then in flight."""
+        if self.gz is None:
+            return
+        self.target = target
+        self.requested_at = self.clock()
+        self.reported_at = None
+        self.timed_out = False
+        if not self.gz.world_control(self.service, run_to_sim_time=target):
+            self.report_error(f"lockstep: {self.service} refused run_to_sim_time {target:.3f}")
+
+    def missing(self) -> list[str]:
+        """The vehicles that have not acknowledged the step in flight."""
+        if self.target is None:
+            return []
+        return [
+            v for v in self.vehicles if self.acks.get(v, -math.inf) < self.target - LOCKSTEP_EPS
+        ]
+
+    def reached(self) -> bool:
+        """Whether every vehicle acknowledged the step in flight."""
+        return self.target is not None and not self.missing()
+
+    def advance(self) -> None:
+        """Settle the step in flight if acknowledged, and request the next unless held."""
+        if self.origin is None or self.released:
+            return
+        if self.target is not None:
+            if not self.reached():
+                return
+            waited = self.clock() - (self.requested_at or self.clock())
+            self.max_wait_s = max(self.max_wait_s, waited)
+            self.wait_total_s += waited
+            reached, self.target = self.target, None
+            if not self.locked:
+                self.locked = True
+                self.emit_clock(sim=reached, locked=True)
+            else:
+                self.steps += 1
+                self.emit_clock(sim=reached)
+        next_t = round((self.step_index + 1) * self.step_s, 9)
+        if self.hold_t is not None and next_t > self.hold_t + LOCKSTEP_EPS:
+            if not self.held:
+                self.held = True
+                self.holds += 1
+                self.emit_clock(held=True)
+            return
+        self.held = False
+        self.step_index += 1
+        self.request(round(self.origin + next_t, 9))
+
+    # ----------------------------------------------------------------------------- output
+    def state(self) -> dict[str, Any]:
+        """The clock as the metrics and the `clock` samples carry it."""
+        state: dict[str, Any] = {
+            "mode": self.mode,
+            "target_rtf": self.target_rtf,
+            "paused": self.paused,
+            "gz_rtf": self.gz_rtf,
+        }
+        if self.lockstep:
+            state["lockstep"] = {
+                "origin": self.origin,
+                "step": self.step_index,
+                "step_s": self.step_s,
+                "t_s": None if self.origin is None else round(self.step_index * self.step_s, 6),
+                "hold_t": self.hold_t,
+                "held": self.held,
+                "in_flight": self.target,
+                "steps": self.steps,
+                "holds": self.holds,
+                "max_wait_s": round(self.max_wait_s, 3),
+                "released": self.released,
+            }
+            state["acks"] = dict(self.acks)
+        return state
+
+    def emit_clock(self, sim: float | None = None, **fields: Any) -> None:
+        """A `clock` sample of the lockstep protocol."""
+        if sim is None:
+            sim = self.sim if self.sim is not None else self.ros.now_sim()
+        self.sink.emit("clock", sim, rtf=None, **self.state(), **fields)
 
 
 # ------------------------------------------------------------------------------ the observer
@@ -418,9 +762,19 @@ class Observer:
         self.last_contact: dict[str, float] = {}
         self.contact_models = {c["topic"]: c.get("model") for c in config.get("contacts", [])}
         self.last_metrics: tuple[float, float] | None = None
+        self.first_metrics: tuple[float, float] | None = None
+        """The wall and simulation time of the first metrics sample (the drift's origin)."""
         self.publishers: dict[str, Callable[[str], None]] = {}
         self.tails: dict[str, FileTail] = {}
         self.errors = 0
+        self.clock_manager = ClockManager(
+            config.get("clock", {"world": config.get("world")}),
+            sink,
+            gz,
+            ros,
+            clock=clock,
+            error=self.error,
+        )
 
     # ----------------------------------------------------------------------------- set-up
     def start(self) -> None:
@@ -454,6 +808,7 @@ class Observer:
         if self.recorder is not None:
             self.recorder.start()
             self.sink.emit("recording", command=self.recorder.command)
+        self.clock_manager.start()
         self.discover()
         self.ros.timer(DISCOVERY_S, self.discover)
         self.ros.timer(RATE_PERIOD_S, self.emit_rates)
@@ -590,23 +945,33 @@ class Observer:
         now = self.clock()
         sim = self.ros.now_sim()
         rtf = None
+        drift = None
         if sim is not None and self.last_metrics is not None:
             d_wall = now - self.last_metrics[0]
             if d_wall > 0:
                 rtf = round((sim - self.last_metrics[1]) / d_wall, 3)
         if sim is not None:
             self.last_metrics = (now, sim)
+            if self.first_metrics is None:
+                self.first_metrics = (now, sim)
+            # Simulation seconds gained (or lost) against the wall clock at the target pace
+            # since the first sample; a paused world drifts by design.
+            target = self.clock_manager.target_rtf
+            drift = round((sim - self.first_metrics[1]) - (now - self.first_metrics[0]) * target, 3)
+        state = self.clock_manager.state()
         metrics = {
             "wall": round(now, 3),
             "sim": sim,
             "rtf": rtf,
+            "drift_s": drift,
+            **state,
             "rates_hz": {t: round(w.rate(now), 2) for t, w in self.rates.items() if w.covered(now)},
             "poses": self.poses,
             "recording": self.recorder.alive if self.recorder is not None else False,
         }
         if "metrics" in self.publishers:
             self.publishers["metrics"](json.dumps(metrics))
-        self.sink.emit("clock", sim, rtf=rtf)
+        self.sink.emit("clock", sim, rtf=rtf, drift_s=drift, **state)
         if self.recorder is not None and not self.recorder.alive and not self.stopping:
             self.error(f"the recorder exited ({self.recorder.exit_code})")
             self.stopping = True

@@ -111,6 +111,9 @@ def build_report(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         "duration_s": _seconds_between(record.get("started_at"), record.get("finished_at")),
         "timeline_duration_s": running.get("duration_s") if running else None,
         "sim_elapsed_s": (record.get("observation") or {}).get("sim_elapsed_s"),
+        "clock": record.get("clock"),
+        "time": record.get("time"),
+        "seed": record.get("seed"),
         "world": (record.get("stack") or {}).get("world"),
         "vehicles": list(record.get("vehicles") or []),
         "assertions": assertions,
@@ -188,6 +191,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             else ""
         )
     )
+    lines += _clock_lines(report)
     counts = report.get("assertion_counts") or {}
     lines += ["", "## Assertions", ""]
     assertions = report.get("assertions") or []
@@ -229,6 +233,46 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"| {phase.get('name')} | {_fmt(phase.get('duration_s'), ' s')} |")
     lines += ["", "## Artefacts", "", *_artefact_lines(report)]
     return "\n".join(lines) + "\n"
+
+
+def _clock_lines(report: dict[str, Any]) -> list[str]:
+    """The clock of the run (task P2-T04): mode, pace, drift, verdict, seed."""
+    clock = report.get("clock") or {}
+    time_section = report.get("time") or {}
+    mode = clock.get("mode") or time_section.get("mode") or "sim"
+    parts = [f"- Clock: mode `{mode}`"]
+    target = clock.get("target_rtf")
+    if target is not None:
+        parts.append(f"target RTF {_fmt(target, '', 2)}")
+    rtf = clock.get("rtf") or {}
+    if rtf.get("windows"):
+        parts.append(
+            f"measured {_fmt(rtf.get('mean'), '', 2)} (min {_fmt(rtf.get('min'), '', 2)}, "
+            f"max {_fmt(rtf.get('max'), '', 2)}) over {rtf['windows']} window(s)"
+        )
+    if clock.get("drift_s") is not None:
+        largest = _fmt(clock.get("max_abs_drift_s"), " s", 3)
+        parts.append(f"drift {clock['drift_s']:+.3f} s (largest {largest})")
+    if clock.get("violations"):
+        parts.append(f"{clock['violations']} window(s) outside the tolerance")
+    if clock.get("paused_s"):
+        parts.append(f"paused {_fmt(clock['paused_s'], ' s')}")
+    verdict = clock.get("verdict")
+    if verdict is not None:
+        parts.append(
+            f"**{verdict}** (drift budget {_fmt(clock.get('max_drift_s'), ' s')}, "
+            f"on drift: {clock.get('on_drift')})"
+        )
+    lockstep = clock.get("lockstep") or {}
+    if lockstep:
+        parts.append(
+            f"lockstep {_fmt(lockstep.get('step_s'), ' s', 3)} steps: {lockstep.get('steps')} "
+            f"stepped, {lockstep.get('holds')} hold(s), longest wait "
+            f"{_fmt(lockstep.get('max_wait_s'), ' s', 3)}"
+        )
+    if report.get("seed") is not None:
+        parts.append(f"seed {report['seed']}")
+    return [", ".join(parts)]
 
 
 def _network_lines(network: dict[str, Any] | None) -> list[str]:
