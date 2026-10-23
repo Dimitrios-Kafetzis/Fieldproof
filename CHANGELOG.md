@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.15.0...v0.15.1) (2026-10-23)
+
+
+### Bug fixes
+
+* **engine:** judge a link's initial period from the start of the timeline ([#72](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/72)) ([b5e3510](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/b5e351041525eca2f76a2c54094404c8e6695d6d))
+
 ## [0.15.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.14.0...v0.15.0) (2026-10-22)
 
 
