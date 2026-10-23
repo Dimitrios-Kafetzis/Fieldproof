@@ -306,7 +306,7 @@ def test_02_link_loss_scenario(tmp_path: Path) -> None:
     assert initial["status"] == "passed", initial["reason"]
     assert abs(initial["measured"]["latency_ms"] - 60.0) <= 6.0
     assert dropped["status"] == "passed", dropped["reason"]
-    assert dropped["measured"]["replies"] <= 1, "at most the probe in flight when the drop began"
+    assert dropped["measured"]["replies"] <= 3, "at most the probes in flight when the drop began"
     assert dropped["to_s"] - dropped["from_s"] == pytest.approx(30.0, abs=1.5)
     assert restored["status"] in ("passed", "insufficient"), restored["reason"]
     assert network["traffic"]["ugv1"]["out"]["bytes"] > 0

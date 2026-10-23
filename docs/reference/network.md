@@ -167,6 +167,9 @@ in between, or straddling a change, counts for neither), and estimates for each:
 - jitter: the round trips' standard deviation over √2 (two independent delays);
 - one-way loss: `1 - sqrt(replies / probes)`.
 
+The initial period is judged from the start of the timeline: the windows before it cover the
+vehicles' bring-up, when a stack's discovery traffic (the 1.4 MB below) saturates a slow link, so
+they stay in the record (`judged_from_s` marks the cut) but not in the verdict (issue #67).
 At the end of the timeline each period gets a verdict: `passed` when the measured latency is
 within **10 %** of the profile's (or 0.5 ms, whichever is larger: the host's scheduling noise
 decides sub-millisecond latencies) over at least 20 replies, or, for a dropped link, when none
@@ -181,7 +184,8 @@ the dropped periods and the queue overflowing behind the rate.
 
 `run.json` has it all under `network`: the networks, the ground station, `addresses` (each
 holder's radio address), `periods` (per link: the configured and the current profile, and every
-period with its cause, `from_s`/`to_s` from the start of the timeline, the expected profile, the
+period with its cause, `from_s`/`to_s` and `judged_from_s` from the start of the timeline, the
+expected profile, the
 measurement and the verdict) and `traffic`. `report.md` has a *Radio links* section with a row
 per period and the traffic per link.
 
@@ -218,7 +222,7 @@ odometry below 0.05 m/s and `cmd_vel` zero from 13 s after the drop to just befo
 and the windows are wall clock (runner v0, sim-time deadlines are task P2-T04's), so they leave
 room for a simulation below real time: on the CI runner, with software rendering, the vehicle
 has reported the link lost between 4 and 9 s after the drop (issue #67). A dropped period
-tolerates one answered probe, the one in flight when the drop began.
+tolerates up to three answered probes, those in flight when the drop began.
 
 ## DDS over a radio link
 

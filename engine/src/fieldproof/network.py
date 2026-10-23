@@ -63,8 +63,10 @@ NETEM_LIMIT = 1000
 
 DROP = "drop"
 """The profile a dropped link carries: every packet lost, both ways."""
-DROP_EDGE_TOLERANCE = 1
-"""Replies a dropped period may still count: a probe in flight when the drop began (issue #67)."""
+DROP_EDGE_TOLERANCE = 3
+"""Replies a dropped period may still count: the probes in flight when the drop began (ten a
+second, a round trip of up to 120 ms on the presets, and a holder busy applying the drop; a
+slow runner has counted two; issue #67)."""
 PASSED = "passed"
 FAILED = "failed"
 INSUFFICIENT = "insufficient"
@@ -326,10 +328,20 @@ class LinkPeriod:
     """What set the profile: `initial`, or the timeline entry's label."""
     end: float | None = None
     windows: list[LinkWindow] = field(default_factory=list)
+    judged_from: float | None = None
+    """Windows before this time are kept but not judged: the initial period's vehicle bring-up,
+    when the stack's discovery traffic saturates a slow link (issue #67), is not a measurement
+    of the link."""
 
     def holds(self, window: LinkWindow) -> bool:
         """Whether the window's probes were all sent under this period's profile."""
         return window.start >= self.start and (self.end is None or window.end <= self.end)
+
+    def judged(self) -> list[LinkWindow]:
+        """The windows the verdict is drawn from (from `judged_from` on, when set)."""
+        if self.judged_from is None:
+            return list(self.windows)
+        return [w for w in self.windows if w.start >= self.judged_from]
 
     def measured(self) -> dict[str, Any]:
         """Probes, replies, one-way latency, jitter and loss estimated from the round trips.
@@ -338,12 +350,13 @@ class LinkPeriod:
         the jitter the round trips' deviation over sqrt(2) (two independent delays), and the
         one-way loss `1 - sqrt(replies / probes)`.
         """
-        sent = sum(w.sent for w in self.windows)
-        received = sum(w.received for w in self.windows)
-        rtt_sum = sum(w.rtt_sum_ms for w in self.windows)
-        rtt_sq = sum(w.rtt_sq_sum_ms for w in self.windows)
-        mins = [w.rtt_min_ms for w in self.windows if w.rtt_min_ms is not None]
-        maxs = [w.rtt_max_ms for w in self.windows if w.rtt_max_ms is not None]
+        windows = self.judged()
+        sent = sum(w.sent for w in windows)
+        received = sum(w.received for w in windows)
+        rtt_sum = sum(w.rtt_sum_ms for w in windows)
+        rtt_sq = sum(w.rtt_sq_sum_ms for w in windows)
+        mins = [w.rtt_min_ms for w in windows if w.rtt_min_ms is not None]
+        maxs = [w.rtt_max_ms for w in windows if w.rtt_max_ms is not None]
         mean = rtt_sum / received if received else None
         deviation = None
         if received > 1 and mean is not None:
@@ -351,7 +364,7 @@ class LinkPeriod:
                 max(rtt_sq / received - mean * mean, 0.0) * received / (received - 1)
             )
         return {
-            "windows": len(self.windows),
+            "windows": len(windows),
             "probes": sent,
             "replies": received,
             "latency_ms": _round(mean / 2 if mean is not None else None),
@@ -403,6 +416,7 @@ class LinkPeriod:
             "cause": self.cause,
             "from_s": rel(self.start),
             "to_s": rel(self.end),
+            "judged_from_s": rel(self.judged_from),
             "expected": {
                 **self.profile.model_dump(exclude={"description"}),
                 "latency_ms": _round(expected),
@@ -436,6 +450,18 @@ class LinkMonitor:
         self.bad_lines = 0
         self.origin: float | None = None
         """Wall-clock time the timeline started (period times in the record are relative)."""
+
+    def start_timeline(self, wall: float) -> None:
+        """The timeline starts: the record's origin, and where the initial periods are judged from.
+
+        The windows before it cover the vehicles' bring-up, when a stack's discovery traffic can
+        saturate a slow link (issue #67); they stay in the record but not in the verdict.
+        """
+        self.origin = wall
+        for link in self.links.values():
+            for period in link.periods:
+                if period.cause == "initial":
+                    period.judged_from = wall
 
     def change(
         self,
