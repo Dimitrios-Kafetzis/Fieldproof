@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.14.0...v0.15.0) (2026-10-22)
+
+
+### Features
+
+* **engine:** world events, fault injectors and the definition-of-done scenarios (P2-T03, session 2) ([#64](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/64)) ([ea84e55](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/ea84e5540a069c4db08f9f00b0623fafd00f5ccc)), closes [#65](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/65)
+
+
+### Bug fixes
+
+* **engine:** harden the load-sensitive checks the CI runner trips on ([#71](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/71)) ([4af9ccd](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/4af9ccd7a7356542aa11f415cf0ac341fb0c66d4))
+
 ## [0.14.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.13.0...v0.14.0) (2026-10-21)
 
 
