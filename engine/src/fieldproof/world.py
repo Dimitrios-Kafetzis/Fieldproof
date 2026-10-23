@@ -131,7 +131,7 @@ def parse_stats(text: str) -> dict[str, Any]:
     values: dict[str, dict[str, int]] = {"sim_time": {}, "real_time": {}}
     for raw in text.splitlines():
         line = raw.strip()
-        if line.startswith(("sim_time", "real_time")):
+        if line.startswith(("sim_time {", "real_time {")):
             section = line.split()[0]
             if "}" in line:
                 section = None

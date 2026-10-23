@@ -149,6 +149,11 @@ def test_01_realtime_scenario_and_clock_command(tmp_path: Path) -> None:
         assert completed.returncode == 0, completed.stderr[-2000:]
         check_realtime_record(run_dir)
         check_clock_command(run_dir)
+        # The recorder stopped the way the teardown stops it (SIGTERM; the observer sends
+        # rosbag2 SIGINT and waits), so the MCAP is finalised before it is read.
+        recorder = [n for n in containers_of(run_id) if n.endswith("-recorder")]
+        subprocess.run(["docker", "stop", "-t", "30", *recorder], check=True, capture_output=True)  # noqa: S603, S607
+        check_metrics(run_dir)
     finally:
         left = containers_of(run_id)
         if left:
@@ -192,6 +197,10 @@ def check_realtime_record(run_dir: Path) -> None:
     assert f"seed {record['seed']}" in markdown
     report = json.loads((run_dir / "report.json").read_text())
     assert report["clock"]["verdict"] == clock["verdict"]
+
+
+def check_metrics(run_dir: Path) -> None:
+    """The metrics side channel in the recording carries the clock."""
     metrics = metrics_messages(run_dir)
     assert len(metrics) >= 3
     last = metrics[-1]

@@ -30,6 +30,7 @@ from fieldproof.scenario import (
     read_world,
     validate_data,
 )
+from fieldproof.world import parse_stats
 
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO / "examples/scenarios/ugv_nav_to_goal.yaml"
@@ -351,3 +352,27 @@ def test_pose_relative() -> None:
     assert left.z == pytest.approx(0.5)
     assert left.yaw == pytest.approx(-math.pi / 2)
     assert Pose(0, 0, 0, 3.0).relative(Pose(0, 0, 0, -3.0)).yaw == pytest.approx(2 * math.pi - 6.0)
+
+
+def test_parse_stats_reads_a_running_and_a_paused_world() -> None:
+    running = (
+        "sim_time {\n  sec: 73\n  nsec: 179000000\n}\n"
+        "real_time {\n  sec: 75\n  nsec: 485178424\n}\n"
+        "iterations: 73179\nreal_time_factor: 0.99996200144394509\n"
+        "step_size {\n  nsec: 1000000\n}\n"
+    )
+    stats = parse_stats(running)
+    assert stats["paused"] is False
+    assert stats["sim_time_s"] == pytest.approx(73.179)
+    assert stats["real_time_s"] == pytest.approx(75.485178)
+    assert stats["iterations"] == 73179
+    assert stats["rtf"] == pytest.approx(0.999962)
+    paused = (
+        "sim_time {\n  sec: 2\n}\nreal_time {\n  sec: 2\n  nsec: 1591186\n}\npaused: true\n"
+        "iterations: 2000\nstep_size {\n}\n"
+    )
+    stats = parse_stats(paused)
+    assert stats["paused"] is True
+    assert stats["sim_time_s"] == 2.0
+    assert stats["rtf"] == 0.0
+    assert parse_stats("")["iterations"] == 0
