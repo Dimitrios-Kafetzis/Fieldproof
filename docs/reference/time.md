@@ -177,6 +177,11 @@ at different steps. `fieldproof runs diff` (P2-T06) will compare the rest of two
 
 ## Known limits
 
+- A pause is seen by every wall-clock watchdog of the stack under test, which is the point and
+  a trap at once: the example stack's lifecycle manager shuts Nav2 down after 4 s without a
+  heartbeat from a server, so a `sim.pause` or a `fieldproof clock pause` longer than that
+  ends its drive with `goal ABORTED`. Keep pauses short, or make them long on purpose to see
+  what the stack does.
 - The acknowledgement says the clock reached the vehicle's network namespace, not that the
   stack finished the work the step gave it; see above for what that leaves to the stack.
 - The world runs free during the bring-up, so the simulation time of the origin differs from
