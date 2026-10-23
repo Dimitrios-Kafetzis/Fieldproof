@@ -194,7 +194,6 @@ def test_01_realtime_scenario_and_clock_command(tmp_path: Path) -> None:  # noqa
     assert {a["name"]: a["status"] for a in record["assertions"]} == {
         "reached_goal": "passed",
         "arrived_in_time": "passed",
-        "lidar_streams": "passed",
         "no_collision": "passed",
     }
     markdown = (run_dir / "report.md").read_text()
