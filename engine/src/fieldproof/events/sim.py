@@ -183,6 +183,9 @@ class SimStepEvent(SimEvent):
         """
         steps = int(resolved["steps"])
         advance = steps * float(resolved["step_s"])
+        if not self.control(context, resolved, "pause: true"):
+            record.status, record.detail = "failed", "the world refused to pause"
+            return
         before = parse_stats(context.gz_topic(f"/world/{resolved['world']}/stats").output)
         target = before["sim_time_s"] + advance - 1e-6
         if not self.control(context, resolved, f"multi_step: {steps} pause: true"):

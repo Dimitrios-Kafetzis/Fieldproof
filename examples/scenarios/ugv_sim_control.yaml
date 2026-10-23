@@ -1,12 +1,12 @@
 # The simulator clock events (task P2-T04): the drive of ugv_nav_to_goal with the clock paused
 # four seconds in (`sim.pause`: the physics and every node on simulation time stand still, the
-# clock keeps publishing the time it stopped at), nudged by half a second of simulation while
-# paused (`sim.step`), and resumed once the observer has seen the real-time factor collapse
-# (`sim.resume` triggered by `when: {metric: rtf}`), which is the evidence the pause reached
-# the stream. The drive then goes on to the goal; the drift monitor leaves the pause out. The
-# pause stays short: the example stack's lifecycle manager watches its servers' heartbeats on
-# the wall clock (4 s) and shuts the stack down past that, which is the kind of watchdog a
-# pause is there to reveal.
+# clock keeps publishing the time it stopped at), resumed once the observer has seen the
+# real-time factor collapse (`sim.resume` triggered by `when: {metric: rtf}`, the evidence the
+# pause reached the stream), then nudged by half a second of simulation (`sim.step`: the world
+# pauses, takes the steps and stays paused) and resumed again; the drive then goes on to the
+# goal and the drift monitor leaves the pauses out. The pauses stay short: the example stack's
+# lifecycle manager watches its servers' heartbeats on the wall clock (4 s) and shuts the stack
+# down past that, which is the kind of watchdog a pause is there to reveal.
 #
 #   fieldproof run examples/scenarios/ugv_sim_control.yaml
 #
@@ -37,15 +37,19 @@ timeline:
   - at: 4s
     name: freeze
     action: sim.pause # no duration: paused until thaw
-  - at: 1s
-    after: freeze
-    name: nudge
-    action: sim.step
-    duration_s: 0.5 # 500 physics steps, then paused again
   - at: 0.5s
     name: thaw
     when: { metric: rtf, condition: value < 0.05 } # the observer saw the clock stop
     within_s: 40s
+    action: sim.resume
+  - at: 1s
+    after: thaw
+    name: nudge
+    action: sim.step
+    duration_s: 0.5 # pauses, 500 physics steps, paused again
+  - at: 0.5s
+    after: nudge
+    name: thaw_again
     action: sim.resume
 assertions:
   - name: reached_goal
@@ -64,6 +68,10 @@ assertions:
   - name: nudged
     type: within_time
     action: nudge
+    max_s: 60s
+  - name: resumed_again
+    type: within_time
+    action: thaw_again
     max_s: 60s
   - name: no_collision
     type: no_collision

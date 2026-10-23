@@ -1086,7 +1086,9 @@ def test_sim_clock_events(config: Config, clock: FakeClock, tmp_path: Path) -> N
     assert backend.controls == [
         "pause: true",
         "pause: false",
+        "pause: true",
         "multi_step: 50 pause: true",
+        "pause: true",
         "multi_step: 250 pause: true",
         "pause: false",
     ]

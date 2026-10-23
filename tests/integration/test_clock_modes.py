@@ -245,15 +245,18 @@ def test_02_sim_control_scenario(tmp_path: Path) -> None:
     assert {n: a["status"] for n, a in timeline.items()} == {
         "drive_ahead": "ok",
         "freeze": "ok",
-        "nudge": "ok",
         "thaw": "ok",
+        "nudge": "ok",
+        "thaw_again": "ok",
     }
     assert timeline["freeze"]["detail"] == "paused"
-    assert timeline["nudge"]["detail"] == "500 step(s), 0.5 s, paused"
     assert timeline["thaw"]["detail"] == "resumed"
     assert timeline["thaw"]["trigger"]["when"]["metric"] == "rtf"
     assert timeline["thaw"]["t_s"] >= timeline["freeze"]["t_s"] + 0.5
-    assert timeline["nudge"]["t_s"] >= timeline["freeze"]["t_s"] + 1.0
+    assert timeline["nudge"]["detail"] == "500 step(s), 0.5 s, paused"
+    assert timeline["nudge"]["t_s"] >= timeline["thaw"]["t_s"] + 1.0
+    assert timeline["thaw_again"]["detail"] == "resumed"
+    assert timeline["thaw_again"]["t_s"] >= timeline["nudge"]["t_s"] + 0.5
     for name, entry in timeline.items():
         print(f"{name}: t {entry['t_s']} s, {entry['detail']}", flush=True)  # noqa: T201
     assert {a["name"]: a["status"] for a in record["assertions"]} == {
@@ -261,11 +264,12 @@ def test_02_sim_control_scenario(tmp_path: Path) -> None:
         "arrived_in_time": "passed",
         "paused_and_seen": "passed",
         "nudged": "passed",
+        "resumed_again": "passed",
         "no_collision": "passed",
     }, {a["name"]: a["reason"] for a in record["assertions"]}
     events = [e["event"] for e in log_events(run_dir)]
     clock_events = [e for e in events if e in {"sim.paused", "sim.stepped", "sim.resumed"}]
-    assert clock_events == ["sim.paused", "sim.stepped", "sim.resumed"]
+    assert clock_events == ["sim.paused", "sim.resumed", "sim.stepped", "sim.resumed"]
     clock = record["clock"]
     print(f"clock: {json.dumps(clock)}", flush=True)  # noqa: T201
     assert clock["mode"] == "sim"
@@ -273,7 +277,7 @@ def test_02_sim_control_scenario(tmp_path: Path) -> None:
     assert clock["verdict"] is None
     paused_samples = [s for s in samples(run_dir, "clock") if s.get("paused")]
     assert paused_samples
-    # While paused, the simulation time stood still but for the half-second nudge.
+    # The paused samples cluster around the two pauses (the second one past the nudge).
     sims = sorted({round(s["sim"], 2) for s in paused_samples if s.get("sim") is not None})
     assert sims, paused_samples[:3]
-    assert sims[-1] - sims[0] <= 0.6, sims
+    assert sims[-1] - sims[0] <= timeline["thaw_again"]["t_s"] - timeline["freeze"]["t_s"] + 1.0
