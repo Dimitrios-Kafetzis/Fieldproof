@@ -24,6 +24,7 @@ from rich.table import Table
 
 from fieldproof.backend import BackendError
 from fieldproof.config import ConfigError, load_config
+from fieldproof.determinism import DEFAULT_TOLERANCE_M, CompareError, compare_runs
 from fieldproof.events import parameters_of, registry
 from fieldproof.report import (
     REPORT_JSON,
@@ -39,6 +40,8 @@ from fieldproof.report import (
 from fieldproof.runner import (
     EXIT_CODES,
     LOG_FILE,
+    PROBE_LIMIT_S,
+    RUN_LABEL,
     Plan,
     Run,
     RunLog,
@@ -53,6 +56,7 @@ from fieldproof.scenario import (
     json_schema,
     load_scenario,
 )
+from fieldproof.world import parse_stats
 from fieldproof_bridge.manifest import ManifestError
 
 console = Console()
@@ -101,11 +105,12 @@ def resolve(
     discovery: str | None = None,
     run_id: str | None = None,
     video: bool | None = None,
+    seed: int | None = None,
 ) -> tuple[Scenario, Plan]:
     """Load the scenario and the configuration and plan the run.
 
     `video` overrides `outputs.video` (`--video` turns the world's default camera on,
-    `--no-video` turns the recording off).
+    `--no-video` turns the recording off); `seed` overrides the scenario's seed.
     """
     scenario = load_scenario(scenario_path)
     if video is not None:
@@ -124,6 +129,7 @@ def resolve(
         domain_id=domain_id,
         network=network,
         discovery=discovery,
+        seed=seed,
     )
     return scenario, resolved
 
@@ -142,6 +148,24 @@ def describe(scenario: Scenario, resolved: Plan) -> str:
         f"{len(scenario.assertions)} assertion(s), time {scenario.time.mode}, "
         f"budget {scenario.time.timeout_s:g} s"
     )
+
+
+def clock_note(scenario: Scenario) -> str:
+    """What the scenario's time mode means for the run (task P2-T04), for `validate`."""
+    time_section = scenario.time
+    if time_section.mode == "realtime":
+        return (
+            "time.mode realtime: the real-time factor is pinned to 1.0 and the drift between "
+            f"simulation time and the wall clock is judged over the timeline (budget "
+            f"{time_section.max_drift_s:g} s, on drift: {time_section.on_drift})"
+        )
+    if time_section.mode == "lockstep":
+        return (
+            f"time.mode lockstep: the simulator steps {time_section.step_s:g} s at a time once "
+            "every vehicle acknowledged the last step; the timeline and the assertions count "
+            "simulation time"
+        )
+    return ""
 
 
 def validate(
@@ -172,12 +196,9 @@ def validate(
             highlight=False,
             soft_wrap=True,
         )
-        if scenario.time.mode == "realtime":
-            console.print(
-                "   [yellow]note[/yellow] time.mode realtime: the real-time-locked mode arrives "
-                "with task P2-T04, so this scenario validates but does not run yet",
-                highlight=False,
-            )
+        note = clock_note(scenario)
+        if note:
+            console.print(f"   note {escape(note)}", highlight=False, soft_wrap=True)
     for problem in registry().problems:
         errors.print(
             f"warning: event plugin not loaded: {escape(problem)}", style="yellow", highlight=False
@@ -293,6 +314,14 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             show_default=False,
         ),
     ] = None,
+    seed: Annotated[
+        int | None,
+        typer.Option(
+            "--seed",
+            help="The seed of the run's random numbers, overriding the scenario's.",
+            show_default=False,
+        ),
+    ] = None,
 ) -> None:
     """Run SCENARIO: start the simulator, the bridges and the vehicles, run the timeline.
 
@@ -312,6 +341,7 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             discovery=discovery,
             run_id=run_id,
             video=video,
+            seed=seed,
         )
     except (ScenarioError, ConfigError, ManifestError) as error:
         raise fail(error) from error
@@ -410,17 +440,7 @@ def report(
     """Render the report of a run from its run.json (Markdown by default)."""
     if output_format not in ("md", "json", "junit"):
         raise fail(ValueError(f"--format {output_format!r}: expected md, json or junit"))
-    run_dir = run
-    if not run.exists():
-        try:
-            config = load_config(config_path)
-        except ConfigError as error:
-            raise fail(error) from error
-        run_dir = config.resolve(config.runs.directory) / run.name
-        if not run_dir.is_dir():
-            raise fail(ValueError(f"{run}: no such run directory or run id (looked in {run_dir})"))
-    if run_dir.is_file():
-        run_dir = run_dir.parent
+    run_dir = run_directory(run, config_path)
     try:
         record = load_record(run_dir)
         rendered = write_reports(record, run_dir) if write else build_report(record, run_dir)
@@ -437,6 +457,174 @@ def report(
             f"written: {run_dir / REPORT_MD}, {run_dir / REPORT_JSON}, {run_dir / REPORT_JUNIT}",
             highlight=False,
         )
+
+
+RunArg = Annotated[
+    Path,
+    typer.Argument(
+        help="A run directory, its run.json, or a run id under the workspace's runs directory.",
+        show_default=False,
+    ),
+]
+
+
+def run_directory(run: Path, config_path: Path | None) -> Path:
+    """The run directory a command's RUN argument names (a `typer.Exit` when there is none)."""
+    run_dir = run
+    if not run.exists():
+        try:
+            config = load_config(config_path)
+        except ConfigError as error:
+            raise fail(error) from error
+        run_dir = config.resolve(config.runs.directory) / run.name
+        if not run_dir.is_dir():
+            raise fail(ValueError(f"{run}: no such run directory or run id (looked in {run_dir})"))
+    if run_dir.is_file():
+        run_dir = run_dir.parent
+    return run_dir
+
+
+CLOCK_COMMANDS = ("status", "pause", "resume", "step")
+
+
+def clock(  # noqa: PLR0917
+    run: RunArg,
+    command: Annotated[
+        str, typer.Argument(help="status, pause, resume or step.", show_default=False)
+    ] = "status",
+    config_path: ConfigOption = None,
+    steps: Annotated[
+        int | None,
+        typer.Option("--steps", help="step: physics steps to take (one by default)."),
+    ] = None,
+    seconds: Annotated[
+        float | None,
+        typer.Option("--seconds", help="step: simulation seconds to advance instead."),
+    ] = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Print the world's statistics as JSON (status).")
+    ] = False,
+) -> None:
+    """Pause, resume or step the simulator of a running RUN, or show its clock.
+
+    The run is found by its directory or id; its simulator container must be running (a run in
+    progress, or one kept with --keep). Lockstep runs step their own clock: pause and resume
+    them with the scenario's timeline instead.
+    """
+    if command not in CLOCK_COMMANDS:
+        raise fail(ValueError(f"{command!r}: expected one of {', '.join(CLOCK_COMMANDS)}"))
+    run_dir = run_directory(run, config_path)
+    try:
+        record = load_record(run_dir)
+    except ReportError as error:
+        raise fail(error) from error
+    world = str((record.get("stack") or {}).get("world") or "")
+    run_id = str(record.get("run_id") or "")
+    if not world or not run_id:
+        raise fail(ValueError(f"{run_dir}: run.json names no world or run id"))
+    try:
+        from fieldproof.docker_backend import DockerBackend  # noqa: PLC0415  (Docker only here)
+
+        backend = DockerBackend()
+        sims = [
+            name
+            for name in backend.find(RUN_LABEL, run_id)
+            if name.endswith("-sim") and backend.state(name).running
+        ]
+    except BackendError as error:
+        raise fail(error) from error
+    if not sims:
+        raise fail(ValueError(f"{run_id}: no running simulator container (is the run going?)"))
+    sim = sims[0]
+    step_s = float(((record.get("stack") or {}).get("world_step_s")) or 0.001)
+    request = clock_request(command, steps, seconds, step_s)
+    argv = (
+        f"timeout {PROBE_LIMIT_S} gz topic -e -n 1 -t /world/{world}/stats"
+        if request is None
+        else f"timeout {PROBE_LIMIT_S} gz service -s /world/{world}/control "
+        f"--reqtype gz.msgs.WorldControl --reptype gz.msgs.Boolean --timeout 5000 "
+        f"--req '{request}'"
+    )
+    try:
+        result = backend.exec(sim, ("bash", "-lc", argv))
+    except BackendError as error:
+        raise fail(error) from error
+    if not result.ok or (request is not None and "true" not in result.output):
+        errors.print(f"[red]error:[/red] {escape(result.tail())}", highlight=False)
+        raise typer.Exit(code=1)
+    if request is not None:
+        typer.echo(f"{run_id}: {command} accepted ({request}) by {sim}")
+        return
+    stats = parse_stats(result.output)
+    if as_json:
+        typer.echo(json.dumps({"run_id": run_id, "world": world, **stats}, indent=2))
+    else:
+        typer.echo(
+            f"{run_id}: world {world} {'paused' if stats.get('paused') else 'running'} at "
+            f"simulation time {stats.get('sim_time_s', 0.0):.3f} s, iteration "
+            f"{stats.get('iterations', 0)}, real-time factor {stats.get('rtf', 0.0):.3f}"
+        )
+
+
+def clock_request(
+    command: str, steps: int | None, seconds: float | None, step_s: float
+) -> str | None:
+    """The `WorldControl` request of a clock command (None for `status`)."""
+    if command == "status":
+        return None
+    if command == "pause":
+        return "pause: true"
+    if command == "resume":
+        return "pause: false"
+    count = steps if steps is not None else 1
+    if seconds is not None:
+        count = max(1, round(seconds / step_s))
+    return f"multi_step: {count} pause: true"
+
+
+def compare(
+    run_a: RunArg,
+    run_b: RunArg,
+    config_path: ConfigOption = None,
+    tolerance_m: Annotated[
+        float,
+        typer.Option("--tolerance-m", help="The largest deviation that counts as the same."),
+    ] = DEFAULT_TOLERANCE_M,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the comparison as JSON.")] = False,
+) -> None:
+    """Compare the vehicles' trajectories of two runs of a scenario (task P2-T04).
+
+    The ground truth of every vehicle both runs recorded is compared in timeline time: the
+    second run interpolated at the first run's samples. Exit code 0 when every vehicle stays
+    within --tolerance-m, 1 otherwise, 2 when a run cannot be compared.
+    """
+    first, second = run_directory(run_a, config_path), run_directory(run_b, config_path)
+    try:
+        result = compare_runs(first, second, tolerance_m)
+    except (ReportError, CompareError, OSError) as error:
+        raise fail(error) from error
+    if as_json:
+        typer.echo(json.dumps(result, indent=2))
+    else:
+        ids = " and ".join(str(i) for i in result["run_ids"])
+        modes = "/".join(str(m) for m in result["modes"])
+        seeds = "/".join(str(s) for s in result["seeds"])
+        typer.echo(f"{ids} ({modes}, seeds {seeds}), tolerance {tolerance_m:g} m:")
+        for name, data in result["vehicles"].items():
+            if data["max_m"] is None:
+                typer.echo(f"  {name}: no overlapping samples")
+                continue
+            typer.echo(
+                f"  {name}: largest deviation {data['max_m']:.3f} m at {data['at_s']:.1f} s, "
+                f"mean {data['mean_m']:.3f} m, final {data['final_m']:.3f} m over "
+                f"{data['span_s']:.1f} s ({data['samples']} samples)"
+            )
+        for name in result["missing"]:
+            typer.echo(f"  {name}: in one run only")
+        verdict = "SAME" if result["within_tolerance"] else "DIFFERENT"
+        colour = "green" if result["within_tolerance"] else "red"
+        console.print(f"[{colour}]{verdict}[/{colour}] within {tolerance_m:g} m", highlight=False)
+    raise typer.Exit(code=0 if result["within_tolerance"] else 1)
 
 
 def print_plan(resolved: Plan) -> None:

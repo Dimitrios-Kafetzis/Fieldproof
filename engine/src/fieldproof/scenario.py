@@ -213,23 +213,92 @@ class Network(Strict):
         return self.links.get(vehicle, self.profile)
 
 
-class Time(Strict):
-    """The clock of the run (ADR-0006)."""
+TimeMode = Literal["sim", "realtime", "lockstep"]
+REALTIME_RTF = 1.0
+"""The real-time factor the real-time-locked mode pins the simulator to."""
+LOCKSTEP_RTF = 1.0
+"""The default pace of a lockstep step: no faster than real time, so a vehicle's stack gets at
+least the wall-clock time its work would have in the field."""
 
-    mode: Literal["sim", "realtime"] = Field(
+
+SEED_MAX = 2**31 - 1
+"""The largest seed: `gz sim --seed` goes through Gazebo's Ruby launcher, which converts it to a
+C `int` (a larger value is refused with "integer too big to convert")."""
+
+
+class Time(Strict):
+    """The clock of the run (ADR-0006, task P2-T04; docs/reference/time.md).
+
+    `sim`: the simulator free-runs at the target real-time factor and the timeline is scheduled
+    on the wall clock. `realtime`: the real-time factor is pinned to 1.0 and the drift between
+    simulation time and the wall clock is monitored over the timeline, warned about and, with
+    `on_drift: fail`, fails the run past `max_drift_s`. `lockstep`: the simulator advances in
+    steps of `step_s` only once every vehicle has acknowledged the previous one (a clock agent
+    in each vehicle's network namespace), the engine holds it at every timeline due time and
+    while an event is being started, and the timeline and the assertions run in simulation time.
+    """
+
+    mode: TimeMode = Field(
         default="sim",
         description="`sim`: simulated time on /clock at the target real-time factor; "
-        "`realtime`: real-time-locked mode (task P2-T04).",
+        "`realtime`: real-time-locked (RTF 1.0, drift monitored); `lockstep`: stepped, the "
+        "simulator waiting for every vehicle's acknowledgement.",
     )
     rtf: PositiveFloat | None = Field(
-        default=None, description="Target real-time factor (absent: the world's own setting)."
+        default=None,
+        description="Target real-time factor (absent: the world's own setting). In `realtime` "
+        "mode it is 1.0; in `lockstep` mode it is the pace cap of a step (1.0 by default).",
     )
     tolerance: PositiveFloat = Field(
-        default=0.1, description="Allowed deviation of the real-time factor from the target."
+        default=0.1,
+        description="Allowed deviation of the measured real-time factor from the target over a "
+        "metrics window (counted in the record; a `clock.drift` warning in realtime mode).",
+    )
+    max_drift_s: PositiveFloat = Field(
+        default=1.0,
+        description="`realtime`: the drift between simulation time and the wall clock tolerated "
+        "over the timeline (simulation seconds minus wall-clock seconds).",
+    )
+    on_drift: Literal["fail", "warn"] = Field(
+        default="fail",
+        description="`realtime`: what a drift past `max_drift_s` does: fail the run or warn.",
+    )
+    step_s: PositiveFloat = Field(
+        default=0.1,
+        description="`lockstep`: simulation seconds per step (a multiple of the world's "
+        "physics step).",
+    )
+    ack_timeout_s: PositiveFloat = Field(
+        default=30.0,
+        description="`lockstep`: wall-clock seconds a vehicle may take to acknowledge a step "
+        "before the run fails.",
     )
     timeout_s: Duration = Field(
         default=600.0, description="Wall-clock budget of the run once every vehicle is ready."
     )
+
+    @model_validator(mode="after")
+    def _check_mode(self) -> Time:
+        if self.mode == "realtime" and self.rtf is not None and self.rtf != REALTIME_RTF:
+            raise ValueError(
+                f"rtf: the real-time-locked mode pins the real-time factor to {REALTIME_RTF:g} "
+                "(leave rtf out or set it to 1.0)"
+            )
+        return self
+
+    @property
+    def target_rtf(self) -> float | None:
+        """The real-time factor the run asks the simulator for (None: the world's own)."""
+        if self.mode == "realtime":
+            return REALTIME_RTF
+        if self.mode == "lockstep":
+            return self.rtf if self.rtf is not None else LOCKSTEP_RTF
+        return self.rtf
+
+    @property
+    def sim_base(self) -> bool:
+        """Whether the timeline and the assertions count time in simulation seconds."""
+        return self.mode == "lockstep"
 
 
 # The timeline entry: every registered event's entry model, told apart by `action` (built when
@@ -441,6 +510,13 @@ class Scenario(Strict):
         "network, no shaping).",
     )
     time: Time = Time()
+    seed: int | None = Field(
+        default=None,
+        ge=0,
+        le=SEED_MAX,
+        description="The seed of the run's random numbers (the simulator's noise, the events); "
+        "absent: Gazebo's default seed, 0, so unseeded runs are alike; recorded either way.",
+    )
     timeline: list[TimelineEntry] = Field(default_factory=list)
     assertions: list[Assertion] = Field(default_factory=list)
     outputs: Outputs = Outputs()

@@ -69,6 +69,8 @@ FIELDPROOF := $(UV) run --locked --project engine fieldproof
 # The scenario `make run` runs (task P1-T05) and extra `fieldproof run` arguments (RUN_FLAGS=--keep).
 SCENARIO ?= examples/scenarios/ugv_nav_to_goal.yaml
 RUN_FLAGS ?=
+# Extra pytest arguments of `make test-determinism`.
+PYTEST_FLAGS ?=
 
 # --- Containers -------------------------------------------------------------------------------
 # Rendering: when the host has a /dev/dri render node, compose.gpu.yaml is added so the sim and
@@ -111,7 +113,7 @@ IMAGE_TEST_FLAGS ?= --quick
 
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
 	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
-	test-vehicles test-integration tidy docs docs-serve docs-links branch-protection clean pins assets images \
+	test-vehicles test-integration test-determinism tidy docs docs-serve docs-links branch-protection clean pins assets images \
 	manifest-schema scenario-schema vehicle-image run demo up down shell prune
 
 help: ## Show this help
@@ -219,9 +221,15 @@ test-vehicles: ## Vehicle tests: every robot.yaml validates, the generated Docke
 # Needs the stack images (make images), the example vehicle image (make vehicle-image) and the
 # Fuel models (make assets); runs on the host from the engine's environment and drives Docker.
 # FIELDPROOF_IT_KEEP=1 leaves the containers of the vertical-slice test running after a failure.
-test-integration: ## Integration tests (tests/integration): the vertical slice by hand, then `fieldproof run` of the example scenario, an interrupted run, the fleet, the radio links, the events, the world events, the faults
+test-integration: ## Integration tests (tests/integration): the vertical slice by hand, then `fieldproof run` of the example scenario, an interrupted run, the fleet, the radio links, the events, the world events, the faults, the clock modes
 	$(UV) sync --locked --project engine
 	$(UV) run --locked --project engine pytest -s -v tests/integration
+
+# Two lockstep runs and their comparison (task P2-T04), too slow for every PR: the nightly
+# scenario workflow runs it; PYTEST_FLAGS="--basetemp runs/determinism" keeps the run directories.
+test-determinism: ## Determinism test (tests/integration/test_determinism.py): the lockstep scenario twice, trajectories and odometry compared
+	$(UV) sync --locked --project engine
+	FIELDPROOF_DETERMINISM=1 $(UV) run --locked --project engine pytest -s -v $(PYTEST_FLAGS) tests/integration/test_determinism.py
 
 manifest-schema: ## Export the vehicle manifest JSON Schema (engine/schemas/robot.schema.json) from the engine's models
 	$(UV) sync --locked --project engine

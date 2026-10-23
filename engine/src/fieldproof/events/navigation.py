@@ -24,6 +24,7 @@ from fieldproof.world import Pose, place
 NAV2_ACTION = "navigate_to_pose"
 NAV2_ACTION_TYPE = "nav2_msgs/action/NavigateToPose"
 GOAL_STATUS = re.compile(r"Goal finished with status: (\w+)")
+GOAL_ACCEPTED = re.compile(r"Goal accepted with ID")
 
 
 class NavigateToPose(TimelineBase):
@@ -91,6 +92,12 @@ class NavigateToPoseEvent(Event):
             action=record.name,
             vehicle=vehicle.name,
         )
+
+        def on_line(line: str) -> None:
+            context.log("action.output", line.rstrip(), level="debug", action=record.name)
+            if GOAL_ACCEPTED.search(line):
+                context.started(record)  # the lockstep clock may advance (task P2-T04)
+
         result = context.ros2(
             vehicle,
             (
@@ -101,9 +108,7 @@ class NavigateToPoseEvent(Event):
                 goal_message(goal),
             ),
             timeout_s=limit_s,
-            on_line=lambda line: context.log(
-                "action.output", line.rstrip(), level="debug", action=record.name
-            ),
+            on_line=on_line,
         )
         status = goal_status(result)
         if result.exit_code == 124:

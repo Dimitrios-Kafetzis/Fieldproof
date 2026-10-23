@@ -184,7 +184,7 @@ The side channels are `std_msgs/msg/String` messages carrying JSON:
 | --- | --- |
 | `/fieldproof/events` | every line of `engine.log` as the engine writes it (the phases, containers, the readiness probe's lines, the verdicts, and every occurrence of a timeline entry as `action.start` and `action.end` lines carrying its record: action, vehicle, trigger, occurrence, parameters, status, detail, [events.md](events.md#the-record)) |
 | `/fieldproof/assertions` | every verdict as it resolves: `run_id`, `name`, `type`, `status`, `reason`, `t_s`, `sim_s`, `evidence` |
-| `/fieldproof/metrics` | once a second: `wall`, `sim` (simulation time), `rtf` (the real-time factor over the last second), `rates_hz` per watched topic, `poses` of the vehicles, `recording` |
+| `/fieldproof/metrics` | once a second: `wall`, `sim` (simulation time), `rtf` (the real-time factor over the last second), `drift_s` (simulation seconds gained or lost against the wall clock at the target pace since the observer's first sample), `mode`, `target_rtf`, `paused` and `gz_rtf` (from the world's statistics) and in lockstep `lockstep` (the step, the hold, the acknowledgements) ([time.md](time.md#what-every-mode-records)), `rates_hz` per watched topic, `poses` of the vehicles, `recording` |
 
 Container resource metrics (CPU, memory per container) are not sampled yet; they belong with the
 compute budgets of Phase 6.

@@ -73,6 +73,9 @@ set_wind = "fieldproof.events.world:SetWindEvent"
 "sensor.freeze" = "fieldproof.events.faults:SensorFreezeEvent"
 "battery.drain" = "fieldproof.events.faults:BatteryDrainEvent"
 "actuator.limit" = "fieldproof.events.faults:ActuatorLimitEvent"
+"sim.pause" = "fieldproof.events.sim:SimPauseEvent"
+"sim.resume" = "fieldproof.events.sim:SimResumeEvent"
+"sim.step" = "fieldproof.events.sim:SimStepEvent"
 
 [tool.uv.sources]
 fieldproof-bridge = { path = "../bridge/fieldproof_bridge", editable = true }

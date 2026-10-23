@@ -114,3 +114,55 @@ jobs:
             exit 1
           fi
           echo "no container carries the io.fieldproof.run label"
+
+  # The determinism test of task P2-T04: the lockstep scenario twice against the published
+  # images, the trajectories and the odometry compared (tests/integration/test_determinism.py,
+  # `make test-determinism`). Two runs of the stack, so nightly and on demand, not on every
+  # pull request.
+  determinism:
+    name: Determinism (two lockstep runs, published images)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Free disk space for the images
+        run: tools/ci/free-disk.sh
+      - name: Cache the Fuel archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: assets/fuel/archives
+          key: fuel-${{ hashFiles('assets/fuel.lock') }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+      - name: Pull the published stack images (base-ros2, sim, bridge at ${{ env.FIELDPROOF_IMAGE_TAG }})
+        run: |
+          for image in base-ros2 sim bridge; do
+            docker pull --quiet "ghcr.io/dimitrios-kafetzis/fieldproof-${image}:${FIELDPROOF_IMAGE_TAG}"
+          done
+      - name: Fetch the Fuel models pinned in assets/fuel.lock
+        run: make assets
+      - name: Build the example vehicle image on the published base image
+        run: make vehicle-image
+      - name: Two lockstep runs, compared (software rendering)
+        run: make test-determinism PYTEST_FLAGS="--basetemp runs/determinism"
+      - name: Upload the two runs (records, clock files, samples, logs)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: determinism-runs-${{ github.run_number }}-${{ github.run_attempt }}
+          path: runs/determinism
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Nothing of the runs is left on the runner
+        if: always()
+        run: |
+          left="$(docker ps -a --filter label=io.fieldproof.run --format '{{.Names}}')"
+          if [ -n "$left" ]; then
+            echo "::error::containers left behind: $left"
+            exit 1
+          fi
+          echo "no container carries the io.fieldproof.run label"

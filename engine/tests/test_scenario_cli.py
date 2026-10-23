@@ -89,11 +89,20 @@ def test_validate_reports_errors(tmp_path: Path) -> None:
     assert "none.yaml: No such file" in out, "the file is named once"
 
 
-def test_validate_notes_realtime(tmp_path: Path) -> None:
+def test_validate_notes_the_clock_mode(tmp_path: Path) -> None:
     file = example_copy(tmp_path / "rt.yaml", **{"mode: sim": "mode: realtime"})
     result = runner.invoke(app, ["validate", str(file)])
     assert result.exit_code == 0, result.output
-    assert "P2-T04" in plain(result.output)
+    assert "note time.mode realtime: the real-time factor is pinned to 1.0" in plain(result.output)
+    assert "(budget 1 s, on drift: fail)" in plain(result.output)
+    file = example_copy(tmp_path / "ls.yaml", **{"mode: sim": "mode: lockstep"})
+    result = runner.invoke(app, ["validate", str(file)])
+    assert result.exit_code == 0, result.output
+    assert "note time.mode lockstep: the simulator steps 0.1 s at a time" in plain(result.output)
+    file = example_copy(tmp_path / "bad.yaml", **{"mode: sim": "mode: realtime\n  rtf: 2"})
+    result = runner.invoke(app, ["validate", str(file)])
+    assert result.exit_code == 2
+    assert "pins the real-time factor to 1" in plain(result.output)
 
 
 def test_validate_with_config(tmp_path: Path) -> None:

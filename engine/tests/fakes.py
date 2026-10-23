@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,17 @@ TRAFFIC_OK = (
 )
 
 
+def world_stats(sim_s: float, *, paused: bool) -> str:
+    """A `gz.msgs.WorldStatistics` as `gz topic -e` prints it."""
+    seconds = int(sim_s)
+    return (
+        f"sim_time {{\n  sec: {seconds}\n  nsec: {round((sim_s - seconds) * 1e9)}\n}}\n"
+        f"real_time {{\n  sec: {seconds}\n  nsec: 0\n}}\n"
+        + ("paused: true\n" if paused else "real_time_factor: 1.0\n")
+        + f"iterations: {seconds * 1000}\nstep_size {{\n  nsec: 1000000\n}}\n"
+    )
+
+
 @dataclass
 class FakeContainer:
     spec: ContainerSpec
@@ -66,6 +78,135 @@ FAKE_MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 2040
 """What the fake simulator's recorder "wrote": an ISO media file header and padding."""
 
 
+class FakeLockstep:
+    """The observer's clock manager, played against the run's clock file (task P2-T04).
+
+    Wired into the run's `sleep`: every tick reads the engine's new commands and answers them
+    the way the manager does, with `clock` samples: `lockstep` locks the world at `origin`
+    (every vehicle acknowledging), `run_until` steps straight to the grid point the limit names
+    (one sample per step, held there), or one second further per tick without a limit;
+    `release` ends it. `samples_at` adds samples of the stream once a time is reached (what
+    the vehicles "did"), and `refuse_from` makes a vehicle stop acknowledging at a time, which
+    becomes a `lockstep.timeout` after `ack_timeout_s` ticks.
+    """
+
+    def __init__(
+        self,
+        backend: FakeBackend,
+        *,
+        step_s: float = 0.1,
+        origin: float = 10.0,
+        vehicles: Sequence[str] = ("ugv1",),
+        ack_timeout_s: float = 30.0,
+    ) -> None:
+        self.backend = backend
+        self.step_s = step_s
+        self.origin = origin
+        self.vehicles = list(vehicles)
+        self.ack_timeout_s = ack_timeout_s
+        self.offset = 0
+        self.t: float | None = None
+        self.hold: float | None = None
+        self.locked = False
+        self.released = False
+        self.steps = 0
+        self.holds = 0
+        self.commands: list[dict[str, Any]] = []
+        self.samples_at: dict[float, list[dict[str, Any]]] = {}
+        self.refuse_from: dict[str, float] = {}
+        self.waited = 0.0
+        self.timed_out = False
+
+    @property
+    def control_file(self) -> Path | None:
+        if self.backend.samples_file is None:
+            return None
+        return self.backend.samples_file.parent / "clock.jsonl"
+
+    def state(self, **fields: Any) -> dict[str, Any]:
+        t_s = None if self.t is None else round(self.t, 6)
+        return {
+            "kind": "clock",
+            "sim": None if self.t is None else round(self.origin + self.t, 6),
+            "rtf": None,
+            "paused": self.locked,
+            "mode": "lockstep",
+            "target_rtf": 1.0,
+            "lockstep": {
+                "origin": self.origin if self.locked else None,
+                "step": 0 if self.t is None else round(self.t / self.step_s),
+                "step_s": self.step_s,
+                "t_s": t_s,
+                "hold_t": self.hold,
+                "held": fields.pop("held", False),
+                "steps": self.steps,
+                "holds": self.holds,
+                "max_wait_s": 0.0,
+                "released": self.released,
+            },
+            "acks": dict.fromkeys(self.vehicles, self.origin + (self.t or 0.0)),
+            **fields,
+        }
+
+    def tick(self) -> None:  # noqa: PLR0912
+        """Read the new commands and move the fake world."""
+        path = self.control_file
+        if path is None or not path.is_file():
+            return
+        lines = path.read_text().splitlines()[self.offset :]
+        self.offset += len(lines)
+        for line in lines:
+            command = json.loads(line)
+            self.commands.append(command)
+            if command["cmd"] == "lockstep" and not self.locked:
+                self.locked, self.t, self.hold = True, 0.0, 0.0
+                self.backend.write_samples([self.state(locked=True)])
+                self.backend.write_samples([self.state(held=True)])
+            elif command["cmd"] == "run_until":
+                limit = command.get("t_s")
+                self.hold = None if limit is None else limit
+            elif command["cmd"] == "release":
+                self.released = True
+                self.backend.write_samples([self.state(released=True)])
+        if not self.locked or self.released or self.t is None:
+            return
+        target = (
+            self.t + 1.0
+            if self.hold is None
+            else math.ceil(self.hold / self.step_s - 1e-6) * self.step_s
+        )
+        while self.t < target - 1e-9:
+            next_t = round(self.t + self.step_s, 6)
+            refused = [v for v, since in self.refuse_from.items() if next_t > since + 1e-9]
+            if refused:
+                self.waited += 1.0
+                if self.waited > self.ack_timeout_s and not self.timed_out:
+                    self.timed_out = True
+                    self.backend.write_samples(
+                        [
+                            {
+                                "kind": "lockstep.timeout",
+                                "sim": round(self.origin + next_t, 6),
+                                "step": round(next_t / self.step_s),
+                                "waited_s": self.waited,
+                                "missing": refused,
+                            }
+                        ]
+                    )
+                else:
+                    self.backend.write_samples([self.state(waiting=refused, waited_s=self.waited)])
+                return
+            self.t = next_t
+            self.steps += 1
+            self.backend.write_samples([self.state()])
+            for at, samples in self.samples_at.items():
+                if self.t - self.step_s < at <= self.t:
+                    self.backend.write_samples(samples)
+        if self.hold is not None:
+            self.holds += 1
+            self.backend.write_samples([self.state(held=True)])
+
+
 @dataclass
 class FakeBackend:
     """A runtime whose answers the tests script."""
@@ -85,6 +226,13 @@ class FakeBackend:
     param_result: ExecResult = field(default_factory=lambda: ExecResult(0, PARAM_OK))
     world_result: ExecResult = field(default_factory=lambda: ExecResult(0, WORLD_OK))
     """What the simulator answers a world event's service (`gz service` on the sim container)."""
+    control_result: ExecResult = field(default_factory=lambda: ExecResult(0, "data: true\n"))
+    """What the world's control service answers (`sim.pause`, `sim.step`, `sim.resume`)."""
+    stats_calls: int = 0
+    """How often the world's statistics were read (`sim.step` polls them); each answer is one
+    second of simulation further, paused."""
+    controls: list[str] = field(default_factory=list)
+    """The `WorldControl` requests made, in order."""
     world_polls_needed: int = 2
     bridge_polls_needed: int = 1
     spawn_result: ExecResult = field(
@@ -201,6 +349,10 @@ class FakeBackend:
                     file.write(sample + "\n")
                     continue
                 record = {"wall": self.wall(), "sim": None, **sample}
+                # `wall_offset_s` stamps a sample before (or after) the moment it is written.
+                offset = record.pop("wall_offset_s", None)
+                if offset is not None:
+                    record["wall"] = self.wall() + float(offset)
                 file.write(json.dumps(record) + "\n")
 
     def run_to_completion(self, spec: ContainerSpec, timeout_s: float) -> ExecResult:
@@ -232,6 +384,13 @@ class FakeBackend:
             return self.rtf_result
         if role == "sim" and "/fieldproof/" in command:
             return self.world_result
+        if role == "sim" and "gz topic -e" in command and "/stats" in command:
+            self.stats_calls += 1
+            return ExecResult(0, world_stats(10.0 + self.stats_calls, paused=True))
+        if role == "sim" and "/control" in command:
+            request = command.split("--req ", 1)[1]
+            self.controls.append(request.strip("'"))
+            return self.control_result
         if role == "sim" and "record_video" in command:
             return self.video_stop_result if "stop: true" in command else self.video_start_result
         if role == "sim" and command.startswith("bash -lc test -s "):

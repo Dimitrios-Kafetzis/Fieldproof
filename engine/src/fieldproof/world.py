@@ -7,10 +7,12 @@ turns a :class:`~fieldproof.dsl.Placement` into a :class:`Pose` of the world.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from fieldproof.dsl import Placement, ScenarioError
 
@@ -18,6 +20,10 @@ VIDEO_RECORDER_PLUGIN = "gz::sim::systems::CameraVideoRecorder"
 # The spawn launch's default `z`: the reference UGV's base_link height above the ground, which
 # a spawn and a teleport of a vehicle add to the ground pose.
 SPAWN_HEIGHT_M = 0.12
+# Gazebo's defaults when a world declares no `<physics>` (task P2-T04: a lockstep step is a
+# multiple of the physics step, and `sim.step` counts physics steps).
+DEFAULT_STEP_S = 0.001
+DEFAULT_RTF = 1.0
 
 
 @dataclass(frozen=True)
@@ -54,13 +60,18 @@ class WorldInfo:
     frames: dict[str, Pose]
     cameras: dict[str, str] = field(default_factory=dict)
     """Camera sensors with a `CameraVideoRecorder` plugin: sensor name to its service."""
+    step_s: float = DEFAULT_STEP_S
+    """The physics step (`<physics><max_step_size>`), in seconds."""
+    rtf: float = DEFAULT_RTF
+    """The world's own real-time factor (`<physics><real_time_factor>`)."""
 
 
 def read_world(file: Path) -> WorldInfo:
     """The world's name, its named frames and the cameras a video can be recorded from.
 
     Frames are `<frame name="..."><pose>x y z r p y</pose>`; cameras are the `<sensor
-    type="camera">` elements carrying a `CameraVideoRecorder` plugin (`outputs.video`).
+    type="camera">` elements carrying a `CameraVideoRecorder` plugin (`outputs.video`); the
+    physics step and real-time factor come from `<physics>` (Gazebo's defaults without one).
     """
     try:
         root = ET.parse(file).getroot()  # noqa: S314  (a world file of the workspace)
@@ -83,7 +94,17 @@ def read_world(file: Path) -> WorldInfo:
         for plugin in sensor.findall("plugin"):
             if plugin.get("name") == VIDEO_RECORDER_PLUGIN and plugin.findtext("service"):
                 cameras[str(sensor.get("name"))] = str(plugin.findtext("service")).strip()
-    return WorldInfo(file, str(world.get("name")), frames, cameras)
+    physics = world.find("physics")
+    step_s, rtf = DEFAULT_STEP_S, DEFAULT_RTF
+    if physics is not None:
+        try:
+            step_s = float(physics.findtext("max_step_size") or DEFAULT_STEP_S)
+            rtf = float(physics.findtext("real_time_factor") or DEFAULT_RTF)
+        except ValueError as error:
+            raise ScenarioError(f"{file}: cannot read the <physics> element: {error}") from error
+        if step_s <= 0:
+            raise ScenarioError(f"{file}: <physics><max_step_size> must be positive")
+    return WorldInfo(file, str(world.get("name")), frames, cameras, step_s, rtf)
 
 
 def place(placement: Placement, world: WorldInfo, what: str) -> Pose:
@@ -98,3 +119,37 @@ def place(placement: Placement, world: WorldInfo, what: str) -> Pose:
     if placement.x is None or placement.y is None:  # the model validator rules this out
         raise ScenarioError(f"{what}: a placement needs a frame or x and y")
     return Pose(placement.x, placement.y, placement.z or 0.0, placement.yaw or 0.0)
+
+
+def parse_stats(text: str) -> dict[str, Any]:
+    """The fields of a `gz.msgs.WorldStatistics` as `gz topic -e` prints it (task P2-T04).
+
+    `paused`, `sim_time_s`, `real_time_s`, `iterations` and `rtf`.
+    """
+    stats: dict[str, Any] = {"paused": "paused: true" in text}
+    section: str | None = None
+    values: dict[str, dict[str, int]] = {"sim_time": {}, "real_time": {}}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith(("sim_time {", "real_time {")):
+            section = line.split()[0]
+            if "}" in line:
+                section = None
+            continue
+        if line.startswith("}"):
+            section = None
+            continue
+        key, _, value = line.partition(":")
+        key, value = key.strip(), value.strip()
+        if section in values and key in ("sec", "nsec") and value.isdigit():
+            values[section][key] = int(value)
+        elif key == "iterations" and value.isdigit():
+            stats["iterations"] = int(value)
+        elif key == "real_time_factor":
+            with contextlib.suppress(ValueError):
+                stats["rtf"] = float(value)
+    for name, parts in values.items():
+        stats[f"{name}_s"] = parts.get("sec", 0) + parts.get("nsec", 0) / 1e9
+    stats.setdefault("iterations", 0)
+    stats.setdefault("rtf", 0.0)
+    return stats

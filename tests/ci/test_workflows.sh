@@ -178,7 +178,8 @@ assert "schedule" in on and "workflow_dispatch" in on, on.keys()
 assert on["workflow_dispatch"]["inputs"]["image-tag"]["default"] == "main"
 assert ".github/workflows/scenario-tests.yml" in on["pull_request"]["paths"]
 assert "examples/**" in on["pull_request"]["paths"]
-(job,) = doc["jobs"].values()
+assert list(doc["jobs"]) == ["scenario", "determinism"], list(doc["jobs"])
+job = doc["jobs"]["scenario"]
 assert job["runs-on"] == "ubuntu-24.04"
 steps = job["steps"]
 runs = "\n".join(str(s.get("run", "")) for s in steps)
@@ -193,8 +194,22 @@ assert any(
     "io.fieldproof.run" in str(s.get("run", "")) and str(s.get("if", "")).strip() == "always()"
     for s in steps
 ), "checks nothing is left"
+# The determinism job (task P2-T04): two lockstep runs, not on pull requests.
+det = doc["jobs"]["determinism"]
+assert det["runs-on"] == "ubuntu-24.04"
+assert det["if"].strip() == "github.event_name != 'pull_request'", det.get("if")
+det_runs = "\n".join(str(s.get("run", "")) for s in det["steps"])
+assert "docker pull" in det_runs and "make vehicle-image" in det_runs and "make assets" in det_runs
+assert "make test-determinism" in det_runs and "--basetemp runs/determinism" in det_runs
+det_uploads = [s for s in det["steps"] if "upload-artifact" in str(s.get("uses", ""))]
+assert len(det_uploads) == 1 and det_uploads[0]["with"]["path"] == "runs/determinism"
+assert str(det_uploads[0].get("if", "")).strip() == "always()"
+assert any(
+    "io.fieldproof.run" in str(s.get("run", "")) and str(s.get("if", "")).strip() == "always()"
+    for s in det["steps"]
+), "the determinism job checks nothing is left"
 PY
-then pass "scenario-tests.yml: main, nightly and dispatch; published images, scenario-run.sh, artefacts always uploaded"; else fail "scenario-tests.yml rules"; fi
+then pass "scenario-tests.yml: main, nightly and dispatch; published images, scenario-run.sh, artefacts always uploaded; the determinism job"; else fail "scenario-tests.yml rules"; fi
 
 # ---------------------------------------------------------------------------------------------
 section "3. Helpers"

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -241,6 +242,8 @@ class FakeGz:
     def __init__(self, refuse: set[str] | None = None) -> None:
         self.poses: dict[str, Callable[[Any], None]] = {}
         self.contacts: dict[str, Callable[[Any], None]] = {}
+        self.stats: dict[str, Callable[[Any], None]] = {}
+        self.controls: list[tuple[str, bool | None, int | None, float | None]] = []
         self.refuse = refuse or set()
 
     def subscribe_poses(self, topic: str, callback: Callable[[Any], None]) -> bool:
@@ -254,6 +257,23 @@ class FakeGz:
             return False
         self.contacts[topic] = callback
         return True
+
+    def subscribe_stats(self, topic: str, callback: Callable[[Any], None]) -> bool:
+        if topic in self.refuse:
+            return False
+        self.stats[topic] = callback
+        return True
+
+    def world_control(
+        self,
+        service: str,
+        *,
+        pause: bool | None = None,
+        multi_step: int | None = None,
+        run_to_sim_time: float | None = None,
+    ) -> bool:
+        self.controls.append((service, pause, multi_step, run_to_sim_time))
+        return service not in self.refuse
 
 
 class FakeClock:
@@ -586,8 +606,10 @@ def test_main_reads_the_config(run_dir: Path, monkeypatch: pytest.MonkeyPatch) -
     created: dict[str, Any] = {}
 
     class StubObserver:
-        def __init__(self, cfg: Any, sink: Any, ros: Any, gz: Any, *, recorder: Any) -> None:
-            created.update(cfg=cfg, ros=ros, gz=gz, recorder=recorder)
+        def __init__(
+            self, cfg: Any, sink: Any, ros: Any, gz: Any, *, recorder: Any, pool: Any = None
+        ) -> None:
+            created.update(cfg=cfg, ros=ros, gz=gz, recorder=recorder, pool=pool)
             sink.close()
 
         def run(self) -> int:
@@ -610,3 +632,31 @@ def test_main_reads_the_config(run_dir: Path, monkeypatch: pytest.MonkeyPatch) -
     (run_dir / "observe.json").write_text("[]")
     with pytest.raises(ValueError, match="not a JSON object"):
         observer.main(["--config", str(run_dir / "observe.json")])
+
+
+# ------------------------------------------------------------------- the world-control helper
+def test_world_control_loop_answers_each_request() -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def request(service: str, fields: Mapping[str, Any]) -> bool:
+        calls.append((service, dict(fields)))
+        if fields.get("run_to_sim_time") == 99.0:
+            raise RuntimeError("no such world")
+        return fields.get("pause") is not False
+
+    lines = [
+        json.dumps({"service": "/world/depot/control", "pause": True}),
+        "",
+        json.dumps({"service": "/world/depot/control", "pause": False}),
+        json.dumps({"service": "/world/depot/control", "run_to_sim_time": 99.0}),
+        "not json",
+    ]
+    out = io.StringIO()
+    assert observer.world_control_loop(lines, out, request) == 0
+    answers = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert answers[0] == {"ok": True}
+    assert answers[1] == {"ok": False}
+    assert answers[2] == {"ok": False, "error": "no such world"}
+    assert answers[3]["ok"] is False
+    assert len(calls) == 3
+    assert calls[0][0] == "/world/depot/control"

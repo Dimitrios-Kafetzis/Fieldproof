@@ -75,7 +75,7 @@ from typing import IO, Any
 import yaml
 from rich.console import Console
 
-from fieldproof import __version__, ground, observer
+from fieldproof import __version__, ground, lockstep, observer
 from fieldproof.assertions import (
     ASSERTIONS_FILE,
     DEFAULT_CONTACTS_TOPIC,
@@ -89,6 +89,7 @@ from fieldproof.assertions import (
     observe_plan,
 )
 from fieldproof.backend import Backend, BackendError, ContainerSpec, ExecResult, LineSink, Mount
+from fieldproof.clock import HOLD_MAX_S, ORIGIN_TIMEOUT_S, ClockMonitor, LockstepControl
 from fieldproof.config import AUTO, Config
 from fieldproof.dsl import TimelineBase
 from fieldproof.events import (
@@ -130,15 +131,17 @@ from fieldproof.network import (
 from fieldproof.network import (
     PASSED as LINK_PASSED,
 )
-from fieldproof.observer import FileTail
+from fieldproof.observer import ACK_TOPIC, FileTail
 from fieldproof.report import REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
 from fieldproof.scenario import (
+    SEED_MAX,
     Assertion,
     NoCollision,
     Pose,
     ReachPose,
     Scenario,
     ScenarioError,
+    Time,
     TopicRate,
     TopicValue,
     Vehicle,
@@ -200,6 +203,13 @@ RUN_DIR_IN_CONTAINER = "/fieldproof/run"
 GROUND_FILE = Path(ground.__file__).resolve()
 GROUND_IN_CONTAINER = "/opt/fieldproof/ground.py"
 GROUND_HOSTNAME = "ground"
+# The seed of a run that names none (task P2-T04): Gazebo's own default, so unseeded runs keep
+# the noise sequence they always had and two of them are alike; a scenario or `--seed` varies it.
+DEFAULT_SEED = 0
+# The lockstep clock agent (task P2-T04), mounted like the observer into a container of the
+# bridge image that shares the vehicle container's network namespace.
+LOCKSTEP_FILE = Path(lockstep.__file__).resolve()
+LOCKSTEP_IN_CONTAINER = "/opt/fieldproof/lockstep.py"
 HOLDER_COMMAND = ("sleep", "infinity")
 # A bridge behind a link sits on two networks, and gz-transport advertises the address of
 # whichever interface comes first, which Docker does not keep stable: when it is the onboard one,
@@ -342,6 +352,8 @@ class PlannedVehicle:
     """The vehicle's DDS profile on the host, mounted into its container."""
     clock: bool = True
     """Whether this vehicle's bridge is the one bridging `/clock` (the first vehicle's is)."""
+    agent: ContainerSpec | None = None
+    """The vehicle's lockstep clock agent (task P2-T04; lockstep mode only)."""
     bundle_dir: str = BUNDLE_DIR_IN_BRIDGE
     """Where the bridge container writes its bundle (`contract.yaml` for the contract check)."""
     _bundle: Bundle | None = field(default=None, repr=False, compare=False)
@@ -507,6 +519,8 @@ class Plan:
     """The run's Fast DDS discovery server (`discovery: server`), or None for multicast."""
     links: PlannedLinks | None = None
     """The radio links (`network`), or None: one shared network, no shaping."""
+    seed: int = 0
+    """The seed of the run's random numbers (`gz sim --seed`, `FIELDPROOF_SEED`)."""
 
     @property
     def discovery_mode(self) -> str:
@@ -523,6 +537,7 @@ class Plan:
             specs += [self.links.holders[v.name] for v in self.vehicles]
             specs.append(self.links.ground)
         specs += [v.container for v in self.vehicles]
+        specs += [v.agent for v in self.vehicles if v.agent is not None]
         return specs
 
     def vehicle(self, name: str) -> PlannedVehicle:
@@ -574,8 +589,14 @@ class Plan:
             "ros_domain_id": self.domain_id,
             "domain_source": self.domain_source,
             "discovery": self.discovery_mode,
-            "world": {"name": self.world.name, "file": str(self.world.file)},
+            "world": {
+                "name": self.world.name,
+                "file": str(self.world.file),
+                "step_s": self.world.step_s,
+                "rtf": self.world.rtf,
+            },
             "time": self.scenario.time.model_dump(),
+            "seed": self.seed,
             "vehicles": [
                 {
                     **v.describe(),
@@ -623,7 +644,7 @@ def detect_render(preference: str, render_dir: Path = RENDER_DIR) -> tuple[str, 
     return "gpu", (str(nodes[0].stat().st_gid),)
 
 
-def plan(
+def plan(  # noqa: PLR0915
     scenario: Scenario,
     config: Config,
     *,
@@ -635,13 +656,20 @@ def plan(
     discovery: str | None = None,
     now: datetime | None = None,
     token: str | None = None,
+    seed: int | None = None,
 ) -> Plan:
-    """Resolve the scenario against the workspace; raise :class:`ScenarioError` if it cannot run."""
+    """Resolve the scenario against the workspace; raise :class:`ScenarioError` if it cannot run.
+
+    `seed` overrides the scenario's; without either the run uses Gazebo's default seed, 0.
+    """
     worlds_dir = config.resolve(config.stack.worlds)
     world_file = worlds_dir / scenario.world.file
     if not world_file.is_file():
         raise ScenarioError(f"world.file: {scenario.world.file!r} is not a file in {worlds_dir}")
     world = read_world(world_file)
+    time_section = scenario.time
+    _check_step(time_section, world)
+    seed = _plan_seed(scenario, seed)
     render_mode, groups = detect_render(render or config.docker.render)
     net = network or config.docker.network
     identity = run_id or make_run_id(
@@ -664,7 +692,7 @@ def plan(
     else:
         base = config.resolve(config.runs.directory)
     labels = {RUN_LABEL: identity, DOMAIN_LABEL: str(domain)}
-    env = {"ROS_DOMAIN_ID": str(domain), "GZ_PARTITION": GZ_PARTITION}
+    env = {"ROS_DOMAIN_ID": str(domain), "GZ_PARTITION": GZ_PARTITION, "FIELDPROOF_SEED": str(seed)}
     # What every ROS container of the run gets on top: with a discovery server, where it is and
     # super-client mode, so graph queries (the readiness probe, the observer, `ros2 topic list`)
     # see the whole graph as they do with multicast.
@@ -682,7 +710,16 @@ def plan(
         name=f"fieldproof-{short}-sim",
         image=config.image("sim"),
         role="sim",
-        command=("gz", "sim", "-s", "-r", "--headless-rendering", world_file.name),
+        command=(
+            "gz",
+            "sim",
+            "-s",
+            "-r",
+            "--headless-rendering",
+            "--seed",
+            str(seed),
+            world_file.name,
+        ),
         env={
             **env,
             "LIBGL_ALWAYS_SOFTWARE": "0" if render_mode == "gpu" else "1",
@@ -703,7 +740,7 @@ def plan(
         for index, v in enumerate(scenario.vehicles)
     )
     by_name = {v.name: v for v in vehicles}
-    actions = _plan_actions(scenario, world, by_name)
+    actions = _plan_actions(scenario, world, by_name, time_section.mode)
     assertions = tuple(
         _plan_assertion(world, by_name, a, index) for index, a in enumerate(scenario.assertions)
     )
@@ -727,6 +764,26 @@ def plan(
         run_dir=RUN_DIR_IN_CONTAINER,
         conditions=[a.watch for a in actions if a.watch is not None],
     )
+    # The clock (task P2-T04): what the observer's clock manager needs in every mode (the
+    # world's statistics, the target pace for the drift) and, in lockstep, the vehicles to
+    # wait for and the command file.
+    target_rtf = time_section.target_rtf
+    observe["clock"] = {
+        "world": world.name,
+        "mode": time_section.mode,
+        "target_rtf": world.rtf if target_rtf is None else target_rtf,
+        "step_s": time_section.step_s,
+        "vehicles": [v.name for v in vehicles] if time_section.mode == "lockstep" else [],
+        "ack_timeout_s": time_section.ack_timeout_s,
+        "control_file": f"{RUN_DIR_IN_CONTAINER}/{observer.CLOCK_FILE}"
+        if time_section.mode == "lockstep"
+        else None,
+    }
+    if time_section.mode == "lockstep":
+        vehicles = tuple(
+            replace(v, agent=_plan_agent(v, config, short, ros_env, labels, time_section.step_s))
+            for v in vehicles
+        )
     recorder = ContainerSpec(
         name=f"fieldproof-{short}-recorder",
         image=config.image("bridge"),
@@ -773,18 +830,81 @@ def plan(
         domain_source=domain_source,
         discovery=server,
         links=links,
+        seed=seed,
+    )
+
+
+def _check_step(time_section: Time, world: WorldInfo) -> None:
+    """A lockstep step is a whole number of the world's physics steps."""
+    if time_section.mode != "lockstep":
+        return
+    ratio = time_section.step_s / world.step_s
+    if abs(ratio - round(ratio)) > 1e-6 or ratio < 1 - 1e-6:
+        raise ScenarioError(
+            f"time.step_s: {time_section.step_s:g} s is not a multiple of the world's "
+            f"physics step {world.step_s:g} s"
+        )
+
+
+def _plan_seed(scenario: Scenario, seed: int | None) -> int:
+    """The run's seed: the override, the scenario's, or Gazebo's own default."""
+    if seed is None:
+        seed = scenario.seed
+    if seed is None:
+        seed = DEFAULT_SEED
+    if not 0 <= seed <= SEED_MAX:
+        raise ScenarioError(f"seed: {seed} is not between 0 and {SEED_MAX}")
+    return seed
+
+
+def _plan_agent(  # noqa: PLR0917
+    vehicle: PlannedVehicle,
+    config: Config,
+    short: str,
+    env: dict[str, str],
+    labels: dict[str, str],
+    step_s: float,
+) -> ContainerSpec:
+    """The vehicle's lockstep clock agent: the bridge image in the vehicle's network namespace."""
+    return ContainerSpec(
+        name=f"fieldproof-{short}-clock-{vehicle.name}",
+        image=config.image("bridge"),
+        role="clock",
+        command=(
+            "python3",
+            LOCKSTEP_IN_CONTAINER,
+            "--vehicle",
+            vehicle.name,
+            "--step-s",
+            f"{step_s:g}",
+            "--topic",
+            ACK_TOPIC,
+        ),
+        env=dict(env),
+        labels={**labels, ROLE_LABEL: "clock", VEHICLE_LABEL: vehicle.name},
+        # Docker resolves a chain: behind a radio link the vehicle shares its holder's
+        # namespace, and the agent then shares that one too.
+        network_mode=f"container:{vehicle.container.name}",
+        mounts=(Mount(LOCKSTEP_FILE, LOCKSTEP_IN_CONTAINER),),
     )
 
 
 def _plan_actions(
-    scenario: Scenario, world: WorldInfo, by_name: dict[str, PlannedVehicle]
+    scenario: Scenario,
+    world: WorldInfo,
+    by_name: dict[str, PlannedVehicle],
+    time_mode: str = "sim",
 ) -> list[PlannedAction]:
     """The timeline in order of `at`, each entry resolved by its event, its `when` resolved."""
     events = registry()
     actions = []
     for index, entry in enumerate(sorted(scenario.timeline, key=lambda e: e.at)):
         context = PlanContext(
-            world, by_name, links=scenario.network is not None, where=f"timeline[{index}]"
+            world,
+            by_name,
+            links=scenario.network is not None,
+            where=f"timeline[{index}]",
+            time_mode=time_mode,
         )
         resolved = dict(events[entry.action_name].event.plan(entry, context))
         watch = _plan_when(entry, f"timeline[{index}].when", world, by_name)
@@ -1237,6 +1357,11 @@ class RunRecord:
     """The radio links (`network`): networks, holders, the ground station, and per link the
     periods between profile changes with what the ground station measured in each."""
     time: dict[str, Any] = field(default_factory=dict)
+    seed: int | None = None
+    """The seed of the run's random numbers (the scenario's, the command line's, or drawn)."""
+    clock: dict[str, Any] | None = None
+    """The clock of the run (task P2-T04): mode, target and measured real-time factor, drift,
+    the real-time-locked verdict, the lockstep's steps and holds."""
     stack: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -1315,6 +1440,11 @@ class RunContext:
         )
         return self._run.backend.exec(self._run.plan.sim.name, ("bash", "-lc", command))
 
+    def gz_topic(self, topic: str, *, timeout_s: float = 10.0) -> ExecResult:
+        limit_s = max(int(timeout_s) + 5, PROBE_LIMIT_S)
+        command = f"timeout {limit_s} gz topic -e -n 1 -t {shlex.quote(topic)}"
+        return self._run.backend.exec(self._run.plan.sim.name, ("bash", "-lc", command))
+
     def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:
         self._run.log.event(event, message, level=level, **fields)
 
@@ -1327,6 +1457,9 @@ class RunContext:
         while not run.tearing_down and run.clock() < deadline:
             run.sleep(min(EVAL_POLL_S, max(deadline - run.clock(), 0.0)))
         return not run.tearing_down
+
+    def started(self, record: ActionRecord) -> None:
+        self._run.started(record)
 
     def expect_exit(self, container: str) -> None:
         self._run.expect_exit(container)
@@ -1378,7 +1511,18 @@ class Run:
         self._lock = threading.Lock()
         """Guards the record, which the workers add to while the main thread writes it."""
         self.tearing_down = False
-        self.evaluator = Evaluator(plan.assertions)
+        time_section = plan.scenario.time
+        self.evaluator = Evaluator(plan.assertions, sim_base=time_section.sim_base)
+        self.clock_monitor = ClockMonitor(time_section, plan.world.rtf)
+        """The real-time factor and the drift of the run against its `time` section."""
+        self.lockstep = (
+            LockstepControl(plan.run_dir, [v.name for v in plan.vehicles], time_section.step_s)
+            if time_section.mode == "lockstep"
+            else None
+        )
+        """The lockstep protocol with the observer's clock manager (lockstep mode only)."""
+        self._holding: dict[str, float] = {}
+        """The occurrences holding the lockstep clock while they start, with when they began."""
         self.record = RunRecord(
             run_id=plan.run_id,
             run_dir=str(plan.run_dir),
@@ -1392,6 +1536,7 @@ class Run:
             vehicles=[{**v.describe(), "contract": None} for v in plan.vehicles],
             assertions=[r.to_dict() for r in self.evaluator.results],
             time=plan.scenario.time.model_dump(),
+            seed=plan.seed,
             stack={
                 "network": plan.network,
                 "render": plan.render,
@@ -1399,6 +1544,7 @@ class Run:
                 "domain_source": plan.domain_source,
                 "discovery": plan.discovery_mode,
                 "world": plan.world.name,
+                "world_step_s": plan.world.step_s,
                 "images": sorted({s.image for s in plan.containers()}),
             },
         )
@@ -1506,6 +1652,7 @@ class Run:
             if action.status == "running":
                 action.status, action.detail = "cancelled", f"the run ended {status}: {reason}"
         self._resolve(self.evaluator.skip_pending(f"the run ended {status}: {reason}"))
+        self.record.clock = self.clock_summary()
         self.record.observation = {
             "samples": self.evaluator.samples,
             "sim_elapsed_s": self.evaluator.sim_elapsed(),
@@ -1583,10 +1730,33 @@ class Run:
     def prepare(self) -> None:
         """Refuse what cannot run yet; check images, assets and the budget; make the network."""
         scenario = self.plan.scenario
-        if scenario.time.mode == "realtime":
-            raise RunError("time.mode realtime: the real-time-locked mode arrives with task P2-T04")
         if not OBSERVER_FILE.is_file():
             raise RunError(f"the observer {OBSERVER_FILE} is missing from the engine")
+        if self.lockstep is not None and not LOCKSTEP_FILE.is_file():
+            raise RunError(f"the clock agent {LOCKSTEP_FILE} is missing from the engine")
+        time_section = scenario.time
+        self.log.event(
+            "clock.mode",
+            f"time.mode {time_section.mode}, seed {self.plan.seed}"
+            + (
+                f", target real-time factor {time_section.target_rtf:g}"
+                if time_section.target_rtf is not None
+                else ", the world's own real-time factor"
+            )
+            + (
+                f", steps of {time_section.step_s:g} s acknowledged by every vehicle"
+                if time_section.mode == "lockstep"
+                else ""
+            )
+            + (
+                f", drift budget {time_section.max_drift_s:g} s ({time_section.on_drift})"
+                if time_section.mode == "realtime"
+                else ""
+            ),
+            mode=time_section.mode,
+            seed=self.plan.seed,
+            target_rtf=time_section.target_rtf,
+        )
         images = sorted(
             {s.image for s in self.plan.containers()}
             | {v.spawn_job.image for v in self.plan.vehicles}
@@ -1713,7 +1883,7 @@ class Run:
 
         self.wait_for(world_ready, timeouts.world_s, f"the services of world {world.name}")
         self.log.event("sim.ready", f"world {world.name} is up", world=world.name)
-        rtf = self.plan.scenario.time.rtf
+        rtf = self.plan.scenario.time.target_rtf
         if rtf is not None:
             result = self.backend.exec(
                 sim.name,
@@ -1886,7 +2056,25 @@ class Run:
                     "observer.error", str(sample.data.get("message", "")), level="warning"
                 )
             self._resolve(self.evaluator.feed(sample))
+            self._clock_sample(sample)
         return samples
+
+    def _clock_sample(self, sample: Sample) -> None:
+        """The clock's side of a sample: the drift monitor and the lockstep protocol."""
+        start = self.evaluator.start_wall
+        if start is not None and sample.wall >= start:
+            warning = self.clock_monitor.feed(sample)
+            if warning is not None:
+                self.log.event(
+                    "clock.drift", warning, level="warning", drift_s=self.clock_monitor.drift_s
+                )
+        if self.lockstep is None:
+            return
+        told = self.lockstep.feed(sample)
+        if sample.kind == "lockstep.timeout":
+            raise RunFailedError(f"lockstep: {told}")
+        if told is not None:
+            self.log.event("clock.lockstep", told, level="debug")
 
     def _resolve(self, results: list[Result]) -> None:
         """Record the assertions that just resolved."""
@@ -2182,6 +2370,22 @@ class Run:
             self._running(container)
             raise RunError(f"{vehicle.name}: the readiness probe exited {result.exit_code}: {last}")
         self.log.event("vehicle.ready", f"{vehicle.name}: {last}", vehicle=vehicle.name)
+        self.start_agent(vehicle)
+
+    def start_agent(self, vehicle: PlannedVehicle) -> None:
+        """Start the vehicle's lockstep clock agent in its network namespace (lockstep mode)."""
+        agent = vehicle.agent
+        if agent is None:
+            return
+        self.backend.start(agent)
+        self._started(agent)
+        self._running(agent)
+        self.log.event(
+            "clock.agent",
+            f"{vehicle.name}: clock agent {agent.name} started in the vehicle's network namespace",
+            vehicle=vehicle.name,
+            container=agent.name,
+        )
 
     def run_timeline(self) -> None:
         """Run the timeline in order within the budget while the assertions evaluate."""
@@ -2189,23 +2393,32 @@ class Run:
         budget = scenario.time.timeout_s
         started = self.clock()
         self._poll_samples()
-        self.evaluator.start(self.wall())
+        if self.lockstep is not None:
+            self.lock_clock()
+        else:
+            self.evaluator.start(self.wall())
         if self.monitor is not None and self.evaluator.start_wall is not None:
             self.monitor.start_timeline(self.evaluator.start_wall)
         self.log.event(
             "timeline.start",
             f"{len(self.plan.actions)} action(s), {len(self.plan.assertions)} assertion(s), "
-            f"budget {budget:g} s",
+            f"budget {budget:g} s"
+            + (" wall clock; the timeline counts simulation time" if self.lockstep else ""),
             budget_s=budget,
+            time_base="sim" if self.lockstep else "wall",
         )
         self.start_video()
         try:
             self._run_actions(started, budget)
         finally:
             self.stop_video()
+            if self.lockstep is not None:
+                self.lockstep.release()
         self.log.event("timeline.done", f"after {self.clock() - started:.1f} s")
         self._observe()
         self._resolve(self.evaluator.finish(self.wall()))
+        self.record.clock = self.clock_summary()
+        self.check_clock()
         failed = self.evaluator.failed
         if failed:
             first = failed[0]
@@ -2216,6 +2429,107 @@ class Run:
                 "assertions.passed", f"all {len(self.plan.assertions)} assertion(s) passed"
             )
         self.check_links()
+
+    def lock_clock(self) -> None:
+        """Lockstep: wait for every clock agent, pause the world at the origin, start there."""
+        control = self.lockstep
+        if control is None:
+            return
+        time_section = self.plan.scenario.time
+
+        def acknowledged() -> bool:
+            self._poll_samples()
+            return control.acknowledged
+
+        self.wait_for(acknowledged, time_section.ack_timeout_s, "every vehicle's clock agent")
+        self.log.event(
+            "clock.agents",
+            "every clock agent acknowledges: " + ", ".join(sorted(control.acks)),
+            acks=dict(control.acks),
+        )
+        control.begin()
+
+        def locked() -> bool:
+            self._poll_samples()
+            return control.origin is not None
+
+        self.wait_for(locked, ORIGIN_TIMEOUT_S, "the clock to lock at the origin")
+        origin = control.origin or 0.0
+        self.evaluator.start(self.wall(), origin_sim=origin)
+        self.clock_monitor.start(self.wall(), origin)
+        self.log.event(
+            "clock.locked",
+            f"lockstep: the world is paused at simulation time {origin:.3f} s, the origin of "
+            f"the timeline; steps of {time_section.step_s:g} s from here",
+            origin_sim_s=origin,
+            step_s=time_section.step_s,
+        )
+
+    def clock_summary(self) -> dict[str, Any]:
+        """The clock of the run as data (`run.json` `clock`)."""
+        summary = self.clock_monitor.summary()
+        if self.lockstep is not None:
+            summary["lockstep"] = self.lockstep.summary()
+        return summary
+
+    def check_clock(self) -> None:
+        """The real-time-locked mode's verdict: fail or warn on a drift past the budget."""
+        time_section = self.plan.scenario.time
+        monitor = self.clock_monitor
+        summary = self.record.clock or {}
+        if time_section.mode != "realtime":
+            return
+        message = (
+            f"drift {monitor.drift_s:+.3f} s over the timeline (largest "
+            f"{monitor.max_abs_drift_s:.3f} s, budget {time_section.max_drift_s:g} s), "
+            f"{monitor.violations} window(s) outside the tolerance"
+        )
+        if not monitor.exceeded:
+            self.log.event("clock.locked", f"real-time lock held: {message}", **summary)
+            return
+        if time_section.on_drift == "fail":
+            raise RunFailedError(f"real-time lock lost: {message}")
+        self.log.event("clock.drifted", f"real-time lock lost: {message}", level="warning")
+
+    def started(self, record: ActionRecord) -> None:
+        """An event's effect is in place: it no longer holds the lockstep clock."""
+        with self._lock:
+            self._holding.pop(record.name, None)
+
+    def _timeline_t(self, started: float) -> float:
+        """The timeline's time now: wall-clock seconds, or simulation seconds in lockstep."""
+        if self.lockstep is None:
+            return self.clock() - started
+        return max(self.evaluator.now(self.wall()), 0.0)
+
+    def _hold_clock(self, t: float) -> None:
+        """Lockstep: let the world step up to the next due time, unless an occurrence starts."""
+        control, schedule = self.lockstep, self.schedule
+        if control is None:
+            return
+        now = self.clock()
+        with self._lock:
+            expired = [n for n, began in self._holding.items() if now - began > HOLD_MAX_S]
+            for name in expired:
+                del self._holding[name]
+            holding = bool(self._holding)
+        for name in expired:
+            self.log.event(
+                "clock.hold.expired",
+                f"{name}: still starting after {HOLD_MAX_S:g} s; the clock advances",
+                level="warning",
+                action=name,
+            )
+        limit = t if holding else t + schedule.wait(t)
+        if control.run_until(limit):
+            self.log.event(
+                "clock.run_until",
+                f"the world may step to {limit:.3f} s"
+                if not math.isinf(limit)
+                else "the world may step on",
+                level="debug",
+                t_s=None if math.isinf(limit) else round(limit, 6),
+            )
 
     def _record_for(self, occurrence: Occurrence, t: float) -> ActionRecord:
         """The record of an occurrence (the first of an entry reuses the record planned for it)."""
@@ -2275,17 +2589,21 @@ class Run:
             self.record.timeline.append(record)
         running: dict[str, tuple[PlannedAction, Future[None], float, float, ActionRecord]] = {}
         while True:
-            elapsed = self.clock() - started
-            if elapsed >= budget:
+            wall_elapsed = self.clock() - started
+            if wall_elapsed >= budget:
                 pending = [n for n, st in schedule.entries.items() if not st.done]
                 what = f"during {', '.join(running)}" if running else f"before {pending[0]}"
                 raise RunTimeoutError(f"budget of {budget:g} s passed {what}")
+            elapsed = self._timeline_t(started)
             for name, status, reason in schedule.expire(elapsed):
                 self._settle_one(name, status, reason)
             for occurrence in schedule.due(elapsed):
                 action = occurrence.action
-                limit = min(action.timeout_s, budget - elapsed)
+                limit = min(action.timeout_s, budget - wall_elapsed)
                 record = self._record_for(occurrence, elapsed)
+                if self.lockstep is not None:
+                    with self._lock:
+                        self._holding[record.name] = self.clock()
                 self._log_action(
                     "action.start",
                     record,
@@ -2300,13 +2618,15 @@ class Run:
             # The stream first, so what the vehicles did during an action is judged before the
             # action's own result ends the run.
             for sample in self._observe():
-                for name in schedule.feed(sample, self.evaluator.elapsed(sample.wall)):
+                for name in schedule.feed(sample, self.evaluator.time_of(sample)):
                     self._triggered(name)
             failed: tuple[str, PlannedAction, float, ActionRecord] | None = None
-            now = self.clock() - started
+            now = self._timeline_t(started)
             for name in [n for n, (_, f, _, _, _) in running.items() if f.done()]:
                 action, future, began, limit, record = running.pop(name)
                 record.duration_s = round(self.clock() - began, 3)
+                with self._lock:
+                    self._holding.pop(name, None)
                 error = future.exception()
                 if error is not None and record.status != ACTION_FAILED:
                     record.status = ACTION_FAILED
@@ -2327,11 +2647,13 @@ class Run:
                 if record.status == TIMEOUT and limit < action.timeout_s:
                     raise RunTimeoutError(f"budget of {budget:g} s passed during {name}")
                 raise RunFailedError(f"{name}: {record.detail}")
-            if not running and schedule.idle(self.clock() - started):
+            now = self._timeline_t(started)
+            if not running and schedule.idle(now):
                 self._settle()
                 self._write()
                 break
-            self.sleep(min(EVAL_POLL_S, max(schedule.wait(self.clock() - started), MIN_POLL_S)))
+            self._hold_clock(now)
+            self.sleep(min(EVAL_POLL_S, max(schedule.wait(now), MIN_POLL_S)))
 
     def _triggered(self, name: str) -> None:
         self.log.event(

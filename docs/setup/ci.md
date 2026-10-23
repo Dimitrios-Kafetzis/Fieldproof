@@ -11,7 +11,7 @@ Makefile targets.
 | Workflow | File | Runs on | Does |
 | --- | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-layout`, `make test-docs`, `make test-engine`, `make test-cockpit` (plus the Vite build), `make test-host`, and when the change touches the images or the ROS workspaces: build `base-ros2`, `sim`, `dev` from the GHCR layer cache, run `make test-images`, `make test-ros`, `make tidy`, `make test-worlds`, `make test-vehicles` (the example vehicle image built on `base-ros2`) and `make test-integration` against them |
-| Scenario tests | `.github/workflows/scenario-tests.yml` | push to `main`, nightly, manual (an image tag and a scenario), pull requests that touch the workflow, `tools/ci/scenario-run.sh`, `examples/`, `engine/`, `fieldproof.toml` or the `Makefile` | pull the published `base-ros2`, `sim` and `bridge` images, build the example vehicle image on them, fetch the Fuel models, run the UGV scenario headless with software rendering under the flaky-run policy (one retry, flagged), upload the run (MCAP, reports, JUnit, logs) as artefacts; see [Scenario tests](#scenario-tests) |
+| Scenario tests | `.github/workflows/scenario-tests.yml` | push to `main`, nightly, manual (an image tag and a scenario), pull requests that touch the workflow, `tools/ci/scenario-run.sh`, `examples/`, `engine/`, `fieldproof.toml` or the `Makefile` | pull the published `base-ros2`, `sim` and `bridge` images, build the example vehicle image on them, fetch the Fuel models, run the UGV scenario headless with software rendering under the flaky-run policy (one retry, flagged), upload the run (MCAP, reports, JUnit, logs) as artefacts; a second job (not on pull requests) runs the lockstep scenario twice and compares the runs (the determinism test of P2-T04); see [Scenario tests](#scenario-tests) |
 | PR title | `.github/workflows/pr-title.yml` | pull request opened, edited, synchronised | the title must be a Conventional Commit (`make lint-title`), see [Pull request titles](#pull-request-titles) |
 | Images | `.github/workflows/images.yml` | push to `main`, called by Release, manual | build and push `sha-<short>` tags, syft SBOM and Trivy scan per image, then tag `main` (or `vX.Y.Z`) |
 | Release | `.github/workflows/release.yml` | push to `main` | release-please keeps the release pull request current; when it merges, tags `vX.Y.Z`, creates the GitHub release and calls Images |
@@ -133,6 +133,15 @@ single pending run per group, so a second dispatch while one is still queued can
 On a workstation `examples/demo_m1.sh` (`make demo`) is the same chain with the GPU
 when there is one, and `tools/ci/scenario-run.sh examples/scenarios/ugv_nav_to_goal.yaml` the
 same policy.
+
+**Determinism.** The workflow's second job (task P2-T04) runs
+`tests/integration/test_determinism.py` against the same published images: the lockstep
+scenario (`examples/scenarios/ugv_lockstep.yaml`) twice with its seed, then the two runs'
+ground-truth trajectories and odometry compared within 0.25 m
+([time.md](../reference/time.md#comparing-two-runs)). Two runs of the stack take too long for
+every pull request, so the job runs on pushes to `main`, nightly and on demand, and uploads
+both run directories as `determinism-runs-<run number>-<attempt>`. `make test-determinism`
+runs the same on a workstation (`PYTEST_FLAGS="--basetemp runs/determinism"` keeps the runs).
 
 ## Published images
 

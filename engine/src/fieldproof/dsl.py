@@ -13,9 +13,10 @@ offset from the trigger, so ``at: 5s`` alone is five seconds into the timeline a
 with ``after: drive`` is five seconds after the drive ends. ``every`` repeats the entry at that
 period from its first start, bounded by
 ``count`` or ``until_s`` or by the rest of the timeline; ``within_s`` is how long a ``when``
-waits for its condition. Every time is wall clock, counted from the start of the timeline, as
-the assertions' deadlines are in runner v0 (sim-time scheduling is task P2-T04's); the one
-simulation-time trigger is ``when: {metric: sim_time, ...}``, which reads the simulator's clock.
+waits for its condition. Every time is counted from the start of the timeline on the wall
+clock, as the assertions' deadlines are, except in lockstep mode (task P2-T04), where the
+timeline and the deadlines count simulation seconds from the origin the clock was locked at;
+``when: {metric: sim_time, ...}`` reads the simulator's clock in every mode.
 :mod:`fieldproof.schedule` turns these fields into decisions while the run goes.
 """
 
