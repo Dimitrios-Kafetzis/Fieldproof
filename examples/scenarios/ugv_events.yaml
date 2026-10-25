@@ -103,12 +103,13 @@ assertions:
     type: no_collision
     vehicle: ugv1
   # --- assertion library v1 (task P2-T05) ---
-  # The events happen in the order the triggers imply: the parameter is set once the vehicle
-  # is under way, the drive ends, the container is frozen, then killed.
+  # The events happen in the order the triggers imply: the drive ends, the container is
+  # frozen (after the drive and the parameter, whichever ends later), then killed. The
+  # parameter is left out: `ros2 param set` may answer after the drive ends under load, and a
+  # sequence watches each step only once the previous one happened.
   - name: events_in_order
     type: sequence
     steps:
-      - { action: tighten_failsafe }
       - { action: drive_ahead }
       - { action: freeze_stack }
       - { action: stop_stack }

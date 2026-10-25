@@ -303,7 +303,7 @@ def check_reports(run_dir: Path, mcaps: list[Path]) -> None:
     assert markdown.startswith("# Fieldproof run report: ugv_nav_to_goal")
     assert "**PASS**" in markdown
     assert "| `reached_goal` | `reach_pose` | PASS |" in markdown
-    # The JUnit document (task P1-T07): five assertions, the drive and the run, nothing failed.
+    # The JUnit document (task P1-T07): the assertions, the drive and the run, nothing failed.
     suite = ET.parse(run_dir / "junit.xml").getroot().find("testsuite")  # noqa: S314 (our own document)
     assert suite is not None
     assert suite.get("name") == "ugv_nav_to_goal"
@@ -313,7 +313,7 @@ def check_reports(run_dir: Path, mcaps: list[Path]) -> None:
         suite.get("errors"),
         suite.get("skipped"),
     ) == (
-        "7",
+        str(ASSERTIONS + 2),
         "0",
         "0",
         "0",
