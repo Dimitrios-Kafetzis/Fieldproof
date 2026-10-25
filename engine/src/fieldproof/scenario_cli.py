@@ -560,6 +560,10 @@ def run_directory(run: Path, config_path: Path | None) -> Path:
 
 
 CLOCK_COMMANDS = ("status", "pause", "resume", "step")
+CLOCK_SERVICE_TIMEOUT_MS = 15000
+"""How long `fieldproof clock` waits for the world's control service: the first call from a
+fresh `gz service` process pays the discovery, which took more than five seconds on a loaded
+CI runner (`Service call timed out` in the real-time integration test)."""
 
 
 def clock(  # noqa: PLR0917
@@ -616,8 +620,9 @@ def clock(  # noqa: PLR0917
     argv = (
         f"timeout {PROBE_LIMIT_S} gz topic -e -n 1 -t /world/{world}/stats"
         if request is None
-        else f"timeout {PROBE_LIMIT_S} gz service -s /world/{world}/control "
-        f"--reqtype gz.msgs.WorldControl --reptype gz.msgs.Boolean --timeout 5000 "
+        else f"timeout {CLOCK_SERVICE_TIMEOUT_MS // 1000 + 5} gz service -s /world/{world}/control "
+        f"--reqtype gz.msgs.WorldControl --reptype gz.msgs.Boolean "
+        f"--timeout {CLOCK_SERVICE_TIMEOUT_MS} "
         f"--req '{request}'"
     )
     try:
