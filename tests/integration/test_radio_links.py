@@ -305,7 +305,7 @@ def test_02_link_loss_scenario(tmp_path: Path) -> None:
     assert [p["profile"] for p in periods] == ["lte_rural", "drop", "lte_rural"]
     initial, dropped, restored = periods
     assert initial["status"] == "passed", initial["reason"]
-    assert abs(initial["measured"]["latency_ms"] - 60.0) <= 6.0
+    assert abs(initial["measured"]["latency_ms"] - 60.0) <= latency_tolerance_ms(60.0)
     assert dropped["status"] == "passed", dropped["reason"]
     assert dropped["measured"]["replies"] <= 3, "at most the probes in flight when the drop began"
     assert dropped["to_s"] - dropped["from_s"] == pytest.approx(30.0, abs=1.5)
