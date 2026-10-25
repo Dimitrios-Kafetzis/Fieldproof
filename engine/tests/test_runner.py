@@ -16,9 +16,16 @@ from fakes import FakeBackend, FakeClock, FakeContainer
 from rich.console import Console
 
 from fieldproof.assertions import ASSERTIONS_FILE, OBSERVE_FILE, SAMPLES_FILE
-from fieldproof.backend import BackendError, ContainerSpec, ContainerState, ExecResult
+from fieldproof.backend import (
+    BackendError,
+    ContainerSpec,
+    ContainerState,
+    ExecResult,
+    ResourceUsage,
+)
 from fieldproof.config import Config, load_config
 from fieldproof.report import REPORT_JSON, REPORT_MD
+from fieldproof.resources import MIB
 from fieldproof.runner import (
     DOMAIN_LABEL,
     EXIT_CODES,
@@ -1399,3 +1406,154 @@ def test_run_log(tmp_path: Path) -> None:
 )
 def test_goal_status(output: str, status: str | None) -> None:
     assert goal_status(ExecResult(0, output)) == status
+
+
+# ------------------------------------------------------------- KPIs, resources, abort (P2-T05)
+def test_kpis_and_resources_in_the_record(config: Config, clock: FakeClock, tmp_path: Path) -> None:
+    def with_kpis(data: dict[str, Any]) -> None:
+        data["kpis"] = [
+            {"name": "drive", "type": "path", "vehicle": "ugv1", "action": "drive_ahead"},
+            {"name": "footprint", "type": "resources", "vehicle": "ugv1"},
+            {"name": "mission", "type": "mission_time"},
+        ]
+        data["assertions"].append(
+            {"name": "fits", "type": "resource_usage", "vehicle": "ugv1", "max_memory_mb": 2048}
+        )
+
+    scenario = scenario_variant(with_kpis)
+    resolved = plan(
+        scenario, config, runs_dir=tmp_path / "runs", render="software", now=NOW, token=SUFFIX
+    )
+    assert [k.name for k in resolved.kpis] == ["drive", "footprint", "mission"]
+    assert resolved.kpis[1].resolved == {"container": "fieldproof-abc123-ugv1"}
+    backend = ready_backend(resolved)
+    backend.usage_samples["*"] = [
+        ResourceUsage(80.0, int(300 * MIB), 2 * 1024**3, 50, "t1"),
+        ResourceUsage(120.0, int(320 * MIB), 2 * 1024**3, 51, "t2"),
+    ]
+    record, log = execute(resolved, backend, clock)
+    assert record.status == Status.PASSED, record.reason
+    verdicts = {a["name"]: a for a in record.assertions}
+    assert verdicts["fits"]["status"] == "passed", verdicts["fits"]["reason"]
+    assert verdicts["fits"]["metrics"]["peak_memory_mb"] == {"value": 320.0, "unit": "MiB"}
+    assert verdicts["reached_goal"]["metrics"]["closest_m"]["value"] == pytest.approx(0.2)
+    # Every container of the run was sampled from the start of the timeline.
+    assert set(backend.usage_requested) == {
+        "fieldproof-abc123-ugv1",
+        "fieldproof-abc123-bridge-ugv1",
+        "fieldproof-abc123-sim",
+        "fieldproof-abc123-recorder",
+    }
+    lines = [
+        json.loads(line) for line in (resolved.run_dir / "resources.jsonl").read_text().splitlines()
+    ]
+    assert len(lines) == 8
+    assert {line["role"] for line in lines} == {"vehicle", "bridge", "sim", "recorder"}
+    assert record.resources["samples"] == 8
+    assert record.resources["last"]["fieldproof-abc123-ugv1"] == {
+        "cpu_pct": 120.0,
+        "memory_mb": 320.0,
+        "pids": 51,
+    }
+    # The KPIs: the collectors' and the assertions' metrics, flat.
+    kpis = record.kpis
+    assert kpis["drive.path_m"]["value"] == pytest.approx(3.8)
+    assert kpis["drive.efficiency"] == {"value": 1.0, "unit": "", "source": "drive", "type": "path"}
+    assert kpis["footprint.peak_cpu_pct"]["value"] == 120.0
+    assert kpis["mission.duration_s"]["value"] > 0
+    assert kpis["arrived_in_time.duration_s"]["value"] == pytest.approx(10.0)
+    assert kpis["fits.mean_memory_mb"]["value"] == 310.0
+    assert [c["status"] for c in record.kpi_collectors] == ["measured"] * 3
+    kpi_lines = [
+        json.loads(line) for line in (resolved.run_dir / "kpis.jsonl").read_text().splitlines()
+    ]
+    assert [line.get("name") for line in kpi_lines[:3]] == ["drive", "footprint", "mission"]
+    assert kpi_lines[3]["kind"] == "kpis"
+    assert kpi_lines[3]["kpis"] == kpis
+    events = [e["event"] for e in log.events]
+    assert events.count("kpi.measured") == 3
+    assert "resources.start" in events
+    report = json.loads((resolved.run_dir / REPORT_JSON).read_text())
+    assert report["kpis"] == kpis
+    markdown = (resolved.run_dir / REPORT_MD).read_text()
+    assert "## KPIs" in markdown
+    assert "| `drive.path_m` | 3.800 | m | `drive` (path) |" in markdown
+    assert 'name="kpi.drive.path_m" value="3.8 m"' in (resolved.run_dir / "junit.xml").read_text()
+
+
+def test_resource_monitor_errors_are_warnings(resolved: Plan, clock: FakeClock) -> None:
+    backend = ready_backend(resolved)
+
+    class Refused:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __iter__(self) -> Refused:
+            return self
+
+        def __next__(self) -> ResourceUsage:
+            raise BackendError(f"{self.name}: stats unavailable")
+
+    backend.usage = Refused  # type: ignore[method-assign]
+    record, log = execute(resolved, backend, clock)
+    assert record.status == Status.PASSED
+    warnings = [e for e in log.events if e["event"] == "resources.error"]
+    assert len(warnings) == 4
+    assert warnings[0]["level"] == "warning"
+    assert record.resources == {"containers": [], "samples": 0, "last": {}}
+    assert record.kpis["reached_goal.closest_m"]["value"] == pytest.approx(0.2)
+
+
+def test_on_fail_abort_cancels_the_timeline(
+    config: Config, clock: FakeClock, tmp_path: Path
+) -> None:
+    def aborting(data: dict[str, Any]) -> None:
+        for assertion in data["assertions"]:
+            if assertion["name"] == "speed_limit":
+                assertion["on_fail"] = "abort"
+        data["timeline"].append(
+            {
+                "name": "park",
+                "vehicle": "ugv1",
+                "action": "navigate_to_pose",
+                "goal": {"x": 9.0, "y": -1.0},
+                "after": "drive_ahead",
+                "at": "5s",
+            }
+        )
+        data["assertions"].append(
+            {"name": "parked_in_time", "type": "within_time", "action": "park", "max_s": "1m"}
+        )
+
+    scenario = scenario_variant(aborting)
+    resolved = plan(
+        scenario, config, runs_dir=tmp_path / "runs", render="software", now=NOW, token=SUFFIX
+    )
+    backend = ready_backend(resolved)
+    backend.samples_on_goal = [
+        *GOOD_SAMPLES,
+        {"kind": "value", "sim": 9.6, "topic": "/cmd_vel", "field": "linear.x", "value": 2.5},
+    ]
+    record, log = execute(resolved, backend, clock)
+    assert record.status == Status.FAILED
+    assert record.reason == (
+        "assertion speed_limit failed: /cmd_vel linear.x = 2.5 at 10.0 s violates "
+        "'value <= 1.5' (on_fail: abort, the timeline was cancelled)"
+    )
+    assert [(a.name, a.status) for a in record.timeline] == [
+        ("drive_ahead", "ok"),
+        ("park", "skipped"),
+    ]
+    assert record.timeline[1].detail.startswith("assertion speed_limit failed")
+    verdicts = {a["name"]: a["status"] for a in record.assertions}
+    assert verdicts == {
+        "reached_goal": "passed",
+        "arrived_in_time": "passed",
+        "lidar_streams": "skipped",
+        "no_collision": "skipped",
+        "speed_limit": "failed",
+        "parked_in_time": "failed",
+    }
+    assert len([a for a, _ in backend.execs if "send_goal" in " ".join(_)]) == 1, "park never sent"
+    assert backend.containers == {}, "torn down"
+    assert [e["event"] for e in log.events if e["event"] == "action.skipped"] == ["action.skipped"]

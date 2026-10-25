@@ -10,7 +10,10 @@ from typing import Any
 import pytest
 import yaml
 
+from fieldproof.assertions.temporal import Eventually
 from fieldproof.scenario import (
+    ASSERTION_TYPES,
+    KPI_TYPES,
     NavigateToPose,
     NoCollision,
     Placement,
@@ -274,13 +277,14 @@ def test_json_schema_is_committed_and_current() -> None:
     assert schema["$defs"]["NavigateToPose"]["properties"]["action"]["const"] == "navigate_to_pose"
     assertion = schema["properties"]["assertions"]["items"]
     assert assertion["discriminator"]["propertyName"] == "type"
-    assert {ref["$ref"].rsplit("/", 1)[1] for ref in assertion["oneOf"]} == {
-        "ReachPose",
-        "WithinTime",
-        "TopicRate",
-        "NoCollision",
-        "TopicValue",
-    }
+    registered = {ref["$ref"].rsplit("/", 1)[1] for ref in assertion["oneOf"]}
+    assert registered >= {"ReachPose", "WithinTime", "TopicRate", "NoCollision", "TopicValue"}
+    assert registered >= {"Geofence", "MinDistance", "PathEfficiency", "MissionTime", "Sequence"}
+    assert registered >= {"MessageLatency", "ResourceUsage", "LifecycleState"}
+    assert registered >= {"Always", "Eventually", "Never"}
+    assert set(assertion["discriminator"]["mapping"]) == set(ASSERTION_TYPES)
+    kpi = schema["properties"]["kpis"]["items"]
+    assert set(kpi["discriminator"]["mapping"]) == set(KPI_TYPES)
     for name in ("ReachPose", "TopicValue", "Vehicle"):
         assert schema["$defs"][name]["additionalProperties"] is False
     assert schema["$defs"]["TopicValue"]["properties"]["mode"]["enum"] == ["always", "eventually"]
@@ -376,3 +380,156 @@ def test_parse_stats_reads_a_running_and_a_paused_world() -> None:
     assert stats["sim_time_s"] == 2.0
     assert stats["rtf"] == 0.0
     assert parse_stats("")["iterations"] == 0
+
+
+# ---------------------------------------------------------------- the v1 assertions (P2-T05)
+def test_v1_assertions_validate_in_a_scenario() -> None:
+    data = {
+        "apiVersion": "fieldproof.dev/v0alpha1",
+        "kind": "Scenario",
+        "metadata": {"name": "v1"},
+        "world": {"file": "depot.sdf"},
+        "vehicles": [
+            {"name": "ugv1", "manifest": "r.yaml", "spawn": {"x": 0, "y": 0}},
+            {"name": "ugv2", "manifest": "r.yaml", "namespace": "ugv2", "spawn": {"x": 1, "y": 0}},
+        ],
+        "timeline": [
+            {
+                "name": "drive",
+                "vehicle": "ugv1",
+                "action": "navigate_to_pose",
+                "goal": {"x": 1, "y": 0},
+            }
+        ],
+        "assertions": [
+            {
+                "name": "fenced",
+                "type": "geofence",
+                "vehicle": "ugv1",
+                "region": {"polygon": [[0, 0], [9, 0], [9, 9]]},
+            },
+            {
+                "name": "apart",
+                "type": "min_distance",
+                "vehicle": "ugv1",
+                "to": {"vehicle": "ugv2"},
+                "min_m": 1,
+            },
+            {
+                "name": "straight",
+                "type": "path_efficiency",
+                "vehicle": "ugv1",
+                "action": "drive",
+                "min_ratio": 0.7,
+            },
+            {"name": "quick", "type": "mission_time", "max_s": "2m", "end": "drive"},
+            {
+                "name": "fresh",
+                "type": "message_latency",
+                "topic": "scan",
+                "vehicle": "ugv1",
+                "max_ms": 200,
+            },
+            {
+                "name": "ordered",
+                "type": "sequence",
+                "steps": [{"action": "drive", "event": "started"}, {"assertion": "fenced"}],
+            },
+            {
+                "name": "fits",
+                "type": "resource_usage",
+                "vehicle": "ugv1",
+                "max_cpu_pct": 200,
+                "on_fail": "abort",
+            },
+            {
+                "name": "nav",
+                "type": "lifecycle_state",
+                "vehicle": "ugv1",
+                "node": "bt_navigator",
+                "state": "active",
+            },
+            {
+                "name": "calm",
+                "type": "always",
+                "signals": {
+                    "v": {"topic": "odom", "field": "twist.twist.linear.x", "vehicle": "ugv1"}
+                },
+                "condition": "v < 2",
+            },
+            {
+                "name": "stops",
+                "type": "eventually",
+                "vehicle": "ugv1",
+                "signals": {"v": {"topic": "odom", "field": "twist.twist.linear.x"}},
+                "condition": "v == 0",
+                "for_s": "2s",
+            },
+            {
+                "name": "safe",
+                "type": "never",
+                "vehicle": "ugv1",
+                "signals": {"d": {"metric": "distance_to", "target": {"x": 5, "y": 5}}},
+                "condition": "d < 0.5",
+            },
+        ],
+        "kpis": [
+            {"name": "drive", "type": "path", "vehicle": "ugv1", "action": "drive"},
+            {"name": "age", "type": "latency", "topic": "scan", "vehicle": "ugv1"},
+        ],
+    }
+    loaded = validate_data(data)
+    assert [a.type for a in loaded.assertions] == [
+        "geofence",
+        "min_distance",
+        "path_efficiency",
+        "mission_time",
+        "message_latency",
+        "sequence",
+        "resource_usage",
+        "lifecycle_state",
+        "always",
+        "eventually",
+        "never",
+    ]
+    assert [k.type for k in loaded.kpis] == ["path", "latency"]
+    assert loaded.assertions[6].on_fail == "abort"
+    assert loaded.assertions[0].on_fail == "continue"
+    assert loaded.assertions[1].vehicle_names() == ["ugv1", "ugv2"]
+    assert loaded.assertions[3].action_names() == ["drive"]
+    assert loaded.assertions[5].action_names() == ["drive"]
+    stops = loaded.assertions[9]
+    assert isinstance(stops, Eventually)
+    assert stops.for_s == 2.0
+    with pytest.raises(ScenarioError, match="Input tag 'nope' found using 'type'"):
+        validate_data({**data, "assertions": [{"name": "x", "type": "nope"}]})
+    with pytest.raises(ScenarioError, match=r"assertions\[0\] \(s\).vehicle: 'ugv9'"):
+        validate_data(
+            {
+                **data,
+                "assertions": [
+                    {
+                        "name": "s",
+                        "type": "sequence",
+                        "steps": [
+                            {"topic": "x", "field": "f", "condition": "value", "vehicle": "ugv9"}
+                        ],
+                    }
+                ],
+            }
+        )
+    with pytest.raises(ScenarioError, match="Extra inputs are not permitted"):
+        validate_data(
+            {
+                **data,
+                "assertions": [
+                    {
+                        "name": "x",
+                        "type": "geofence",
+                        "vehicle": "ugv1",
+                        "region": {"circle": {"x": 0, "y": 0, "radius_m": 1}},
+                        "tolerance_m": 1,
+                    }
+                ],
+            }
+        )

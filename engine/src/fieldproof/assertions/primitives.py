@@ -1,203 +1,173 @@
-"""The streaming assertion evaluator (task P1-T06).
+"""The five assertion primitives of task P1-T06 as assertion types (task P2-T05).
 
-The runner resolves every assertion of a scenario into a :class:`PlannedAssertion` (topics under
-the vehicle's namespace, the target as a world pose, the Gazebo contact topic) and builds an
-:class:`Evaluator` from them. While the timeline runs, the observer in the recorder container
-(:mod:`fieldproof.observer`) appends one JSON line per observation to ``samples.jsonl`` in the
-run directory; the runner tails the file and feeds every line as a :class:`Sample`, tells the
-evaluator when actions start and end, and ticks it on every poll so deadlines fire. Each
-assertion resolves once, as soon as the stream decides it (a ``reach_pose`` passes at the first
-pose within tolerance, a ``no_collision`` fails at the first contact); what is still pending at
-the end of the timeline is settled by :meth:`Evaluator.finish`. Every verdict carries evidence:
-the samples that decided it, counts and extremes, in simulation time where the stream has it.
-
-Times: ``t`` is seconds after the timeline started, on the wall clock the engine and the
-containers share; deadlines (``within_s``, ``max_s``, ``after_s``) are in this time, as the
-timeline's ``at`` is. In lockstep mode (task P2-T04) the evaluator counts simulation seconds
-from the origin the clock was locked at instead (``sim_base``), so the deadlines and the
-timeline share the stepped clock and a run's verdicts repeat from one run to the next.
+``reach_pose`` (the ground truth within a tolerance of a target), ``within_time`` (a timeline
+action completes in time), ``topic_rate`` (a topic keeps its rate), ``no_collision`` (the
+chassis touches nothing) and ``topic_value`` (a condition over a field of a topic, always or
+eventually). Each is a :class:`~fieldproof.assertions.core.AssertionType` with its spec, its
+plan hook (the target in the world, the topic under the vehicle's namespace, the model) and
+its streaming checker.
 """
 
 from __future__ import annotations
 
-import json
 import math
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar, Literal
 
-from fieldproof.expression import ExpressionError, compile_condition
-from fieldproof.network import NETWORK_FILE
-from fieldproof.scenario import (
-    Assertion,
-    NoCollision,
-    Pose,
-    ReachPose,
-    TopicRate,
-    TopicValue,
-    WithinTime,
+from pydantic import Field, PositiveFloat, model_validator
+
+from fieldproof.assertions.core import (
+    DEFAULT_CONTACTS_TOPIC,
+    FAILED,
+    PASSED,
+    AssertionSpec,
+    AssertionType,
+    Checker,
+    Metric,
+    PlanContext,
+    PlannedAssertion,
+    Sample,
+    Watch,
+    compile_or_refuse,
 )
-
-PENDING = "pending"
-PASSED = "passed"
-FAILED = "failed"
-SKIPPED = "skipped"
-# The side-channel topics the observer publishes and the recorder always records.
-SIDE_CHANNELS = {
-    "events": "/fieldproof/events",
-    "assertions": "/fieldproof/assertions",
-    "metrics": "/fieldproof/metrics",
-    "network": "/fieldproof/network",
-}
-# Files of the run directory the observer reads and writes.
-SAMPLES_FILE = "samples.jsonl"
-ASSERTIONS_FILE = "assertions.jsonl"
-OBSERVE_FILE = "observe.json"
-RECORDING_DIR = "recording"
-DEFAULT_CONTACTS_TOPIC = "contacts"
-
-
-@dataclass(frozen=True)
-class PlannedAssertion:
-    """An assertion with its references resolved against the plan."""
-
-    assertion: Assertion
-    topic: str | None = None
-    """The ROS topic (`topic_rate`, `topic_value`) or Gazebo topic (`no_collision`), absolute."""
-    target: Pose | None = None
-    """The `reach_pose` target in the world."""
-    model: str | None = None
-    """The Gazebo model name of the vehicle (`reach_pose`, `no_collision`)."""
-
-    @property
-    def name(self) -> str:
-        """The assertion's name."""
-        return self.assertion.name
-
-    @property
-    def type(self) -> str:
-        """The assertion's type."""
-        return self.assertion.type
-
-    def to_dict(self) -> dict[str, Any]:
-        """The resolved assertion as data (the plan's JSON)."""
-        data: dict[str, Any] = {"resolved": {}}
-        data.update(self.assertion.model_dump(exclude_none=True))
-        if self.topic is not None:
-            data["resolved"]["topic"] = self.topic
-        if self.target is not None:
-            data["resolved"]["target_world"] = {
-                "x": self.target.x,
-                "y": self.target.y,
-                "z": self.target.z,
-                "yaw": self.target.yaw,
-            }
-        if self.model is not None:
-            data["resolved"]["model"] = self.model
-        return data
-
-
-@dataclass(frozen=True)
-class Sample:
-    """One line of the observer's stream."""
-
-    kind: str
-    wall: float
-    sim: float | None
-    data: Mapping[str, Any]
-
-    @classmethod
-    def from_line(cls, line: str) -> Sample:
-        """Parse one JSON line (a :class:`ValueError` if it is not a sample)."""
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise ValueError(f"not a sample: {line!r}") from error
-        if not isinstance(raw, dict) or "kind" not in raw or "wall" not in raw:
-            raise ValueError(f"not a sample: {line!r}")
-        sim = raw.get("sim")
-        return cls(
-            str(raw["kind"]),
-            float(raw["wall"]),
-            float(sim) if sim is not None else None,
-            raw,
-        )
-
-
-@dataclass
-class Result:
-    """The verdict of one assertion, with its evidence."""
-
-    name: str
-    type: str
-    status: str = PENDING
-    reason: str = ""
-    evidence: dict[str, Any] = field(default_factory=dict)
-    t_s: float | None = None
-    """Seconds after the timeline started when the assertion resolved."""
-    sim_s: float | None = None
-    """Simulation time of the sample that resolved it, when the stream had one."""
-
-    @property
-    def resolved(self) -> bool:
-        """Whether the assertion has a verdict."""
-        return self.status != PENDING
-
-    def to_dict(self) -> dict[str, Any]:
-        """The result as data (`run.json`, the report, `/fieldproof/assertions`)."""
-        return {
-            "name": self.name,
-            "type": self.type,
-            "status": self.status,
-            "reason": self.reason,
-            "t_s": self.t_s,
-            "sim_s": self.sim_s,
-            "evidence": self.evidence,
-        }
+from fieldproof.dsl import AssertionBase, Duration, Placement
+from fieldproof.expression import ExpressionError, compile_condition
+from fieldproof.manifest import Name
 
 
 def _round(value: float | None, digits: int = 3) -> float | None:
     return None if value is None else round(value, digits)
 
 
-# ----------------------------------------------------------------------------------- checkers
-class Checker:
-    """One assertion's streaming logic; subclasses override the `on_*` hooks."""
+# ----------------------------------------------------------------------------- the specs
+class ReachPose(AssertionBase):
+    """The vehicle's ground-truth pose comes within a tolerance of a target.
 
-    def __init__(self, planned: PlannedAssertion) -> None:
-        self.planned = planned
-        self.result = Result(planned.name, planned.type)
+    Passes at the first ground-truth sample within `tolerance_m` of the target (and within
+    `yaw_tolerance_rad` of its heading when given); fails when `within_s` passes first, or at
+    the end of the timeline. The evidence is the closest sample and the final pose.
+    """
 
-    @property
-    def done(self) -> bool:
-        """Whether the assertion has a verdict."""
-        return self.result.resolved
-
-    def resolve(
-        self, status: str, reason: str, t: float | None, sim: float | None = None, **evidence: Any
-    ) -> None:
-        """Give the verdict (the first one sticks)."""
-        if self.done:
-            return
-        self.result.status = status
-        self.result.reason = reason
-        self.result.t_s = _round(t)
-        self.result.sim_s = _round(sim)
-        self.result.evidence.update(evidence)
-
-    def on_sample(self, sample: Sample, t: float) -> None:
-        """A new observation at `t` seconds into the timeline (negative before it started)."""
-
-    def on_tick(self, t: float) -> None:
-        """Time passed."""
-
-    def on_action(self, label: str, event: str, t: float, status: str | None = None) -> None:
-        """A timeline action `started` or `finished` (with its status)."""
-
-    def on_finish(self, t: float) -> None:
-        """The timeline completed; settle a pending verdict."""
+    type: Literal["reach_pose"]
+    vehicle: Name = Field(description="The vehicle whose ground-truth pose is read.")
+    target: Placement = Field(description="The target, in the world (frame or coordinates).")
+    tolerance_m: PositiveFloat = Field(
+        default=0.5, description="Distance to the target, in metres."
+    )
+    yaw_tolerance_rad: PositiveFloat | None = Field(
+        default=None, description="Heading tolerance (absent: the heading is not checked)."
+    )
+    within_s: Duration | None = Field(
+        default=None,
+        description="Deadline after the timeline starts (absent: the end of the timeline).",
+    )
 
 
+class WithinTime(AssertionBase):
+    """A timeline action completes successfully within a duration of its start."""
+
+    type: Literal["within_time"]
+    action: str = Field(description="The `name` of a timeline entry.")
+    max_s: Duration = Field(description="The action's result must arrive within this long.")
+
+    def action_names(self) -> list[str]:
+        """See :meth:`AssertionBase.action_names`."""
+        return [self.action]
+
+
+class TopicRate(AssertionBase):
+    """A ROS topic keeps publishing at a rate.
+
+    Measured over a sliding window once `after_s` has passed after the timeline starts; fails
+    at the first window below `min_hz` (or above `max_hz`) and at the end of the timeline if
+    nothing was received.
+    """
+
+    type: Literal["topic_rate"]
+    topic: str = Field(
+        description="The topic (relative to the vehicle's namespace when `vehicle` is given)."
+    )
+    vehicle: Name | None = Field(default=None, description="The vehicle the topic belongs to.")
+    min_hz: float = Field(ge=0.0, description="Lowest acceptable rate over a window.")
+    max_hz: PositiveFloat | None = Field(default=None, description="Highest acceptable rate.")
+    window_s: Duration = Field(default=5.0, description="Length of the measurement window.")
+    after_s: Duration = Field(
+        default=0.0, description="Grace period after the timeline starts before windows count."
+    )
+    message_type: str | None = Field(
+        default=None,
+        description="Message type (`sensor_msgs/msg/LaserScan`; absent: discovered).",
+    )
+
+    @model_validator(mode="after")
+    def _ordered(self) -> TopicRate:
+        if self.max_hz is not None and self.max_hz < self.min_hz:
+            raise ValueError("max_hz must not be below min_hz")
+        return self
+
+
+class NoCollision(AssertionBase):
+    """The vehicle's chassis touches nothing during the timeline.
+
+    Read from the model's ground-truth contact sensor in Gazebo (the reference vehicles carry
+    one on the chassis, `<namespace>/contacts`); fails at the first contact.
+    """
+
+    type: Literal["no_collision"]
+    vehicle: Name = Field(description="The vehicle whose contact sensor is read.")
+    topic: str | None = Field(
+        default=None,
+        description="Gazebo topic of the `gz.msgs.Contacts` sensor (default: "
+        "`<namespace>/contacts`).",
+    )
+    ignore: list[str] = Field(
+        default_factory=list,
+        description="Entities whose contacts do not count (a model or collision name).",
+    )
+
+
+class TopicValue(AssertionBase):
+    """A condition over a field of a ROS topic's messages.
+
+    `condition` is an expression over `value`, the field of each message (`value < 1.5`,
+    `abs(value) <= 0.2`, `0 < value and value < 2`); `mode` says whether every message after
+    `after_s` must satisfy it (`always`, fails at the first that does not, passes at `within_s`
+    or the end) or one must (`eventually`, passes at the first that does, fails at `within_s`
+    or the end). `after_s` and `within_s` make a window: "the vehicle is stopped from 12 s to
+    27 s" is `mode: always`, `after_s: 12s`, `within_s: 27s`.
+    """
+
+    type: Literal["topic_value"]
+    topic: str = Field(
+        description="The topic (relative to the vehicle's namespace when `vehicle` is given)."
+    )
+    vehicle: Name | None = Field(default=None, description="The vehicle the topic belongs to.")
+    field: str = Field(
+        description="Field of the message (`twist.linear.x`, `ranges[0]`, `status.status`)."
+    )
+    condition: str = Field(description="Expression over `value` (comparisons, arithmetic, abs).")
+    mode: Literal["always", "eventually"] = Field(default="always")
+    after_s: Duration = Field(
+        default=0.0, description="Grace period after the timeline starts before messages count."
+    )
+    within_s: Duration | None = Field(
+        default=None,
+        description="End of the window: the deadline of `eventually`, the end of `always` "
+        "(absent: the end of the timeline).",
+    )
+    message_type: str | None = Field(
+        default=None,
+        description="Message type (`geometry_msgs/msg/Twist`; absent: discovered).",
+    )
+
+    @model_validator(mode="after")
+    def _compiles(self) -> TopicValue:
+        compile_or_refuse(self.condition)
+        if self.within_s is not None and self.within_s <= self.after_s:
+            raise ValueError("within_s must be later than after_s")
+        return self
+
+
+# ---------------------------------------------------------------------------- the checkers
 class ReachPoseChecker(Checker):
     """Ground-truth pose within tolerance of the target before the deadline."""
 
@@ -224,6 +194,14 @@ class ReachPoseChecker(Checker):
             "yaw_error_rad": _round(yaw_error),
         }
 
+    def metrics(self) -> dict[str, Metric]:
+        """`closest_m`, `reached_at_s`, `final_distance_m`."""
+        return {
+            "closest_m": (self.closest["distance_m"] if self.closest else None, "m"),
+            "reached_at_s": (self.result.t_s if self.result.status == PASSED else None, "s"),
+            "final_distance_m": (self.last["distance_m"] if self.last else None, "m"),
+        }
+
     def on_sample(self, sample: Sample, t: float) -> None:
         """See :meth:`Checker.on_sample`."""
         if sample.kind != "pose" or sample.data.get("model") != self.planned.model:
@@ -239,6 +217,7 @@ class ReachPoseChecker(Checker):
         if t < 0 or self.done:
             return
         self.samples += 1
+        self.note(t, sample, x=x, y=y, distance_m=distance)
         if self.closest is None or distance < self.closest["distance_m"]:
             self.closest = pose
         yaw_ok = (
@@ -284,6 +263,7 @@ class ReachPoseChecker(Checker):
         if self.done:
             if self.last is not None:
                 self.result.evidence["final"] = self.last
+                self.result.metrics = self.measured()
             return
         self._fail(t, "not reached by the end of the timeline")
 
@@ -295,6 +275,11 @@ class WithinTimeChecker(Checker):
         super().__init__(planned)
         self.assertion: WithinTime = planned.assertion  # type: ignore[assignment]
         self.started_t: float | None = None
+        self.took: float | None = None
+
+    def metrics(self) -> dict[str, Metric]:
+        """`duration_s` of the action."""
+        return {"duration_s": (self.took, "s")}
 
     def on_action(self, label: str, event: str, t: float, status: str | None = None) -> None:
         """See :meth:`Checker.on_action`."""
@@ -302,12 +287,15 @@ class WithinTimeChecker(Checker):
             return
         if event == "started":
             self.started_t = t
+            self.note(t, event="started")
             return
         if self.started_t is None:
             if status in ("skipped", "cancelled"):
                 self.resolve(FAILED, f"{label} was {status} before it started", t)
             return
         took = t - self.started_t
+        self.took = round(took, 3)
+        self.note(t, event="finished", status=status, duration_s=took)
         evidence = {"started_t_s": _round(self.started_t), "duration_s": _round(took)}
         if status != "ok":
             self.resolve(
@@ -364,7 +352,17 @@ class TopicRateChecker(Checker):
         self.windows = 0
         self.lowest: float | None = None
         self.highest: float | None = None
+        self.total_hz = 0.0
         self.messages = 0
+
+    def metrics(self) -> dict[str, Metric]:
+        """`mean_hz`, `lowest_hz`, `highest_hz`, `messages`."""
+        return {
+            "mean_hz": (self.total_hz / self.windows if self.windows else None, "Hz"),
+            "lowest_hz": (self.lowest, "Hz"),
+            "highest_hz": (self.highest, "Hz"),
+            "messages": (self.messages, ""),
+        }
 
     def on_sample(self, sample: Sample, t: float) -> None:
         """See :meth:`Checker.on_sample`."""
@@ -377,8 +375,10 @@ class TopicRateChecker(Checker):
             return
         hz = float(sample.data.get("hz", 0.0))
         self.windows += 1
+        self.total_hz += hz
         self.lowest = hz if self.lowest is None else min(self.lowest, hz)
         self.highest = hz if self.highest is None else max(self.highest, hz)
+        self.note(t, sample, hz=hz)
         window = {"t_s": _round(t), "sim_s": _round(sample.sim), "hz": _round(hz, 2)}
         if hz < self.assertion.min_hz:
             self.resolve(
@@ -439,6 +439,10 @@ class NoCollisionChecker(Checker):
         self.ignored = 0
         self.messages = 0
 
+    def metrics(self) -> dict[str, Metric]:
+        """`contacts` (messages of the contact sensor, the ignored ones included)."""
+        return {"contacts": (self.messages, "")}
+
     def _ignored(self, name: str) -> bool:
         parts = name.split("::")
         return any(
@@ -458,6 +462,7 @@ class NoCollisionChecker(Checker):
         second = str(sample.data.get("collision2", ""))
         model = self.planned.model or ""
         other = second if first.split("::", maxsplit=1)[0] == model else first
+        self.note(t, sample, other=other, count=sample.data.get("count"))
         if self._ignored(other):
             self.ignored += 1
             return
@@ -495,6 +500,15 @@ class TopicValueChecker(Checker):
         self.lowest: Any = None
         self.highest: Any = None
         self.last: Any = None
+
+    def metrics(self) -> dict[str, Metric]:
+        """`samples`, `lowest`, `highest`, `last` of the field."""
+        return {
+            "samples": (self.count, ""),
+            "lowest": (self.lowest, ""),
+            "highest": (self.highest, ""),
+            "last": (self.last if isinstance(self.last, int | float) else None, ""),
+        }
 
     def _stats(self) -> dict[str, Any]:
         return {
@@ -534,6 +548,7 @@ class TopicValueChecker(Checker):
         if isinstance(value, int | float) and not isinstance(value, bool):
             self.lowest = value if self.lowest is None else min(self.lowest, value)
             self.highest = value if self.highest is None else max(self.highest, value)
+        self.note(t, sample, value=value)
         try:
             holds = self.condition(value)
         except ExpressionError as error:
@@ -614,220 +629,137 @@ class TopicValueChecker(Checker):
             )
 
 
-CHECKERS: dict[str, type[Checker]] = {
-    "reach_pose": ReachPoseChecker,
-    "within_time": WithinTimeChecker,
-    "topic_rate": TopicRateChecker,
-    "no_collision": NoCollisionChecker,
-    "topic_value": TopicValueChecker,
-}
+# ------------------------------------------------------------------------------- the types
+class ReachPoseType(AssertionType):
+    """`reach_pose`."""
+
+    type: ClassVar[str] = "reach_pose"
+    Spec: ClassVar[AssertionSpec] = ReachPose
+    summary: ClassVar[str] = "The vehicle's ground-truth pose comes within a tolerance of a target."
+    metrics: ClassVar[dict[str, str]] = {
+        "closest_m": "the closest the vehicle came to the target (m)",
+        "reached_at_s": "when it came within tolerance (s)",
+        "final_distance_m": "its distance to the target at the end (m)",
+    }
+
+    def plan(self, spec: ReachPose, context: PlanContext) -> PlannedAssertion:
+        """The target in the world, the vehicle's model."""
+        vehicle = context.vehicle(spec.vehicle)
+        return PlannedAssertion(spec, target=context.place(spec.target), model=vehicle.name)
+
+    def checker(self, planned: PlannedAssertion) -> Checker:
+        """See :meth:`AssertionType.checker`."""
+        return ReachPoseChecker(planned)
 
 
-# ---------------------------------------------------------------------------------- evaluator
-class Evaluator:
-    """Feeds the observer's stream and the timeline's events to every assertion's checker."""
+class WithinTimeType(AssertionType):
+    """`within_time`."""
 
-    def __init__(self, planned: Iterable[PlannedAssertion], *, sim_base: bool = False) -> None:
-        self.checkers = [CHECKERS[p.type](p) for p in planned]
-        self.start_wall: float | None = None
-        self.sim_base = sim_base
-        """Whether `t` counts simulation seconds from `origin_sim` (lockstep mode, task
-        P2-T04) instead of wall-clock seconds from `start_wall`."""
-        self.origin_sim: float | None = None
-        self.samples = 0
-        self.last_sim: float | None = None
-        self.first_sim: float | None = None
-        self.bad_lines = 0
+    type: ClassVar[str] = "within_time"
+    Spec: ClassVar[AssertionSpec] = WithinTime
+    summary: ClassVar[str] = "A timeline action completes successfully within a duration."
+    metrics: ClassVar[dict[str, str]] = {"duration_s": "how long the action took (s)"}
 
-    @property
-    def results(self) -> list[Result]:
-        """Every assertion's result, in the scenario's order."""
-        return [c.result for c in self.checkers]
+    def plan(self, spec: WithinTime, context: PlanContext) -> PlannedAssertion:
+        """The action must be a timeline entry."""
+        context.action(spec.action)
+        return PlannedAssertion(spec)
 
-    @property
-    def failed(self) -> list[Result]:
-        """The failed assertions."""
-        return [r for r in self.results if r.status == FAILED]
+    def checker(self, planned: PlannedAssertion) -> Checker:
+        """See :meth:`AssertionType.checker`."""
+        return WithinTimeChecker(planned)
 
-    @property
-    def pending(self) -> list[Result]:
-        """The assertions without a verdict yet."""
-        return [r for r in self.results if r.status == PENDING]
 
-    def elapsed(self, wall: float) -> float:
-        """Wall-clock seconds since the timeline started (-inf when it has not)."""
-        return wall - self.start_wall if self.start_wall is not None else -math.inf
+class TopicRateType(AssertionType):
+    """`topic_rate`."""
 
-    def now(self, wall: float) -> float:
-        """The timeline's time now: `elapsed(wall)`, or in simulation time the last sample's."""
-        if not self.sim_base:
-            return self.elapsed(wall)
-        if self.origin_sim is None or self.last_sim is None:
-            return -math.inf
-        return round(self.last_sim - self.origin_sim, 6)
+    type: ClassVar[str] = "topic_rate"
+    Spec: ClassVar[AssertionSpec] = TopicRate
+    summary: ClassVar[str] = "A ROS topic keeps publishing at a rate (in simulation time)."
+    metrics: ClassVar[dict[str, str]] = {
+        "mean_hz": "the mean of the windows' rates (Hz)",
+        "lowest_hz": "the slowest window (Hz)",
+        "highest_hz": "the fastest window (Hz)",
+        "messages": "messages received",
+    }
 
-    def time_of(self, sample: Sample) -> float:
-        """The timeline's time of a sample: its wall clock, or its simulation time."""
-        if not self.sim_base:
-            return self.elapsed(sample.wall)
-        if self.origin_sim is None:
-            return -math.inf
-        sim = sample.sim if sample.sim is not None else self.last_sim
-        return round(sim - self.origin_sim, 6) if sim is not None else -math.inf
+    def plan(self, spec: TopicRate, context: PlanContext) -> PlannedAssertion:
+        """The topic under the vehicle's namespace."""
+        return PlannedAssertion(spec, topic=context.topic(spec.vehicle, spec.topic))
 
-    def start(self, wall: float, origin_sim: float | None = None) -> None:
-        """The timeline starts now (at `origin_sim` on the simulation clock, in lockstep)."""
-        self.start_wall = wall
-        if self.sim_base:
-            self.origin_sim = origin_sim
-            self.first_sim = origin_sim
-            self.last_sim = origin_sim
-
-    def _collect(self, before: list[str]) -> list[Result]:
+    def watches(self, planned: PlannedAssertion) -> list[Watch]:
+        """The rate window of the topic."""
+        spec: TopicRate = planned.assertion  # type: ignore[assignment]
         return [
-            c.result
-            for c, status in zip(self.checkers, before, strict=True)
-            if c.result.status != status
+            Watch(
+                "rate",
+                {"topic": planned.topic, "window_s": spec.window_s, "type": spec.message_type},
+            )
         ]
 
-    def feed(self, sample: Sample) -> list[Result]:
-        """One observation; returns the assertions it resolved."""
-        before = [c.result.status for c in self.checkers]
-        self.samples += 1
-        if sample.sim is not None and (self.last_sim is None or sample.sim >= self.last_sim):
-            self.last_sim = sample.sim
-            if (
-                self.first_sim is None
-                and self.start_wall is not None
-                and sample.wall >= self.start_wall
-            ):
-                self.first_sim = sample.sim
-        t = self.time_of(sample)
-        for checker in self.checkers:
-            checker.on_sample(sample, t)  # a resolved checker keeps what it tracks for evidence
-        return self._collect(before)
-
-    def feed_lines(self, lines: Iterable[str]) -> list[Result]:
-        """Feed every line of the stream that parses as a sample."""
-        resolved: list[Result] = []
-        for line in lines:
-            if not line.strip():
-                continue
-            try:
-                sample = Sample.from_line(line)
-            except ValueError:
-                self.bad_lines += 1
-                continue
-            resolved += self.feed(sample)
-        return resolved
-
-    def tick(self, wall: float) -> list[Result]:
-        """Time passed: deadlines."""
-        if self.start_wall is None:
-            return []
-        before = [c.result.status for c in self.checkers]
-        t = self.now(wall)
-        if math.isinf(t):
-            return []
-        for checker in self.checkers:
-            if not checker.done:
-                checker.on_tick(t)
-        return self._collect(before)
-
-    def action(
-        self, label: str, event: str, wall: float, status: str | None = None
-    ) -> list[Result]:
-        """A timeline action `started` or `finished` with `status`."""
-        before = [c.result.status for c in self.checkers]
-        t = self.now(wall)
-        for checker in self.checkers:
-            if not checker.done:
-                checker.on_action(label, event, t, status)
-        return self._collect(before)
-
-    def finish(self, wall: float) -> list[Result]:
-        """The timeline completed: settle every pending assertion."""
-        before = [c.result.status for c in self.checkers]
-        t = self.now(wall) if self.start_wall is not None else 0.0
-        if math.isinf(t):
-            t = 0.0
-        for checker in self.checkers:
-            if not checker.done:
-                checker.on_tick(t)
-            checker.on_finish(t)  # a resolved checker may add evidence of the end
-        return self._collect(before)
-
-    def skip_pending(self, reason: str) -> list[Result]:
-        """The run ended before the timeline completed: the pending assertions are skipped."""
-        before = [c.result.status for c in self.checkers]
-        for checker in self.checkers:
-            if not checker.done:
-                checker.resolve(SKIPPED, reason, None)
-        return self._collect(before)
-
-    def sim_elapsed(self) -> float | None:
-        """Simulation seconds covered by the stream since the timeline started."""
-        if self.first_sim is None or self.last_sim is None:
-            return None
-        return round(self.last_sim - self.first_sim, 3)
+    def checker(self, planned: PlannedAssertion) -> Checker:
+        """See :meth:`AssertionType.checker`."""
+        return TopicRateChecker(planned)
 
 
-# ------------------------------------------------------------------------------- observation
-def observe_plan(
-    planned: Sequence[PlannedAssertion],
-    *,
-    world: str,
-    models: Sequence[str],
-    record: bool,
-    topics: Sequence[str],
-    run_dir: str,
-    pose_hz: float = 10.0,
-    conditions: Sequence[Any] = (),
-) -> dict[str, Any]:
-    """What the observer must watch and record (`observe.json`).
+class NoCollisionType(AssertionType):
+    """`no_collision`."""
 
-    From the planned assertions and the timeline's `when` conditions (task P2-T03: their topic
-    fields are watched too). `run_dir` is the run directory as the recorder container sees it.
-    """
-    rates: list[dict[str, Any]] = []
-    values: list[dict[str, Any]] = []
-    contacts: list[dict[str, Any]] = []
-    for condition in conditions:
-        when = condition.when
-        if condition.topic is not None:
-            entry = {"topic": condition.topic, "field": when.field, "type": when.message_type}
-            if entry not in values:
-                values.append(entry)
-    for item in planned:
-        a = item.assertion
-        if isinstance(a, TopicRate):
-            entry = {"topic": item.topic, "window_s": a.window_s, "type": a.message_type}
-            if entry not in rates:
-                rates.append(entry)
-        elif isinstance(a, TopicValue):
-            entry = {"topic": item.topic, "field": a.field, "type": a.message_type}
-            if entry not in values:
-                values.append(entry)
-        elif isinstance(a, NoCollision):
-            entry = {"topic": item.topic, "model": item.model}
-            if entry not in contacts:
-                contacts.append(entry)
-    recorded = list(dict.fromkeys([*topics, *SIDE_CHANNELS.values()])) if topics else []
-    return {
-        "world": world,
-        "models": list(models),
-        "pose_hz": pose_hz,
-        "contacts": contacts,
-        "rates": rates,
-        "values": values,
-        "record": {
-            "enabled": record,
-            "topics": recorded,
-            "output": f"{run_dir}/{RECORDING_DIR}",
-        },
-        "side_channels": dict(SIDE_CHANNELS),
-        "events_file": f"{run_dir}/engine.log",
-        "assertions_file": f"{run_dir}/{ASSERTIONS_FILE}",
-        "network_file": f"{run_dir}/{NETWORK_FILE}",
-        "samples_file": f"{run_dir}/{SAMPLES_FILE}",
+    type: ClassVar[str] = "no_collision"
+    Spec: ClassVar[AssertionSpec] = NoCollision
+    summary: ClassVar[str] = (
+        "The vehicle's chassis touches nothing (the ground-truth contact sensor)."
+    )
+    metrics: ClassVar[dict[str, str]] = {"contacts": "contact messages seen"}
+
+    def plan(self, spec: NoCollision, context: PlanContext) -> PlannedAssertion:
+        """The contact topic under the vehicle's namespace, the vehicle's model."""
+        vehicle = context.vehicle(spec.vehicle)
+        topic = vehicle.topic(spec.topic or DEFAULT_CONTACTS_TOPIC)
+        return PlannedAssertion(spec, topic=topic, model=vehicle.name)
+
+    def watches(self, planned: PlannedAssertion) -> list[Watch]:
+        """The contact sensor."""
+        return [Watch("contact", {"topic": planned.topic, "model": planned.model})]
+
+    def checker(self, planned: PlannedAssertion) -> Checker:
+        """See :meth:`AssertionType.checker`."""
+        return NoCollisionChecker(planned)
+
+
+class TopicValueType(AssertionType):
+    """`topic_value`."""
+
+    type: ClassVar[str] = "topic_value"
+    Spec: ClassVar[AssertionSpec] = TopicValue
+    summary: ClassVar[str] = "A condition over a field of a ROS topic, always or eventually."
+    metrics: ClassVar[dict[str, str]] = {
+        "samples": "messages judged",
+        "lowest": "the lowest value seen",
+        "highest": "the highest value seen",
+        "last": "the last value seen",
     }
+
+    def plan(self, spec: TopicValue, context: PlanContext) -> PlannedAssertion:
+        """The topic under the vehicle's namespace."""
+        return PlannedAssertion(spec, topic=context.topic(spec.vehicle, spec.topic))
+
+    def watches(self, planned: PlannedAssertion) -> list[Watch]:
+        """The field of the topic."""
+        spec: TopicValue = planned.assertion  # type: ignore[assignment]
+        return [
+            Watch("value", {"topic": planned.topic, "field": spec.field, "type": spec.message_type})
+        ]
+
+    def checker(self, planned: PlannedAssertion) -> Checker:
+        """See :meth:`AssertionType.checker`."""
+        return TopicValueChecker(planned)
+
+
+ASSERTIONS: tuple[type[AssertionType], ...] = (
+    ReachPoseType,
+    WithinTimeType,
+    TopicRateType,
+    NoCollisionType,
+    TopicValueType,
+)

@@ -345,3 +345,84 @@ def test_load_record_errors(tmp_path: Path) -> None:
     (tmp_path / "run.json").write_text("[]")
     with pytest.raises(ReportError, match="not a run record"):
         load_record(tmp_path)
+
+
+# ------------------------------------------------------------------ KPIs and excerpts (P2-T05)
+KPIS = {
+    "drive.path_m": {"value": 4.2, "unit": "m", "source": "drive", "type": "path"},
+    "reached_goal.closest_m": {
+        "value": 0.21,
+        "unit": "m",
+        "source": "reached_goal",
+        "type": "reach_pose",
+    },
+    "speed.count": {"value": 3, "unit": "", "source": "speed", "type": "value"},
+}
+COLLECTORS = [
+    {
+        "name": "drive",
+        "type": "path",
+        "status": "measured",
+        "reason": "4.20 m over 40 pose(s)",
+        "t_s": 30.0,
+        "sim_s": None,
+        "evidence": {"samples": 40},
+        "metrics": {"path_m": {"value": 4.2, "unit": "m"}},
+    },
+    {
+        "name": "gap",
+        "type": "distance",
+        "status": "missing",
+        "reason": "no distance measured",
+        "t_s": 30.0,
+        "sim_s": None,
+        "evidence": {},
+        "metrics": {},
+    },
+]
+
+
+def failing_with_excerpt() -> dict[str, Any]:
+    data = record(
+        status="failed", reason="assertion speed_limit failed", kpis=KPIS, kpi_collectors=COLLECTORS
+    )
+    data["assertions"][1]["evidence"]["excerpt"] = [
+        {"t_s": 2.0, "sim_s": 1.8, "value": 1.2},
+        {"t_s": 3.0, "sim_s": 2.7, "value": 1.8, "note": "a|b"},
+    ]
+    data["assertions"][0]["evidence"]["excerpt"] = [{"t_s": 18.0, "sim_s": 15.0, "distance_m": 0.3}]
+    return data
+
+
+def test_kpis_and_excerpts_in_the_reports(run_dir: Path) -> None:
+    report = build_report(failing_with_excerpt(), run_dir)
+    assert report["kpis"] == KPIS
+    assert report["kpi_collectors"] == COLLECTORS
+    text = render_markdown(report)
+    assert "## KPIs" in text
+    assert "2 collector(s): `drive` (path) measured, `gap` (distance) missing." in text
+    assert "| `drive.path_m` | 4.200 | m | `drive` (path) |" in text
+    assert "| `speed.count` | 3 | - | `speed` (value) |" in text
+    assert "### Evidence: `speed_limit`" in text
+    assert "The last 2 sample(s) the assertion saw before its verdict:" in text
+    assert "| t_s | sim_s | note | value |" in text
+    assert "| 3.000 | 2.700 | a\\|b | 1.800 |" in text
+    assert "| 2.000 | 1.800 | - | 1.200 |" in text
+    assert "### Evidence: `reached_goal`" not in text, "only failed assertions get an excerpt"
+    assert "excerpt" not in text.split("## Assertions")[1].split("### Evidence")[0]
+    junit = render_junit(report)
+    assert '<property name="kpi.drive.path_m" value="4.2 m" />' in junit
+    assert '<property name="kpi.speed.count" value="3" />' in junit
+
+
+def test_reports_without_kpis(run_dir: Path) -> None:
+    report = build_report(record(), run_dir)
+    assert report["kpis"] == {}
+    assert report["kpi_collectors"] == []
+    text = render_markdown(report)
+    assert "## KPIs" not in text
+    assert "kpi." not in render_junit(report)
+    only_collectors = build_report(record(kpi_collectors=COLLECTORS[1:]), run_dir)
+    text = render_markdown(only_collectors)
+    assert "## KPIs" in text
+    assert "Nothing was measured." in text

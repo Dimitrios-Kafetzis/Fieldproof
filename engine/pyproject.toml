@@ -77,16 +77,39 @@ set_wind = "fieldproof.events.world:SetWindEvent"
 "sim.resume" = "fieldproof.events.sim:SimResumeEvent"
 "sim.step" = "fieldproof.events.sim:SimStepEvent"
 
+# The built-in assertion types (task P2-T05, docs/reference/assertions.md), registered the same
+# way: one entry point per type. A plugin adds its own under this group
+# (examples/plugins/example_assertions).
+[project.entry-points."fieldproof.assertions"]
+reach_pose = "fieldproof.assertions.primitives:ReachPoseType"
+within_time = "fieldproof.assertions.primitives:WithinTimeType"
+topic_rate = "fieldproof.assertions.primitives:TopicRateType"
+no_collision = "fieldproof.assertions.primitives:NoCollisionType"
+topic_value = "fieldproof.assertions.primitives:TopicValueType"
+geofence = "fieldproof.assertions.spatial:GeofenceType"
+min_distance = "fieldproof.assertions.spatial:MinDistanceType"
+path_efficiency = "fieldproof.assertions.spatial:PathEfficiencyType"
+mission_time = "fieldproof.assertions.timing:MissionTimeType"
+message_latency = "fieldproof.assertions.timing:MessageLatencyType"
+sequence = "fieldproof.assertions.timing:SequenceType"
+resource_usage = "fieldproof.assertions.system:ResourceUsageType"
+lifecycle_state = "fieldproof.assertions.system:LifecycleStateType"
+always = "fieldproof.assertions.temporal:AlwaysType"
+never = "fieldproof.assertions.temporal:NeverType"
+eventually = "fieldproof.assertions.temporal:EventuallyType"
+
 [tool.uv.sources]
 fieldproof-bridge = { path = "../bridge/fieldproof_bridge", editable = true }
 fieldproof-example-events = { path = "../examples/plugins/example_events", editable = true }
+fieldproof-example-assertions = { path = "../examples/plugins/example_assertions", editable = true }
 
-# The example event plugin is a development dependency: installed here, it is registered next
-# to the built-ins (`fieldproof events`), its tests run with the engine's, and the example
-# scenario that uses it validates.
+# The example plugins are development dependencies: installed here, they are registered next
+# to the built-ins (`fieldproof events`, `fieldproof assertions`), their tests run with the
+# engine's, and the example scenarios that use them validate.
 [dependency-groups]
 dev = [
   "fieldproof-example-events",
+  "fieldproof-example-assertions",
   "mcap==1.5.0",
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
@@ -108,7 +131,11 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "../version.txt" }]
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra --strict-markers --strict-config"
-testpaths = ["tests", "../examples/plugins/example_events/tests"]
+testpaths = [
+  "tests",
+  "../examples/plugins/example_events/tests",
+  "../examples/plugins/example_assertions/tests",
+]
 xfail_strict = true
 
 # `make test-engine` runs pytest with --cov: the standards ask for 85 % of the engine's lines

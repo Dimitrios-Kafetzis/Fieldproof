@@ -217,6 +217,103 @@
       "title": "ActuatorLimit",
       "type": "object"
     },
+    "Always": {
+      "additionalProperties": false,
+      "description": "The condition holds at every evaluation in the window.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "always",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "signals": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Signal"
+          },
+          "description": "The named signals the condition reads (a topic field or a metric each).",
+          "minProperties": 1,
+          "title": "Signals",
+          "type": "object"
+        },
+        "condition": {
+          "description": "Expression over the signals' names.",
+          "title": "Condition",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the signals default to.",
+          "title": "Vehicle"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window: the deadline of `eventually`, the end of `always` and `never` (absent: the end of the timeline).",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "signals", "condition"],
+      "title": "Always",
+      "type": "object"
+    },
     "Announce": {
       "additionalProperties": false,
       "description": "Publish a text once on a topic of the vehicle.",
@@ -598,6 +695,53 @@
       },
       "required": ["vehicle", "action", "duration_s"],
       "title": "BatteryDrain",
+      "type": "object"
+    },
+    "Box": {
+      "additionalProperties": false,
+      "description": "An axis-aligned rectangle in the world.",
+      "properties": {
+        "x_min": {
+          "title": "X Min",
+          "type": "number"
+        },
+        "x_max": {
+          "title": "X Max",
+          "type": "number"
+        },
+        "y_min": {
+          "title": "Y Min",
+          "type": "number"
+        },
+        "y_max": {
+          "title": "Y Max",
+          "type": "number"
+        }
+      },
+      "required": ["x_min", "x_max", "y_min", "y_max"],
+      "title": "Box",
+      "type": "object"
+    },
+    "Circle": {
+      "additionalProperties": false,
+      "description": "A disc in the world.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "radius_m": {
+          "exclusiveMinimum": 0,
+          "title": "Radius M",
+          "type": "number"
+        }
+      },
+      "required": ["x", "y", "radius_m"],
+      "title": "Circle",
       "type": "object"
     },
     "ContainerKill": {
@@ -1120,6 +1264,284 @@
       },
       "required": ["vehicle", "action"],
       "title": "ContainerResume",
+      "type": "object"
+    },
+    "DistanceKpi": {
+      "additionalProperties": false,
+      "description": "The closest the vehicle came to another vehicle, a model or a point.",
+      "properties": {
+        "name": {
+          "description": "KPI name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "distance",
+          "title": "Type",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose ground-truth pose is read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "to": {
+          "$ref": "#/$defs/Subject",
+          "description": "What the distance is measured to."
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Start of the window.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window.",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle", "to"],
+      "title": "DistanceKpi",
+      "type": "object"
+    },
+    "Eventually": {
+      "additionalProperties": false,
+      "description": "The condition holds at some evaluation in the window (for `for_s`, when given).",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "eventually",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "signals": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Signal"
+          },
+          "description": "The named signals the condition reads (a topic field or a metric each).",
+          "minProperties": 1,
+          "title": "Signals",
+          "type": "object"
+        },
+        "condition": {
+          "description": "Expression over the signals' names.",
+          "title": "Condition",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the signals default to.",
+          "title": "Vehicle"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window: the deadline of `eventually`, the end of `always` and `never` (absent: the end of the timeline).",
+          "title": "Within S"
+        },
+        "for_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The condition must keep holding this long once it first does.",
+          "title": "For S"
+        }
+      },
+      "required": ["name", "type", "signals", "condition"],
+      "title": "Eventually",
+      "type": "object"
+    },
+    "Geofence": {
+      "additionalProperties": false,
+      "description": "The vehicle's ground truth stays inside (or outside) a region of the world.\n\nFails at the first ground-truth sample on the wrong side of the boundary between\n`after_s` and `within_s`; passes when the window closes or at the end of the timeline.\nThe evidence is the smallest clearance to the boundary and the violating sample.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "geofence",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose ground-truth pose is read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "region": {
+          "$ref": "#/$defs/Region",
+          "description": "A polygon, circle or box, with optional z limits."
+        },
+        "mode": {
+          "default": "inside",
+          "description": "Whether the vehicle must stay inside or outside.",
+          "enum": ["inside", "outside"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window (absent: the end of the timeline).",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle", "region"],
+      "title": "Geofence",
       "type": "object"
     },
     "GpsDeny": {
@@ -1778,6 +2200,184 @@
       "title": "ImuBias",
       "type": "object"
     },
+    "LatencyKpi": {
+      "additionalProperties": false,
+      "description": "A stamped topic's age (header stamp to receipt).",
+      "properties": {
+        "name": {
+          "description": "KPI name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "latency",
+          "title": "Type",
+          "type": "string"
+        },
+        "topic": {
+          "description": "The topic (relative to the vehicle's namespace).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the topic belongs to.",
+          "title": "Vehicle"
+        },
+        "window_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 2.0,
+          "description": "Length of the sliding window.",
+          "title": "Window S"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (absent: discovered).",
+          "title": "Message Type"
+        }
+      },
+      "required": ["name", "type", "topic"],
+      "title": "LatencyKpi",
+      "type": "object"
+    },
+    "LifecycleState": {
+      "additionalProperties": false,
+      "description": "A managed (lifecycle) node of the vehicle is in a state.\n\n`eventually`: passes at the first sample in `state` after `after_s`, fails at `within_s`\nor the end; `always`: every sample between `after_s` and `within_s` must be in `state`\n(a node whose service is unavailable or unresponsive counts as not), passes when the\nwindow closes.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "lifecycle_state",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle the node belongs to.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "node": {
+          "description": "The node (relative to the vehicle's namespace, or absolute).",
+          "title": "Node",
+          "type": "string"
+        },
+        "state": {
+          "description": "The lifecycle state wanted.",
+          "enum": ["unconfigured", "inactive", "active", "finalized"],
+          "title": "State",
+          "type": "string"
+        },
+        "mode": {
+          "default": "eventually",
+          "enum": ["eventually", "always"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The deadline of `eventually`, the end of `always`.",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle", "node", "state"],
+      "title": "LifecycleState",
+      "type": "object"
+    },
     "LinkDrop": {
       "additionalProperties": false,
       "description": "Drop a vehicle's radio link: nothing gets through either way.\n\nWith `duration_s` the entry restores the link's configured profile after that long and ends\nthen; without it the link stays down until a `link.restore` or `link.set`.",
@@ -2356,6 +2956,135 @@
       "title": "LinkSet",
       "type": "object"
     },
+    "MessageLatency": {
+      "additionalProperties": false,
+      "description": "The messages of a stamped topic arrive fresh.\n\nThe observer measures the age of every message (its header stamp against the simulation\nclock when it is received) and reports a statistic over a sliding window once a second;\nfails at the first window whose `statistic` is above `max_ms` between `after_s` and\n`within_s`, and at the end of the timeline if no window was measured.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "message_latency",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "topic": {
+          "description": "The topic (relative to the vehicle's namespace when `vehicle` is given).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the topic belongs to.",
+          "title": "Vehicle"
+        },
+        "max_ms": {
+          "description": "The latency never to exceed, in milliseconds.",
+          "exclusiveMinimum": 0,
+          "title": "Max Ms",
+          "type": "number"
+        },
+        "statistic": {
+          "default": "p95",
+          "description": "Which statistic of a window is judged.",
+          "enum": ["p95", "max", "mean"],
+          "title": "Statistic",
+          "type": "string"
+        },
+        "window_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 2.0,
+          "description": "Length of the sliding window.",
+          "title": "Window S"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window (absent: the end of the timeline).",
+          "title": "Within S"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (`sensor_msgs/msg/LaserScan`; absent: discovered).",
+          "title": "Message Type"
+        }
+      },
+      "required": ["name", "type", "topic", "max_ms"],
+      "title": "MessageLatency",
+      "type": "object"
+    },
     "Metadata": {
       "additionalProperties": false,
       "description": "What the scenario is.",
@@ -2385,6 +3114,231 @@
       },
       "required": ["name"],
       "title": "Metadata",
+      "type": "object"
+    },
+    "MinDistance": {
+      "additionalProperties": false,
+      "description": "The vehicle keeps a minimum distance to another vehicle, a model or a point.\n\nMeasured between ground-truth positions (the model origins) at every pose sample of\neither; fails at the first sample closer than `min_m` between `after_s` and `within_s`.\nThe evidence is the closest approach: when, how close, both positions.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "min_distance",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose ground-truth pose is read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "to": {
+          "$ref": "#/$defs/Subject",
+          "description": "What the distance is measured to."
+        },
+        "min_m": {
+          "description": "The distance never to go below, in metres.",
+          "exclusiveMinimum": 0,
+          "title": "Min M",
+          "type": "number"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window (absent: the end of the timeline).",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle", "to", "min_m"],
+      "title": "MinDistance",
+      "type": "object"
+    },
+    "MissionTime": {
+      "additionalProperties": false,
+      "description": "A span of the timeline completes within a duration.\n\nFrom the `start` entry's start (or the start of the timeline) to the `end` entry's\nsuccessful end (or the end of the timeline): fails the moment `max_s` passes without the\nend, when the end entry does not end `ok`, or when the span is shorter than `min_s`.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "mission_time",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "max_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "description": "The span must complete within this long.",
+          "title": "Max S"
+        },
+        "min_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The span must take at least this long (absent: no floor).",
+          "title": "Min S"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The timeline entry whose start opens the span (absent: the timeline's).",
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The timeline entry whose successful end closes the span (absent: the end of the timeline).",
+          "title": "End"
+        }
+      },
+      "required": ["name", "type", "max_s"],
+      "title": "MissionTime",
+      "type": "object"
+    },
+    "MissionTimeKpi": {
+      "additionalProperties": false,
+      "description": "How long a span of the timeline took.",
+      "properties": {
+        "name": {
+          "description": "KPI name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "mission_time",
+          "title": "Type",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The entry whose start opens the span.",
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The entry whose end closes the span.",
+          "title": "End"
+        }
+      },
+      "required": ["name", "type"],
+      "title": "MissionTimeKpi",
       "type": "object"
     },
     "NavigateToPose": {
@@ -2619,6 +3573,103 @@
       "title": "Network",
       "type": "object"
     },
+    "Never": {
+      "additionalProperties": false,
+      "description": "The condition holds at no evaluation in the window.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "never",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "signals": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Signal"
+          },
+          "description": "The named signals the condition reads (a topic field or a metric each).",
+          "minProperties": 1,
+          "title": "Signals",
+          "type": "object"
+        },
+        "condition": {
+          "description": "Expression over the signals' names.",
+          "title": "Condition",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the signals default to.",
+          "title": "Vehicle"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window: the deadline of `eventually`, the end of `always` and `never` (absent: the end of the timeline).",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "signals", "condition"],
+      "title": "Never",
+      "type": "object"
+    },
     "NoCollision": {
       "additionalProperties": false,
       "description": "The vehicle's chassis touches nothing during the timeline.\n\nRead from the model's ground-truth contact sensor in Gazebo (the reference vehicles carry\none on the chassis, `<namespace>/contacts`); fails at the first contact.",
@@ -2634,6 +3685,13 @@
         "type": {
           "const": "no_collision",
           "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
           "type": "string"
         },
         "vehicle": {
@@ -2936,6 +3994,221 @@
       "title": "ParamSet",
       "type": "object"
     },
+    "PathEfficiency": {
+      "additionalProperties": false,
+      "description": "The path the vehicle drove is close to the straight line.\n\nThe path length is summed from the ground-truth poses during an `action` (from its start\nto its end) or between `after_s` and `within_s`; the straight line goes from the first\npose of that window to the `target` (or to the last pose). The ratio of the two, the\nefficiency, must reach `min_ratio`, and the path must stay under `max_path_m` when given.\nJudged when the action ends (or the window closes, or the timeline ends); a path over\n`max_path_m` fails as soon as it is.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "path_efficiency",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose ground-truth pose is read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A timeline entry: the window is its run (start to end).",
+          "title": "Action"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The straight line's end (absent: the last pose)."
+        },
+        "min_ratio": {
+          "default": 0.5,
+          "description": "Straight-line distance over path length.",
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Min Ratio",
+          "type": "number"
+        },
+        "max_path_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The path length never to exceed, in metres.",
+          "title": "Max Path M"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Start of the window when there is no action.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window when there is no action.",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle"],
+      "title": "PathEfficiency",
+      "type": "object"
+    },
+    "PathKpi": {
+      "additionalProperties": false,
+      "description": "The path the vehicle drove: length, straight line, efficiency, speeds.",
+      "properties": {
+        "name": {
+          "description": "KPI name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "path",
+          "title": "Type",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose ground-truth pose is read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A timeline entry: its run is the window.",
+          "title": "Action"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The straight line's end (absent: the last pose)."
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Start of the window without an action.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window without one.",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle"],
+      "title": "PathKpi",
+      "type": "object"
+    },
     "Placement": {
       "additionalProperties": false,
       "description": "A pose in the world: a named frame of the world file, or coordinates.\n\n`frame` and `x`/`y` are exclusive. `z` is optional with coordinates (the model's default\nspawn height, or the ground for a goal); `yaw` is in radians.",
@@ -3005,6 +4278,92 @@
       "title": "Placement",
       "type": "object"
     },
+    "RateKpi": {
+      "additionalProperties": false,
+      "description": "A topic's rate over the run (in simulation time).",
+      "properties": {
+        "name": {
+          "description": "KPI name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "rate",
+          "title": "Type",
+          "type": "string"
+        },
+        "topic": {
+          "description": "The topic (relative to the vehicle's namespace).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the topic belongs to.",
+          "title": "Vehicle"
+        },
+        "window_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 5.0,
+          "description": "Length of the measurement window.",
+          "title": "Window S"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (absent: discovered).",
+          "title": "Message Type"
+        }
+      },
+      "required": ["name", "type", "topic"],
+      "title": "RateKpi",
+      "type": "object"
+    },
     "ReachPose": {
       "additionalProperties": false,
       "description": "The vehicle's ground-truth pose comes within a tolerance of a target.\n\nPasses at the first ground-truth sample within `tolerance_m` of the target (and within\n`yaw_tolerance_rad` of its heading when given); fails when `within_s` passes first, or at\nthe end of the timeline. The evidence is the closest sample and the final pose.",
@@ -3020,6 +4379,13 @@
         "type": {
           "const": "reach_pose",
           "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
           "type": "string"
         },
         "vehicle": {
@@ -3081,6 +4447,79 @@
       },
       "required": ["name", "type", "vehicle", "target"],
       "title": "ReachPose",
+      "type": "object"
+    },
+    "Region": {
+      "additionalProperties": false,
+      "description": "A region of the world: a `polygon` (vertices `[x, y]`), a `circle` or a `box`.\n\n`z_min` and `z_max` bound the height as well (absent: any height). Exactly one shape.",
+      "properties": {
+        "polygon": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "At least three vertices `[x, y]`, in order.",
+          "title": "Polygon"
+        },
+        "circle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Circle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "box": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "z_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Z Min"
+        },
+        "z_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Z Max"
+        }
+      },
+      "title": "Region",
       "type": "object"
     },
     "RemoveObject": {
@@ -3261,6 +4700,131 @@
       "title": "RemoveObject",
       "type": "object"
     },
+    "ResourceUsage": {
+      "additionalProperties": false,
+      "description": "A container of the vehicle stays within a CPU and memory footprint.\n\nCPU is the mean over a sliding `window_s` of the monitor's samples (one a second, in\npercent of one core as `docker stats` shows it; a two-core quota is 200), judged once the\nwindow holds that many seconds of samples; memory is each sample's working set in MiB.\nFails at the first window (or sample) over a limit between `after_s` and\n`within_s`, and at the end of the timeline if nothing was sampled.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "resource_usage",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose container is measured.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "container": {
+          "default": "vehicle",
+          "description": "Which of its containers: the stack's or its bridge.",
+          "enum": ["vehicle", "bridge"],
+          "title": "Container",
+          "type": "string"
+        },
+        "max_cpu_pct": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CPU limit, in percent of one core, over the window.",
+          "title": "Max Cpu Pct"
+        },
+        "max_memory_mb": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Memory limit, in MiB.",
+          "title": "Max Memory Mb"
+        },
+        "window_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 5.0,
+          "description": "The CPU averaging window.",
+          "title": "Window S"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window (absent: the end of the timeline).",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle"],
+      "title": "ResourceUsage",
+      "type": "object"
+    },
     "Resources": {
       "additionalProperties": false,
       "description": "Container budget, in Docker's units (cgroup CPU quota, cpuset, memory, pids).",
@@ -3323,6 +4887,57 @@
         }
       },
       "title": "Resources",
+      "type": "object"
+    },
+    "ResourcesKpi": {
+      "additionalProperties": false,
+      "description": "A container's CPU and memory over the run.",
+      "properties": {
+        "name": {
+          "description": "KPI name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "resources",
+          "title": "Type",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose container is measured.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "container": {
+          "default": "vehicle",
+          "enum": ["vehicle", "bridge"],
+          "title": "Container",
+          "type": "string"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        }
+      },
+      "required": ["name", "type", "vehicle"],
+      "title": "ResourcesKpi",
       "type": "object"
     },
     "SensorDropout": {
@@ -3709,6 +5324,106 @@
       "title": "SensorFreeze",
       "type": "object"
     },
+    "Sequence": {
+      "additionalProperties": false,
+      "description": "Events happen in order.\n\nEach step is watched only once the previous one has happened: the first message after\nit that satisfies a signal step's condition, the action's start or `ok` end, the other\nassertion's verdict (a failed or skipped one fails the sequence; so does an action step\nwhose entry ends with another status). Passes when the last step happens; fails at\n`within_s`, when a step takes longer than `max_gap_s` after the previous, or at the end\nof the timeline, naming the step that did not happen.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "sequence",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "steps": {
+          "description": "The steps, in order.",
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the signal steps default to.",
+          "title": "Vehicle"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The last step must happen by then (absent: the end).",
+          "title": "Within S"
+        },
+        "max_gap_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Each step must happen within this long after the previous.",
+          "title": "Max Gap S"
+        }
+      },
+      "required": ["name", "type", "steps"],
+      "title": "Sequence",
+      "type": "object"
+    },
     "SetWind": {
       "additionalProperties": false,
       "description": "Set the world's wind: a velocity in the world frame, on the links that enable wind.",
@@ -3903,6 +5618,95 @@
       },
       "required": ["action", "velocity"],
       "title": "SetWind",
+      "type": "object"
+    },
+    "Signal": {
+      "additionalProperties": false,
+      "description": "Something of the run a condition reads: a field of a ROS topic or a metric.\n\nEither a field of a ROS topic's messages (`topic`, `field`) or a `metric` of the run:\n`sim_time` (the simulator's clock, in seconds), `rtf` (the measured real-time factor), or\nthe vehicle's ground-truth `x`, `y`, `z`, `yaw` (radians) and `distance_to` a `target`\nplacement (metres). `vehicle` says whose topic or ground truth; it defaults to the entry's\nor the assertion's vehicle. A `when` trigger is a signal with a `condition` (task P2-T03);\nthe temporal combinators of the assertion library name several (task P2-T05).",
+      "properties": {
+        "topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A ROS topic (relative to the vehicle's namespace when there is a vehicle).",
+          "title": "Topic"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Field of the message (`twist.twist.linear.x`, `data`).",
+          "title": "Field"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (`nav_msgs/msg/Odometry`; absent: discovered).",
+          "title": "Message Type"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "enum": ["sim_time", "rtf", "x", "y", "z", "yaw", "distance_to"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A metric of the run instead of a topic: `sim_time`, `rtf`, or the vehicle's `x`, `y`, `z`, `yaw`, `distance_to`.",
+          "title": "Metric"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The placement `distance_to` measures to (in the world)."
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle (default: the entry's) the topic or metric is of.",
+          "title": "Vehicle"
+        }
+      },
+      "title": "Signal",
       "type": "object"
     },
     "SimPause": {
@@ -4776,6 +6580,203 @@
       "title": "SpawnObject",
       "type": "object"
     },
+    "Step": {
+      "additionalProperties": false,
+      "description": "One step of a `sequence`: an action, a condition over a signal, or an assertion.\n\nExactly one of `action` (with `event`), a signal (`topic` and `field`, or `metric`, with\n`target` and `vehicle` as a `when` has them) with its `condition`, or `assertion`.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A label for the evidence.",
+          "title": "Name"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A timeline entry.",
+          "title": "Action"
+        },
+        "event": {
+          "default": "finished",
+          "description": "Which moment of the action: its start or its `ok` end.",
+          "enum": ["started", "finished"],
+          "title": "Event",
+          "type": "string"
+        },
+        "topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A ROS topic (a signal step).",
+          "title": "Topic"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Field of the message.",
+          "title": "Field"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (absent: discovered).",
+          "title": "Message Type"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "enum": ["sim_time", "rtf", "x", "y", "z", "yaw", "distance_to"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A metric of the run instead.",
+          "title": "Metric"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where `distance_to` measures to."
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle of the signal.",
+          "title": "Vehicle"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expression over `value` for a signal step.",
+          "title": "Condition"
+        },
+        "assertion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Another assertion, which must pass.",
+          "title": "Assertion"
+        }
+      },
+      "title": "Step",
+      "type": "object"
+    },
+    "Subject": {
+      "additionalProperties": false,
+      "description": "What a distance is measured to: another `vehicle`, a `model` of the world, a `target`.",
+      "properties": {
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Another vehicle of the scenario.",
+          "title": "Vehicle"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A model of the world (its name).",
+          "title": "Model"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A placement in the world."
+        }
+      },
+      "title": "Subject",
+      "type": "object"
+    },
     "Teleport": {
       "additionalProperties": false,
       "description": "Move a model of the world to a pose at once: a vehicle, or any model by name.",
@@ -5062,6 +7063,13 @@
           "title": "Type",
           "type": "string"
         },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
         "topic": {
           "description": "The topic (relative to the vehicle's namespace when `vehicle` is given).",
           "title": "Topic",
@@ -5168,6 +7176,13 @@
           "title": "Type",
           "type": "string"
         },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
         "topic": {
           "description": "The topic (relative to the vehicle's namespace when `vehicle` is given).",
           "title": "Topic",
@@ -5259,6 +7274,118 @@
       },
       "required": ["name", "type", "topic", "field", "condition"],
       "title": "TopicValue",
+      "type": "object"
+    },
+    "ValueKpi": {
+      "additionalProperties": false,
+      "description": "The statistics of a field of a topic, and how often a condition held.",
+      "properties": {
+        "name": {
+          "description": "KPI name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "value",
+          "title": "Type",
+          "type": "string"
+        },
+        "topic": {
+          "description": "The topic (relative to the vehicle's namespace).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the topic belongs to.",
+          "title": "Vehicle"
+        },
+        "field": {
+          "description": "Field of the message.",
+          "title": "Field",
+          "type": "string"
+        },
+        "count_if": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A condition over `value`; `count` is how often it held.",
+          "title": "Count If"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Start of the window.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window.",
+          "title": "Within S"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (absent: discovered).",
+          "title": "Message Type"
+        }
+      },
+      "required": ["name", "type", "topic", "field"],
+      "title": "ValueKpi",
       "type": "object"
     },
     "Vehicle": {
@@ -5366,9 +7493,85 @@
       "title": "VideoOutput",
       "type": "object"
     },
+    "VisitsWaypoints": {
+      "additionalProperties": false,
+      "description": "The vehicle's ground truth visits every waypoint, in any order.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "example.visits_waypoints",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose ground-truth pose is read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "waypoints": {
+          "description": "The placements to visit (frames or coordinates).",
+          "items": {
+            "$ref": "#/$defs/Placement"
+          },
+          "minItems": 1,
+          "title": "Waypoints",
+          "type": "array"
+        },
+        "tolerance_m": {
+          "default": 0.5,
+          "description": "How close counts as a visit, in metres.",
+          "exclusiveMinimum": 0,
+          "title": "Tolerance M",
+          "type": "number"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deadline after the timeline starts (absent: its end).",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle", "waypoints"],
+      "title": "VisitsWaypoints",
+      "type": "object"
+    },
     "When": {
       "additionalProperties": false,
-      "description": "A condition of the run that triggers a timeline entry the first time it holds.\n\nEither a field of a ROS topic's messages (`topic`, `field`, like a `topic_value`\nassertion) or a `metric` of the run: `sim_time` (the simulator's clock, in seconds; the\none trigger in simulation time), `rtf` (the measured real-time factor), or the vehicle's\nground-truth `x`, `y`, `z`, `yaw` (radians) and `distance_to` a `target` placement\n(metres). `condition` is an expression over `value` (`value > 0.3`, `value < 2.0`).\n`vehicle` says whose topic or ground truth; it defaults to the entry's vehicle.",
+      "description": "A condition of the run that triggers a timeline entry the first time it holds.\n\nA :class:`Signal` (a topic field or a metric of the run) with a `condition`, an expression\nover `value` (`value > 0.3`, `value < 2.0`).",
       "properties": {
         "topic": {
           "anyOf": [
@@ -5476,6 +7679,13 @@
         "type": {
           "const": "within_time",
           "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
           "type": "string"
         },
         "action": {
@@ -5693,8 +7903,20 @@
       "items": {
         "discriminator": {
           "mapping": {
+            "always": "#/$defs/Always",
+            "eventually": "#/$defs/Eventually",
+            "example.visits_waypoints": "#/$defs/VisitsWaypoints",
+            "geofence": "#/$defs/Geofence",
+            "lifecycle_state": "#/$defs/LifecycleState",
+            "message_latency": "#/$defs/MessageLatency",
+            "min_distance": "#/$defs/MinDistance",
+            "mission_time": "#/$defs/MissionTime",
+            "never": "#/$defs/Never",
             "no_collision": "#/$defs/NoCollision",
+            "path_efficiency": "#/$defs/PathEfficiency",
             "reach_pose": "#/$defs/ReachPose",
+            "resource_usage": "#/$defs/ResourceUsage",
+            "sequence": "#/$defs/Sequence",
             "topic_rate": "#/$defs/TopicRate",
             "topic_value": "#/$defs/TopicValue",
             "within_time": "#/$defs/WithinTime"
@@ -5716,10 +7938,88 @@
           },
           {
             "$ref": "#/$defs/TopicValue"
+          },
+          {
+            "$ref": "#/$defs/Geofence"
+          },
+          {
+            "$ref": "#/$defs/MinDistance"
+          },
+          {
+            "$ref": "#/$defs/PathEfficiency"
+          },
+          {
+            "$ref": "#/$defs/MissionTime"
+          },
+          {
+            "$ref": "#/$defs/MessageLatency"
+          },
+          {
+            "$ref": "#/$defs/Sequence"
+          },
+          {
+            "$ref": "#/$defs/ResourceUsage"
+          },
+          {
+            "$ref": "#/$defs/LifecycleState"
+          },
+          {
+            "$ref": "#/$defs/Always"
+          },
+          {
+            "$ref": "#/$defs/Never"
+          },
+          {
+            "$ref": "#/$defs/Eventually"
+          },
+          {
+            "$ref": "#/$defs/VisitsWaypoints"
           }
         ]
       },
       "title": "Assertions",
+      "type": "array"
+    },
+    "kpis": {
+      "description": "KPI collectors: what to measure without judging (assertions.md).",
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "distance": "#/$defs/DistanceKpi",
+            "latency": "#/$defs/LatencyKpi",
+            "mission_time": "#/$defs/MissionTimeKpi",
+            "path": "#/$defs/PathKpi",
+            "rate": "#/$defs/RateKpi",
+            "resources": "#/$defs/ResourcesKpi",
+            "value": "#/$defs/ValueKpi"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/PathKpi"
+          },
+          {
+            "$ref": "#/$defs/MissionTimeKpi"
+          },
+          {
+            "$ref": "#/$defs/DistanceKpi"
+          },
+          {
+            "$ref": "#/$defs/RateKpi"
+          },
+          {
+            "$ref": "#/$defs/LatencyKpi"
+          },
+          {
+            "$ref": "#/$defs/ResourcesKpi"
+          },
+          {
+            "$ref": "#/$defs/ValueKpi"
+          }
+        ]
+      },
+      "title": "Kpis",
       "type": "array"
     },
     "outputs": {

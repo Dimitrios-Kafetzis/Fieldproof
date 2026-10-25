@@ -14,7 +14,7 @@ parallel), so an implementation must be safe to share between threads.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -99,6 +99,20 @@ class ContainerState:
 
 
 @dataclass(frozen=True)
+class ResourceUsage:
+    """One sample of a container's resources (task P2-T05), as `docker stats` reports them."""
+
+    cpu_pct: float
+    """CPU in percent of one core (a two-core quota shows up to 200)."""
+    memory_bytes: int
+    """The working set (usage without the page cache)."""
+    memory_limit_bytes: int | None = None
+    pids: int | None = None
+    read_at: str | None = None
+    """The daemon's timestamp of the sample."""
+
+
+@dataclass(frozen=True)
 class HostInfo:
     """What the runtime's host can give: cores and memory."""
 
@@ -162,6 +176,9 @@ class Backend(Protocol):
 
     def copy_from(self, name: str, path: str, destination: Path) -> int:
         """Copy a file out of a container to `destination`; return the bytes written."""
+
+    def usage(self, name: str) -> Iterator[ResourceUsage]:
+        """The container's resource samples, about one a second, until it stops."""
 
     def host(self) -> HostInfo:
         """The cores and memory of the host the containers run on."""
