@@ -2621,10 +2621,12 @@ class Run:
                 for name in schedule.feed(sample, self.evaluator.time_of(sample)):
                     self._triggered(name)
             failed: tuple[str, PlannedAction, float, ActionRecord] | None = None
-            now = self._timeline_t(started)
             for name in [n for n, (_, f, _, _, _) in running.items() if f.done()]:
                 action, future, began, limit, record = running.pop(name)
                 record.duration_s = round(self.clock() - began, 3)
+                # The end on the timeline's clock, taken after the duration, so an `after`
+                # entry is never due before `t_s + duration_s` of what it follows.
+                now = self._timeline_t(started)
                 with self._lock:
                     self._holding.pop(name, None)
                 error = future.exception()
