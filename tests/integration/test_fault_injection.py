@@ -101,7 +101,9 @@ def echo_field(topic: str, field: str, timeout: float = 30.0) -> str | None:
         "topic", "echo", "--once", "--field", field, topic, timeout=timeout, check=False
     )
     # The CLI interleaves "A message was lost!!!" (and its indented "total count" lines) when a
-    # reader falls behind: not the value.
+    # reader falls behind, and Fast DDS prints its coloured transport errors on stdout
+    # (`[RTPS_TRANSPORT_SHM Error] Failed init_port ...` when a shared-memory port file is stale):
+    # neither is the value.
     lines = [
         line.strip()
         for line in completed.stdout.splitlines()
@@ -109,6 +111,8 @@ def echo_field(topic: str, field: str, timeout: float = 30.0) -> str | None:
         and line.strip() != "---"
         and "message was lost" not in line
         and not line.strip().startswith("total count")
+        and "\x1b[" not in line
+        and "RTPS_TRANSPORT" not in line
     ]
     if completed.returncode != 0 or not lines:
         return None
