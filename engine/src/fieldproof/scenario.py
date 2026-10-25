@@ -185,7 +185,8 @@ class Network(Strict):
     )
     verify: Literal["off", "warn", "fail"] = Field(
         default="warn",
-        description="What a link whose measured latency is not within 10 % of its profile does: "
+        description="What a link whose measured latency is not within 10 % of its profile (plus "
+        "the host's own round trip) does: "
         "nothing, a warning, or fails the run.",
     )
 

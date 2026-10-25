@@ -306,10 +306,12 @@ a discovery burst on its slowest link, or a heartbeat that does not share its qu
   ready or cannot probe, `--keep`, the teardown of the networks.
 - `tests/integration/test_radio_links.py` (`make test-integration`): **ping and iperf** on a link
   the engine shapes with its own backend and scripts, for every preset: one-way latency within
-  10 % of the profile from 100 pings, UDP throughput within 10 % of the rate both ways, a drop
+  10 % of the profile plus 5 ms for the host's own round trip from 100 pings, UDP throughput within
+  10 % of the rate both ways, a drop
   answering nothing, the restore answering again; then **`fieldproof run
   examples/scenarios/ugv_link_loss.yaml`** end to end: exit 0, the seven assertions passed, every
-  measured period passed (latency within 10 % of 60 ms, the drop unanswered), `/link_state` and
+  measured period passed (latency within 10 % of 60 ms plus the host's 5 ms, the drop unanswered),
+  `/link_state` and
   `/fieldproof/network` in the MCAP, no container or network left.
 
 ## Known limits

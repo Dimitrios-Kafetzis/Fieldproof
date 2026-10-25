@@ -52,6 +52,11 @@ NETWORK_FILE = "network.jsonl"
 # (tenths of a millisecond under a loaded simulation) would otherwise decide.
 LATENCY_TOLERANCE = 0.10
 LATENCY_FLOOR_MS = 0.5
+LATENCY_HOST_ALLOWANCE_MS = 5.0
+"""What the measuring host itself adds to a round trip: the ground station's ping crosses two
+network namespaces and an ifb device on a host that also runs the simulator, the bridge and the
+stack, and a loaded four-core CI runner delays it by several milliseconds (issue #80: 66 to
+68 ms measured for a 60 ms profile with the netem delay exact). Added to the tolerance."""
 # A period is judged on this many replies (a dropped link on this many probes); fewer is
 # `insufficient`, not a failure.
 MIN_REPLIES = 20
@@ -269,8 +274,11 @@ def expected_latency_ms(profile: LinkProfile) -> float:
 
 
 def latency_tolerance_ms(expected_ms: float) -> float:
-    """How far a period's measured latency may be from the expected one."""
-    return max(expected_ms * LATENCY_TOLERANCE, LATENCY_FLOOR_MS)
+    """How far a period's measured latency may be from the expected one.
+
+    10 % of the profile (at least the floor), plus the host's own share of the round trip.
+    """
+    return max(expected_ms * LATENCY_TOLERANCE, LATENCY_FLOOR_MS) + LATENCY_HOST_ALLOWANCE_MS
 
 
 # ------------------------------------------------------------------------------ measurement
