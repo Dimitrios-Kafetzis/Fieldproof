@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.15.1...v0.16.0) (2026-10-23)
+
+
+### Features
+
+* **engine:** clock management and determinism ([#76](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/76)) ([c6ec1d0](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/c6ec1d0b795b8919ccc4e893cd8e2ca334b62c17))
+
 ## [0.15.1](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.15.0...v0.15.1) (2026-10-23)
 
 
