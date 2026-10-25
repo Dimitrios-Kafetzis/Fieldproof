@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,19 @@ TRAFFIC_OK = (
     '"in": [{"kind": "netem", "handle": "20:", "bytes": 917404, "packets": 3100, "drops": 3, '
     '"backlog": 0}]}'
 )
+
+
+V1_MARKER = re.compile(r"^  # --- assertion library v1.*?(?=^outputs:)", re.S | re.M)
+
+
+def v0_text(text: str) -> str:
+    """An example scenario's text without the assertion library v1 block and the `kpis`.
+
+    The fakes script the five primitives' samples (poses, rates, values, contacts); the
+    library's assertions (task P2-T05) want latencies, lifecycle states and resource samples
+    that the fake-backend tests do not play, so they load the examples as they were.
+    """
+    return V1_MARKER.sub("", text)
 
 
 def world_stats(sim_s: float, *, paused: bool) -> str:

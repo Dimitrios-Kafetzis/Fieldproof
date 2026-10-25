@@ -99,6 +99,21 @@ def test_example_loads(example: Scenario) -> None:
         "topic_rate",
         "no_collision",
         "topic_value",
+        "geofence",
+        "path_efficiency",
+        "mission_time",
+        "message_latency",
+        "resource_usage",
+        "lifecycle_state",
+        "sequence",
+        "eventually",
+    ]
+    assert [k.type for k in example.kpis] == [
+        "path",
+        "mission_time",
+        "latency",
+        "resources",
+        "value",
     ]
     reached = example.assertions[0]
     assert isinstance(reached, ReachPose)
@@ -158,7 +173,7 @@ def test_video_output_forms(data: dict[str, Any]) -> None:
 
 
 def test_defaults_without_optional_sections(data: dict[str, Any]) -> None:
-    for key in ("time", "timeline", "assertions", "outputs"):
+    for key in ("time", "timeline", "assertions", "kpis", "outputs"):
         del data[key]
     scenario = validate_data(data)
     assert scenario.time.mode == "sim"
@@ -301,6 +316,8 @@ def test_entry_label(example: Scenario) -> None:
 
 def test_within_time_needs_a_named_entry(data: dict[str, Any]) -> None:
     del data["timeline"][0]["name"]
+    data["assertions"] = data["assertions"][:5]  # the primitives; the library names the entry too
+    del data["kpis"]
     with pytest.raises(ScenarioError, match=r"is not a timeline entry \(navigate_to_pose@0s\)"):
         validate_data(data)
     data["assertions"][1]["action"] = "navigate_to_pose@0s"

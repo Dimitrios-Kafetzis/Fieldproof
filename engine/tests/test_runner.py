@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 import yaml
-from fakes import FakeBackend, FakeClock, FakeContainer
+from fakes import FakeBackend, FakeClock, FakeContainer, v0_text
 from rich.console import Console
 
 from fieldproof.assertions import ASSERTIONS_FILE, OBSERVE_FILE, SAMPLES_FILE
@@ -87,7 +87,7 @@ def ready_backend(resolved: Plan, clock: FakeClock | None = None) -> FakeBackend
 # --------------------------------------------------------------------------------- fixtures
 @pytest.fixture(scope="module")
 def example() -> Scenario:
-    return load_scenario(EXAMPLE)
+    return scenario_variant(lambda _data: None)
 
 
 @pytest.fixture(scope="module")
@@ -124,7 +124,7 @@ def filmed(config: Config, tmp_path: Path) -> Plan:
 
 def scenario_variant(mutate: Callable[[dict[str, Any]], None]) -> Scenario:
     """The example with a change, as if loaded from the example's path."""
-    text = EXAMPLE.read_text()
+    text = v0_text(EXAMPLE.read_text())
     data = yaml.safe_load(text)
     mutate(data)
     return validate_data(data, EXAMPLE.resolve(), text)
@@ -644,7 +644,11 @@ def test_without_recording_or_logs(config: Config, clock: FakeClock, tmp_path: P
 
 def test_recording_is_reported(config: Config, clock: FakeClock, tmp_path: Path) -> None:
     resolved = plan(
-        load_scenario(EXAMPLE), config, runs_dir=tmp_path, render="software", token=SUFFIX
+        scenario_variant(lambda _data: None),
+        config,
+        runs_dir=tmp_path,
+        render="software",
+        token=SUFFIX,
     )
     backend = ready_backend(resolved)
     original = backend.write_samples
@@ -935,7 +939,11 @@ def test_recorder_exits(resolved: Plan, clock: FakeClock) -> None:
 
 def test_no_ready_conditions(config: Config, clock: FakeClock, tmp_path: Path) -> None:
     resolved = plan(
-        load_scenario(EXAMPLE), config, runs_dir=tmp_path, render="software", token=SUFFIX
+        scenario_variant(lambda _data: None),
+        config,
+        runs_dir=tmp_path,
+        render="software",
+        token=SUFFIX,
     )
     (vehicle,) = resolved.vehicles
     quick = Plan(

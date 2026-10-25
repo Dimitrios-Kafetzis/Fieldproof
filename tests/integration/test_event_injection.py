@@ -147,6 +147,8 @@ def test_01_events_scenario(tmp_path: Path) -> None:  # noqa: PLR0915
         "stack_frozen": "passed",
         "stack_stopped": "passed",
         "no_collision": "passed",
+        "events_in_order": "passed",
+        "mission_in_time": "passed",
     }
 
     # The container was paused, resumed and killed (Docker refuses each on a container in the

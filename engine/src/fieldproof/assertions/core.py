@@ -800,10 +800,14 @@ class Evaluator:
             self.last_sim = origin_sim
 
     def _changed(self, before: list[str]) -> list[Result]:
+        """The assertions whose status changed since `before`.
+
+        A collector's result is never returned: it is read through :attr:`kpi_results`.
+        """
         return [
             c.result
             for c, status in zip(self.everything, before, strict=True)
-            if c.result.status != status
+            if c.result.status != status and c in self.checkers
         ]
 
     def _collect(self, before: list[str], t: float | None = None) -> list[Result]:
@@ -839,7 +843,7 @@ class Evaluator:
         return [c.result.status for c in self.everything]
 
     def feed(self, sample: Sample) -> list[Result]:
-        """One observation; returns the assertions it resolved."""
+        """One observation; returns the assertions it resolved (never a collector's result)."""
         before = self._statuses()
         self.samples += 1
         if sample.sim is not None and (self.last_sim is None or sample.sim >= self.last_sim):

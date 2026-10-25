@@ -123,7 +123,8 @@ def test_path_collector() -> None:
     ev.feed(pose(2.0, 0.0, 3.0))
     ev.feed(pose(3.0, 4.0, 3.0))
     ev.action("drive", "finished", T0 + 4.0, "ok")
-    (result,) = ev.finish(T0 + 5.0)
+    assert ev.finish(T0 + 5.0) == [], "a collector's result is not a verdict"
+    (result,) = ev.kpi_results
     assert result.status == MEASURED
     assert result.type == "path"
     assert result.reason == "7.00 m over 3 pose(s)"
@@ -164,7 +165,8 @@ def test_mission_time_and_distance_collectors() -> None:
     ev.feed(pose(2.0, 3.0, 0.0, model="ugv2"))
     ev.feed(pose(3.0, 1.0, 0.0))
     ev.action("drive", "finished", T0 + 5.0, "ok")
-    results = ev.finish(T0 + 9.0)
+    ev.finish(T0 + 9.0)
+    results = ev.kpi_results
     assert [r.status for r in results] == [MEASURED] * 4
     kpis = ev.kpis()
     assert kpis["whole.duration_s"]["value"] == 9.0
@@ -248,7 +250,8 @@ def test_rate_latency_resources_and_value_collectors() -> None:
     )
     for t, v in enumerate([0.1, 0.5, 0.4, "x"], start=1):
         ev.feed(sample("value", float(t), topic="/cmd_vel", field="linear.x", value=v))
-    results = ev.finish(T0 + 5.0)
+    ev.finish(T0 + 5.0)
+    results = ev.kpi_results
     assert [r.status for r in results] == [MEASURED] * 4
     kpis = ev.kpis()
     assert kpis["scan.mean_hz"]["value"] == 9.0
@@ -281,7 +284,8 @@ def test_missing_collectors_and_errors() -> None:
         },
     )
     ev.feed(sample("value", 1.0, topic="/cmd_vel", field="linear.x", error="no field"))
-    results = ev.finish(T0 + 5.0)
+    ev.finish(T0 + 5.0)
+    results = ev.kpi_results
     assert [r.status for r in results] == [MISSING, MISSING, MEASURED]
     assert results[1].reason == "no distance measured"
     assert results[2].evidence["error"] == "no field"

@@ -52,7 +52,15 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 SCENARIO = REPO / "examples/scenarios/ugv_nav_to_goal.yaml"
 FAILING_SCENARIO = REPO / "examples/scenarios/ugv_nav_fails_on_time.yaml"
-SIDE_CHANNELS = {"/fieldproof/events", "/fieldproof/assertions", "/fieldproof/metrics"}
+SIDE_CHANNELS = {
+    "/fieldproof/events",
+    "/fieldproof/assertions",
+    "/fieldproof/metrics",
+    "/fieldproof/resources",
+    "/fieldproof/kpis",
+}
+ASSERTIONS = 13
+"""The example's assertions: the five primitives and the eight of the library v1 (P2-T05)."""
 RUN_LABEL = "io.fieldproof.run"
 FIELDPROOF = [sys.executable, "-m", "fieldproof"]
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -167,7 +175,9 @@ def test_01_fieldproof_run_passes(tmp_path: Path) -> None:
     assert "vehicle.ready" in events
     assert "recorder.ready" in events
     assert "action.end" in events
-    assert events.count("assertion.passed") == 5
+    assert events.count("assertion.passed") == ASSERTIONS
+    assert events.count("kpi.measured") == 5
+    assert "resources.start" in events
     assert "recording.saved" in events
     assert "report.written" in events
     assert "teardown.done" in events
@@ -178,14 +188,23 @@ def test_01_fieldproof_run_passes(tmp_path: Path) -> None:
 
 
 def check_assertions(record: dict[str, Any]) -> None:
-    """The five assertions passed, each with its evidence."""
+    """The assertions passed, each with its evidence; the KPIs and the resources measured."""
     verdicts = {a["name"]: a for a in record["assertions"]}
+    short = record["run_id"].rsplit("-", 1)[1]
     assert {n: a["status"] for n, a in verdicts.items()} == {
         "reached_goal": "passed",
         "arrived_in_time": "passed",
         "lidar_streams": "passed",
         "no_collision": "passed",
         "speed_limit": "passed",
+        "stays_in_yard": "passed",
+        "drives_straight": "passed",
+        "mission_in_time": "passed",
+        "odom_fresh": "passed",
+        "stack_fits": "passed",
+        "navigator_active": "passed",
+        "mission_order": "passed",
+        "slows_at_goal": "passed",
     }, {n: a["reason"] for n, a in verdicts.items()}
     for name, assertion in verdicts.items():
         print(f"{name}: {assertion['reason']}", flush=True)  # noqa: T201
@@ -203,6 +222,38 @@ def check_assertions(record: dict[str, Any]) -> None:
     assert record["observation"]["samples"] > 50
     assert record["observation"]["observer_errors"] == 0
     assert record["observation"]["sim_elapsed_s"] > 0
+    # The library v1's evidence and the KPIs (task P2-T05).
+    assert verdicts["drives_straight"]["evidence"]["efficiency"] >= 0.6
+    assert verdicts["stack_fits"]["evidence"]["samples"] >= 5, "one resource sample a second"
+    assert verdicts["stack_fits"]["metrics"]["peak_memory_mb"]["value"] > 100
+    assert verdicts["odom_fresh"]["evidence"]["windows"] >= 3
+    assert verdicts["navigator_active"]["evidence"]["states"] == {
+        "active": verdicts["navigator_active"]["evidence"]["samples"]
+    }
+    assert [s["step"] for s in verdicts["mission_order"]["evidence"]["steps"]] == [
+        "drive_ahead started",
+        "cmd_vel.linear.x value > 0 (step 2)",
+        "assertion reached_goal",
+    ]
+    kpis = record["kpis"]
+    measured = ", ".join(f"{k} {v['value']} {v['unit']}" for k, v in kpis.items())
+    print(f"kpis: {measured}", flush=True)  # noqa: T201
+    assert kpis["drive.path_m"]["value"] == pytest.approx(4.0, abs=1.5)
+    assert kpis["drive.efficiency"]["value"] >= 0.6
+    assert kpis["mission.duration_s"]["value"] > 0
+    assert kpis["scan_age.p95_ms"]["unit"] == "ms"
+    assert kpis["stack.peak_cpu_pct"]["value"] > 0
+    assert kpis["commanded.count"]["value"] > 10
+    assert kpis["reached_goal.closest_m"]["value"] <= 0.5
+    assert [c["status"] for c in record["kpi_collectors"]] == ["measured"] * 5
+    resources = record["resources"]
+    assert set(resources["containers"]) >= {
+        f"fieldproof-{short}-ugv1",
+        f"fieldproof-{short}-bridge-ugv1",
+        f"fieldproof-{short}-sim",
+        f"fieldproof-{short}-recorder",
+    }
+    assert resources["samples"] >= 20
 
 
 def check_observer_files(run_dir: Path, record: dict[str, Any]) -> None:
@@ -230,9 +281,11 @@ def check_recording(run_dir: Path) -> list[Path]:
     print(f"recorded {mcaps[0].stat().st_size} bytes, topics: {topics}", flush=True)  # noqa: T201
     assert {"/clock", "/odom", "/scan", "/tf", "/cmd_vel"} <= set(topics), topics
     assert set(topics) >= SIDE_CHANNELS, topics
-    assert topics["/fieldproof/assertions"] == 5, "one message per verdict"
+    assert topics["/fieldproof/assertions"] == ASSERTIONS, "one message per verdict"
     assert topics["/fieldproof/metrics"] >= 5, "once a second while the stack ran"
     assert topics["/fieldproof/events"] >= 20, "the engine's log lines"
+    assert topics["/fieldproof/resources"] >= 20, "one sample per container and second"
+    assert topics["/fieldproof/kpis"] == 6, "five collectors and the KPI map"
     assert topics["/odom"] > 100
     return mcaps
 
@@ -242,7 +295,9 @@ def check_reports(run_dir: Path, mcaps: list[Path]) -> None:
     report = json.loads((run_dir / "report.json").read_text())
     assert report["verdict"] == "PASS"
     assert report["exit_code"] == 0
-    assert report["assertion_counts"]["passed"] == 5
+    assert report["assertion_counts"]["passed"] == ASSERTIONS
+    assert len(report["kpis"]) > 20
+    assert "## KPIs" in (run_dir / "report.md").read_text()
     assert report["recording"]["mcap"] == [f"recording/{mcaps[0].name}"]
     markdown = (run_dir / "report.md").read_text()
     assert markdown.startswith("# Fieldproof run report: ugv_nav_to_goal")
