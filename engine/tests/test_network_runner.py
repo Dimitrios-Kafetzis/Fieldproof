@@ -441,7 +441,7 @@ def test_a_link_that_does_not_match_its_profile_fails_the_run(resolved: Plan) ->
     assert record.status == Status.FAILED
     assert record.reason is not None
     assert record.reason.startswith("link ugv1 does not match profile lte_rural: latency 120.00 ms")
-    assert record.reason.endswith("profile 60.00 ms (± 6.00 ms)")
+    assert record.reason.endswith("profile 60.00 ms (± 11.00 ms)")
     assert events(log, "link.failed")[0]["level"] == "warning"
 
 

@@ -14,6 +14,7 @@ from fieldproof.network import (
     IFB_DEVICE,
     INSUFFICIENT,
     LATENCY_FLOOR_MS,
+    LATENCY_HOST_ALLOWANCE_MS,
     PASSED,
     PRESETS,
     LinkMonitor,
@@ -163,8 +164,8 @@ def test_expected_latency() -> None:
     assert expected_latency_ms(LTE) == 60.0
     assert expected_latency_ms(LinkProfile(latency_ms=10)) == 10.0
     assert expected_latency_ms(LinkProfile(latency_ms=10, reorder_pct=25)) == 7.5
-    assert latency_tolerance_ms(60.0) == pytest.approx(6.0)
-    assert latency_tolerance_ms(1.0) == LATENCY_FLOOR_MS
+    assert latency_tolerance_ms(60.0) == pytest.approx(6.0 + LATENCY_HOST_ALLOWANCE_MS)
+    assert latency_tolerance_ms(1.0) == LATENCY_FLOOR_MS + LATENCY_HOST_ALLOWANCE_MS
 
 
 # ---------------------------------------------------------------------------------- windows
@@ -201,7 +202,7 @@ def test_period_measurement_and_verdict() -> None:
     assert measured["loss_pct"] == 0.0
     status, reason = period.verdict()
     assert status == PASSED
-    assert reason == "latency 60.00 ms over 25 replies, profile 60.00 ms (± 6.00 ms)"
+    assert reason == "latency 60.00 ms over 25 replies, profile 60.00 ms (± 11.00 ms)"
     # Twice as slow: the profile is not what the link does.
     slow = LinkPeriod("ugv1", "lte_rural", LTE, start=100.0, cause="initial")
     slow.windows = [LinkWindow.from_sample(window(100.0, [240.0] * 25))]

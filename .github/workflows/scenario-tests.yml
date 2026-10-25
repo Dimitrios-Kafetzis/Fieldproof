@@ -148,7 +148,8 @@ jobs:
       - name: Build the example vehicle image on the published base image
         run: make vehicle-image
       - name: Two lockstep runs, compared (software rendering)
-        run: make test-determinism PYTEST_FLAGS="--basetemp runs/determinism"
+        # pytest creates --basetemp itself but not its parent.
+        run: mkdir -p runs && make test-determinism PYTEST_FLAGS="--basetemp runs/determinism"
       - name: Upload the two runs (records, clock files, samples, logs)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

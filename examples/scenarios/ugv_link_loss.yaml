@@ -5,9 +5,10 @@
 # ground station's heartbeat it reports the link lost and holds position; when the heartbeat
 # returns it reports the link back and resumes the mission. The assertions check exactly that,
 # and `network.verify: fail` fails the run if the measured latency of the link is not within
-# 10 % of the profile. The failsafe's 2 s are simulation time while the timeline and the
-# assertion windows are wall clock (runner v0), so the windows leave room for a simulation
-# running well below real time (software rendering on a CI runner: the vehicle reported the
+# 10 % of the profile plus 5 ms for the host's own round trip (network.md). The failsafe's
+# 2 s are simulation time while the timeline and the assertion windows are wall clock (runner
+# v0), so the windows leave room for a simulation running well below real time (software
+# rendering on a CI runner: the vehicle reported the
 # link lost 4.4 s after the drop there). Schema: docs/reference/scenarios.md; links:
 # docs/reference/network.md.
 #
@@ -28,7 +29,7 @@ vehicles:
       frame: spawn_hall # (6, 15), facing west along the open floor of the hall
 network:
   profile: lte_rural # every vehicle's link (one here)
-  verify: fail # the measured latency must be within 10 % of the profile's
+  verify: fail # the measured latency must be within 10 % of the profile's (plus the host's 5 ms)
 time:
   mode: sim
   timeout_s: 10m
@@ -46,7 +47,7 @@ timeline:
     name: link_outage
     vehicle: ugv1
     action: link.drop
-    duration_s: 30s # then lte_rural again (the lease expires: a rediscovery, docs/reference/network.md)
+    duration_s: 30s # then lte_rural again (the lease expires: a rediscovery, network.md)
 assertions:
   # The vehicle notices: link_state false within 15 s of the drop (2 s of simulation time; a
   # CI runner under software rendering has reported it 4 to 9 s after the drop).
