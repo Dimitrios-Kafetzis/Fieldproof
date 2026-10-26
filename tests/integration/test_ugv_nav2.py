@@ -380,22 +380,8 @@ def lifecycle_states() -> dict[str, str]:
     return states
 
 
-@pytest.mark.integration
-def test_04_bringup_watchdog_retries_an_aborted_bringup(stack: Stack) -> None:
-    """The watchdog brings the stack back after the manager gave up on a bringup (issue #32).
-
-    The manager's abort leaves the servers inactive and unconfigured; `PAUSE` leaves them all
-    inactive, which is the same ground for the retry (every server has to go back to
-    unconfigured before the manager's `STARTUP` can configure it). The manager's abort line is
-    then published on `/rosout` as the manager would, and the watchdog is expected to take the
-    servers down, ask the manager for `STARTUP` and get the stack active again.
-    """
-    pause = vehicle_ros2(
-        "service", "call", MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", "{command: 1}"
-    )
-    assert "success=True" in pause, pause
-    paused = lifecycle_states()
-    assert set(paused.values()) == {"inactive"}, paused
+def publish_abort_line() -> None:
+    """The manager's abort line on /rosout, as the manager logs it."""
     vehicle_ros2(
         "topic",
         "pub",
@@ -409,6 +395,35 @@ def test_04_bringup_watchdog_retries_an_aborted_bringup(stack: Stack) -> None:
         "{level: 40, name: lifecycle_manager_navigation, "
         "msg: 'Failed to bring up all requested nodes. Aborting bringup.'}",
     )
+
+
+@pytest.mark.integration
+def test_04_bringup_watchdog_retries_an_aborted_bringup(stack: Stack) -> None:
+    """The watchdog brings the stack back after the manager gave up on a bringup (issue #32).
+
+    The manager's abort leaves the servers inactive and unconfigured; `PAUSE` leaves them all
+    inactive, which is the same ground for the retry (every server has to go back to
+    unconfigured before the manager's `STARTUP` can configure it). The manager's abort line is
+    then published on `/rosout` as the manager would, and the watchdog is expected to take the
+    servers down, ask the manager for `STARTUP` and get the stack active again.
+    """
+    # The manager also aborts when it lost the answer of its last get_state with every server
+    # active (seen on CI): the watchdog must leave a working stack alone.
+    publish_abort_line()
+    wait_until(
+        lambda: "every server is active, nothing to retry" in container_logs(VEHICLE, tail=200),
+        60.0,
+        "the watchdog to leave the active stack alone",
+        period_s=2.0,
+    )
+    assert set(lifecycle_states().values()) == {"active"}
+    pause = vehicle_ros2(
+        "service", "call", MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", "{command: 1}"
+    )
+    assert "success=True" in pause, pause
+    paused = lifecycle_states()
+    assert set(paused.values()) == {"inactive"}, paused
+    publish_abort_line()
     wait_until(
         lambda: set(lifecycle_states().values()) == {"active"},
         RETRY_TIMEOUT_S,

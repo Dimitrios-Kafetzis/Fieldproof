@@ -15,8 +15,11 @@ to twenty bringups on a loaded CI runner). This node sits next to the manager an
   service (deactivate, then cleanup: the manager's `STARTUP` configures every server and
   fails on one that is already configured), then asks the manager for `STARTUP` again, so the
   manager brings the stack up as it does at start, bonds included;
-- a server caught mid-transition means the manager is at work, and the retry waits; at most
-  `max_retries` retries; a stack that is active is left alone.
+- a stack whose servers are all active is left alone: the manager also aborts when it lost
+  the answer of its last `get_state`, with every server up (seen on CI), and a retry then
+  would take a working stack down in the middle of its mission; a server caught
+  mid-transition means the manager is at work, and the retry waits; at most `max_retries`
+  retries.
 
 Parameters: `manager` (the lifecycle manager's node name), `node_names` (the managed servers,
 as the manager's), `grace_s` (90), `check_period_s` (15), `stall_s` (30), `max_retries` (3).
@@ -146,6 +149,9 @@ class BringupWatchdog(Node):  # type: ignore[misc]
             self.get_logger().error(f"{reason}: no retries left ({self.max_retries} used)")
             return
         states = self.states()
+        if all(state == State.PRIMARY_STATE_ACTIVE for state in states.values()):
+            self.get_logger().info(f"{reason}: every server is active, nothing to retry")
+            return
         if any(state is not None and state not in PRIMARY_STATES for state in states.values()):
             self.get_logger().info(f"{reason}: a server is in transition, the manager is at work")
             return
