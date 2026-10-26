@@ -63,6 +63,8 @@ strict = true
 warn_unreachable = true
 warn_unused_ignores = true
 show_error_codes = true
+# The example vehicle ships two extensionless scripts in one directory; by their names, not __main__.
+scripts_are_modules = true
 pretty = true
 plugins = []
 exclude = ["^build/", "^install/", "^log/", "^node_modules/", "^assets/"]
