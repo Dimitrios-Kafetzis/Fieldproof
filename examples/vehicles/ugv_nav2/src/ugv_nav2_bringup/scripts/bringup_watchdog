@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""Bringup watchdog of the example UGV: retry a Nav2 bringup its lifecycle manager aborted.
+
+`nav2_lifecycle_manager` (Jazzy, 1.3.x) brings the servers up once: it configures and activates
+them in order and, when one transition call fails (a `get_state` response lost under load, a
+`change_state` that timed out), logs `Failed to bring up all requested nodes. Aborting bringup.`
+and stops. It has no retry: the servers it had reached stay `inactive`, the rest
+`unconfigured`, and the vehicle never becomes ready (Fieldproof issue #32, about once in ten
+to twenty bringups on a loaded CI runner). This node sits next to the manager and retries:
+
+- it watches `/rosout` for the manager's abort line and, as a fallback, polls the managed
+  servers after `grace_s` and every `check_period_s`: servers not all active and no change
+  for `stall_s` mean an aborted bringup even when the line was missed;
+- a retry takes every managed server back to `unconfigured` through its own `change_state`
+  service (deactivate, then cleanup: the manager's `STARTUP` configures every server and
+  fails on one that is already configured), then asks the manager for `STARTUP` again, so the
+  manager brings the stack up as it does at start, bonds included;
+- a server caught mid-transition means the manager is at work, and the retry waits; at most
+  `max_retries` retries; a stack that is active is left alone.
+
+Parameters: `manager` (the lifecycle manager's node name), `node_names` (the managed servers,
+as the manager's), `grace_s` (90), `check_period_s` (15), `stall_s` (30), `max_retries` (3).
+Names are relative, so they resolve under the vehicle's namespace. Time is the wall clock: the
+bringup happens before the simulation clock is of any use.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+import rclpy
+from lifecycle_msgs.msg import State, Transition
+from lifecycle_msgs.srv import ChangeState, GetState
+from nav2_msgs.srv import ManageLifecycleNodes
+from rcl_interfaces.msg import Log
+from rclpy.client import Client
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+ABORT_LINE = "Aborting bringup"
+SERVERS = [
+    "controller_server",
+    "smoother_server",
+    "planner_server",
+    "behavior_server",
+    "bt_navigator",
+    "waypoint_follower",
+    "velocity_smoother",
+    "collision_monitor",
+]
+PRIMARY_STATES = {
+    State.PRIMARY_STATE_UNCONFIGURED: "unconfigured",
+    State.PRIMARY_STATE_INACTIVE: "inactive",
+    State.PRIMARY_STATE_ACTIVE: "active",
+    State.PRIMARY_STATE_FINALIZED: "finalized",
+}
+# The transition that takes a server one step back towards unconfigured, by its state.
+BACKWARDS = {
+    State.PRIMARY_STATE_ACTIVE: Transition.TRANSITION_DEACTIVATE,
+    State.PRIMARY_STATE_INACTIVE: Transition.TRANSITION_CLEANUP,
+}
+CALL_TIMEOUT_S = 10.0
+STARTUP_TIMEOUT_S = 120.0
+SETTLE_S = 3.0
+
+
+def state_name(state: int | None) -> str:
+    """A lifecycle state for the log."""
+    if state is None:
+        return "unknown"
+    return PRIMARY_STATES.get(state, f"transitioning ({state})")
+
+
+class BringupWatchdog(Node):  # type: ignore[misc]
+    """Retry the bringup when the lifecycle manager gave up on it."""
+
+    def __init__(self) -> None:
+        super().__init__("bringup_watchdog")
+        self.manager = str(self.declare_parameter("manager", "lifecycle_manager_navigation").value)
+        self.node_names = [
+            str(name) for name in self.declare_parameter("node_names", SERVERS).value
+        ]
+        self.grace_s = float(self.declare_parameter("grace_s", 90.0).value)
+        self.check_period_s = float(self.declare_parameter("check_period_s", 15.0).value)
+        self.stall_s = float(self.declare_parameter("stall_s", 30.0).value)
+        self.max_retries = int(self.declare_parameter("max_retries", 3).value)
+        self.aborted = False
+        self.retries = 0
+        self.create_subscription(
+            Log,
+            "/rosout",
+            self.on_log,
+            QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE),
+        )
+        self.get_state = {
+            name: self.create_client(GetState, f"{name}/get_state") for name in self.node_names
+        }
+        self.change_state = {
+            name: self.create_client(ChangeState, f"{name}/change_state")
+            for name in self.node_names
+        }
+        self.manage = self.create_client(ManageLifecycleNodes, f"{self.manager}/manage_nodes")
+
+    def on_log(self, message: Log) -> None:
+        """The manager's abort line on /rosout (its logger is `[namespace.]<manager>`)."""
+        if message.name.rsplit(".", 1)[-1] == self.manager and ABORT_LINE in message.msg:
+            self.aborted = True
+
+    def call(self, client: Client, request: Any, timeout_s: float) -> Any:
+        """One service call, None when the service or its answer did not come in time."""
+        if not client.wait_for_service(timeout_sec=timeout_s):
+            return None
+        future = client.call_async(request)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_s)
+        if not future.done():
+            client.remove_pending_request(future)
+            return None
+        return future.result()
+
+    def state(self, name: str) -> int | None:
+        """A managed server's lifecycle state."""
+        response = self.call(self.get_state[name], GetState.Request(), CALL_TIMEOUT_S)
+        return None if response is None else int(response.current_state.id)
+
+    def states(self) -> dict[str, int | None]:
+        """Every managed server's state."""
+        return {name: self.state(name) for name in self.node_names}
+
+    def change(self, name: str, transition: int) -> bool:
+        """One transition of a managed server, verified against its state afterwards."""
+        request = ChangeState.Request()
+        request.transition.id = transition
+        response = self.call(self.change_state[name], request, CALL_TIMEOUT_S)
+        return response is not None and bool(response.success)
+
+    def spin_for(self, seconds: float) -> None:
+        """Spin for a while (the settle time before a retry)."""
+        deadline = time.monotonic() + seconds
+        while rclpy.ok() and time.monotonic() < deadline:
+            rclpy.spin_once(self, timeout_sec=min(1.0, max(0.0, deadline - time.monotonic())))
+
+    def retry(self, reason: str) -> None:
+        """Take the servers back to unconfigured and ask the manager to start again."""
+        if self.retries >= self.max_retries:
+            self.get_logger().error(f"{reason}: no retries left ({self.max_retries} used)")
+            return
+        states = self.states()
+        if any(state is not None and state not in PRIMARY_STATES for state in states.values()):
+            self.get_logger().info(f"{reason}: a server is in transition, the manager is at work")
+            return
+        self.retries += 1
+        self.get_logger().warning(
+            f"{reason}: retrying the bringup ({self.retries} of {self.max_retries}); servers "
+            + ", ".join(f"{name} {state_name(state)}" for name, state in states.items())
+        )
+        for name in reversed(self.node_names):
+            state = states[name]
+            while state in BACKWARDS:
+                transition = BACKWARDS[state]
+                if not self.change(name, transition):
+                    self.get_logger().error(f"{name}: transition {transition} failed, giving up")
+                    return
+                state = self.state(name)
+            if state != State.PRIMARY_STATE_UNCONFIGURED:
+                self.get_logger().error(f"{name}: {state_name(state)}, giving up on this retry")
+                return
+        self.get_logger().info(f"every server unconfigured: asking {self.manager} for STARTUP")
+        request = ManageLifecycleNodes.Request()
+        request.command = ManageLifecycleNodes.Request.STARTUP
+        response = self.call(self.manage, request, STARTUP_TIMEOUT_S)
+        if response is None:
+            self.get_logger().error(
+                f"no answer from {self.manager} within {STARTUP_TIMEOUT_S:.0f} s"
+            )
+        elif response.success:
+            self.get_logger().info("the bringup succeeded on retry")
+        else:
+            self.get_logger().error("the manager aborted the bringup again")
+
+    def run(self) -> None:
+        """Watch until shut down."""
+        started = time.monotonic()
+        next_check = started + self.grace_s
+        unchanged_since: float | None = None
+        previous: dict[str, int | None] | None = None
+        while rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=1.0)
+            now = time.monotonic()
+            if self.aborted:
+                self.aborted = False
+                self.spin_for(SETTLE_S)
+                self.retry(f"{self.manager} aborted the bringup")
+                next_check, previous = time.monotonic() + self.check_period_s, None
+                continue
+            if now < next_check:
+                continue
+            next_check = now + self.check_period_s
+            states = self.states()
+            pending = [
+                name for name, state in states.items() if state != State.PRIMARY_STATE_ACTIVE
+            ]
+            if not pending:
+                previous = None
+                continue
+            if states != previous:
+                previous, unchanged_since = states, now
+            if unchanged_since is not None and now - unchanged_since >= self.stall_s:
+                self.retry(
+                    f"{len(pending)} of {len(states)} servers not active and no change for "
+                    f"{now - unchanged_since:.0f} s"
+                )
+                previous = None
+            else:
+                self.get_logger().info(
+                    f"{len(pending)} of {len(states)} servers not active: "
+                    + ", ".join(f"{name} {state_name(states[name])}" for name in pending)
+                )
+
+
+def main() -> None:
+    """Spin the watchdog until shut down."""
+    rclpy.init()
+    node = BringupWatchdog()
+    try:
+        node.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == "__main__":
+    main()
