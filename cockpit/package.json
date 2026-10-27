@@ -1,6 +1,6 @@
 {
   "name": "fieldproof-cockpit-workspace",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "private": true,
   "description": "pnpm workspace for the Fieldproof cockpit: the web GUI (apps/cockpit) and its shared packages",
   "license": "Apache-2.0",

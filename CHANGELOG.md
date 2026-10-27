@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.16.0...v0.17.0) (2026-10-27)
+
+
+### Features
+
+* **engine:** assertion library v1, KPI collectors and the assertion plugin API ([#83](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/83)) ([5ba8558](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/5ba8558429a045e15eba54a663aae211cf59de69))
+
+
+### Bug fixes
+
+* **engine:** harden the image job: clock timeout, Nav2 bringup retry, kept-alive announce ([#84](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/84)) ([3cb5f80](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/3cb5f80856eca45ba0e4fda139c2cf903c272d32))
+
+
+### Build and dependencies
+
+* **deps:** bump the actions group with 3 updates ([#87](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/87)) ([e7dfa3f](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/e7dfa3f481fb9f29d4aa6cfe248e18ed2161f68a))
+
 ## [0.16.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.15.1...v0.16.0) (2026-10-23)
 
 
