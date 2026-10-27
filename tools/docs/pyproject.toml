@@ -8,7 +8,7 @@ version = "0.0.0"
 description = "Build environment for the Fieldproof documentation site (MkDocs Material)"
 requires-python = ">=3.12"
 dependencies = [
-  "mkdocs-material==9.7.7",
+  "mkdocs-material==9.8.0",
 ]
 
 [tool.uv]
