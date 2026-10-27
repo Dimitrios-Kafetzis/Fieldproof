@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.1](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.17.0...v0.17.1) (2026-10-27)
+
+
+### Build and dependencies
+
+* **deps:** bump certifi to 2026.10.23 in both uv lockfiles ([#91](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/91)) ([cda8ea7](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/cda8ea76a5c6c670619115d247e65c6866306220))
+* **deps:** bump mcap from 1.5.0 to 1.6.0 in /engine in the python group across 1 directory ([#86](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/86)) ([3a1f781](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/3a1f7812d837c434d6a3024a135b1ef30089b93b))
+* **deps:** bump the node group across 1 directory with 5 updates ([#85](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/85)) ([6c247f6](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/6c247f6c5691a49a2c1a64936110eafc18d8d987))
+
 ## [0.17.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.16.0...v0.17.0) (2026-10-27)
 
 
