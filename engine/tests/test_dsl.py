@@ -138,13 +138,13 @@ def test_example_loads(data: dict[str, Any]) -> None:
     labels = [entry_label(e) for e in scenario.timeline]
     assert labels == ["drive_ahead", "say_hello", "tighten_failsafe", "freeze_stack", "stop_stack"]
     hello = scenario.timeline[1]
-    assert (hello.every, hello.count, hello.at) == (5.0, 3, 2.0)
+    assert (hello.every, hello.count, hello.at) == (3.0, 3, 1.0)
     tighten = scenario.timeline[2]
     assert tighten.when is not None
     assert tighten.when.metric == "distance_to"
     assert tighten.within_s == 240.0
     assert scenario.timeline[3].after == ["drive_ahead", "tighten_failsafe"]
-    assert scenario.timeline[3].at == 1.0
+    assert scenario.timeline[3].at == 5.0
 
 
 @pytest.mark.parametrize(

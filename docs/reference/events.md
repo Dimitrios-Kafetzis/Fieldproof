@@ -15,10 +15,10 @@ timeline:
     vehicle: ugv1
     action: navigate_to_pose
     goal: { x: 10.0, y: -1.0, yaw: -1.5708 }
-  - name: say_hello                       # at 2 s, then every 5 s, three times
+  - name: say_hello                       # at 1 s, then every 3 s, three times
     vehicle: ugv1
-    at: 2s
-    every: 5s
+    at: 1s
+    every: 3s
     count: 3
     action: example.announce              # an event of a plugin (examples/plugins)
     text: fieldproof says hello
@@ -30,10 +30,10 @@ timeline:
     node: link_monitor
     parameter: loss_timeout_s
     value: 5.0
-  - name: freeze_stack                    # one second after both have ended, for 3 s
+  - name: freeze_stack                    # five seconds after both have ended, for 3 s
     vehicle: ugv1
     after: [drive_ahead, tighten_failsafe]
-    at: 1s
+    at: 5s
     action: container.pause
     duration_s: 3s
   - name: stop_stack                      # once the pause is over

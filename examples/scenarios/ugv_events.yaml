@@ -2,14 +2,16 @@
 # on the example vehicle ugv_nav2. The vehicle drives 4 m ahead from the loading dock as in
 # ugv_nav_to_goal.yaml while the timeline, instead of a list of times, uses every trigger:
 #
-#   at + every + count   say_hello publishes a message from the vehicle's container at 2 s,
-#                        7 s and 12 s (example.announce, the example plugin of examples/plugins);
+#   at + every + count   say_hello publishes a message from the vehicle's container at 1 s,
+#                        4 s and 7 s (example.announce, the example plugin of examples/plugins;
+#                        each occurrence runs for a few seconds, so they end by about 15 s);
 #   when + within_s      tighten_failsafe sets a parameter of the stack's link monitor the
 #                        first time the vehicle's ground truth is more than 1 m from its spawn;
-#   after + at           freeze_stack pauses the vehicle's container 1 s after both the drive
+#   after + at           freeze_stack pauses the vehicle's container 5 s after both the drive
 #                        and the parameter change have ended, for 3 s (the simulator goes on,
 #                        the stack stands still; a command still running in the container
-#                        would freeze with it, hence the list);
+#                        would freeze with it, hence the list, and a paused container answers
+#                        no command, hence the 5 s: the announcements are over by then);
 #   after                stop_stack kills the container once the pause is over; the run then
 #                        expects the container gone and ends the timeline.
 #
@@ -46,8 +48,8 @@ timeline:
     timeout_s: 5m
   - name: say_hello
     vehicle: ugv1
-    at: 2s
-    every: 5s
+    at: 1s
+    every: 3s
     count: 3
     action: example.announce # examples/plugins/example_events
     text: fieldproof says hello
@@ -66,7 +68,7 @@ timeline:
   - name: freeze_stack
     vehicle: ugv1
     after: [drive_ahead, tighten_failsafe]
-    at: 1s # one second after the later of the two ends
+    at: 5s # five seconds after the later of the two ends, the announcements over
     action: container.pause
     duration_s: 3s
   - name: stop_stack

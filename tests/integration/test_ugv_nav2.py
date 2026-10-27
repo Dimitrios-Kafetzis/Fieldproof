@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -343,3 +344,95 @@ def test_03_no_node_died(stack: Stack) -> None:
         log = container_logs(name, tail=5000)
         died = [line for line in log.splitlines() if "process has died" in line]
         assert not died, f"{name}: {died[:5]}"
+
+
+MANAGER_SERVICE = "/lifecycle_manager_navigation/manage_nodes"
+MANAGED = [
+    "controller_server",
+    "smoother_server",
+    "planner_server",
+    "behavior_server",
+    "bt_navigator",
+    "waypoint_follower",
+    "velocity_smoother",
+    "collision_monitor",
+]
+RETRY_TIMEOUT_S = 120.0
+
+
+def vehicle_ros2(*argv: str, timeout: float = 60.0) -> str:
+    """`ros2 ...` inside the vehicle's container."""
+    return run(
+        ["docker", "exec", VEHICLE, ENTRYPOINT, "ros2", *argv], timeout=timeout, quiet=True
+    ).stdout
+
+
+def lifecycle_states() -> dict[str, str]:
+    """The managed servers' states through their `get_state` services (what the probe polls;
+    `ros2 lifecycle get` wants the node in the graph first and says `Node not found`)."""
+    states = {}
+    for name in MANAGED:
+        text = vehicle_ros2(
+            "service", "call", f"/{name}/get_state", "lifecycle_msgs/srv/GetState", timeout=30
+        )
+        found = re.search(r"label='(\w+)'", text)
+        states[name] = found.group(1) if found else "unknown"
+    return states
+
+
+def publish_abort_line() -> None:
+    """The manager's abort line on /rosout, as the manager logs it."""
+    vehicle_ros2(
+        "topic",
+        "pub",
+        "--once",
+        "--keep-alive",
+        "2",
+        "--qos-reliability",
+        "reliable",
+        "/rosout",
+        "rcl_interfaces/msg/Log",
+        "{level: 40, name: lifecycle_manager_navigation, "
+        "msg: 'Failed to bring up all requested nodes. Aborting bringup.'}",
+    )
+
+
+@pytest.mark.integration
+def test_04_bringup_watchdog_retries_an_aborted_bringup(stack: Stack) -> None:
+    """The watchdog brings the stack back after the manager gave up on a bringup (issue #32).
+
+    The manager's abort leaves the servers inactive and unconfigured; `PAUSE` leaves them all
+    inactive, which is the same ground for the retry (every server has to go back to
+    unconfigured before the manager's `STARTUP` can configure it). The manager's abort line is
+    then published on `/rosout` as the manager would, and the watchdog is expected to take the
+    servers down, ask the manager for `STARTUP` and get the stack active again.
+    """
+    # The manager also aborts when it lost the answer of its last get_state with every server
+    # active (seen on CI): the watchdog must leave a working stack alone.
+    publish_abort_line()
+    wait_until(
+        lambda: "every server is active, nothing to retry" in container_logs(VEHICLE, tail=200),
+        60.0,
+        "the watchdog to leave the active stack alone",
+        period_s=2.0,
+    )
+    assert set(lifecycle_states().values()) == {"active"}
+    pause = vehicle_ros2(
+        "service", "call", MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", "{command: 1}"
+    )
+    assert "success=True" in pause, pause
+    paused = lifecycle_states()
+    assert set(paused.values()) == {"inactive"}, paused
+    publish_abort_line()
+    wait_until(
+        lambda: set(lifecycle_states().values()) == {"active"},
+        RETRY_TIMEOUT_S,
+        "the watchdog to bring the servers back to active",
+        period_s=5.0,
+    )
+    log = container_logs(VEHICLE, tail=5000)
+    assert "retrying the bringup (1 of 3)" in log, log[-3000:]
+    assert "the bringup succeeded on retry" in log, log[-3000:]
+    assert "Managed nodes are active" in log.split("retrying the bringup")[-1], log[-3000:]
+    died = [line for line in log.splitlines() if "process has died" in line]
+    assert not died, died[:5]

@@ -106,7 +106,15 @@ def test_apply(result: ExecResult, status: str, detail: str) -> None:
     (call,) = context.calls
     assert call[0] == "fieldproof-x-ugv1"
     assert call[1][:5] == ("topic", "pub", "--once", "-w", "1")
-    assert call[1][5:7] == ("/ugv1/announce", MESSAGE_TYPE)
-    assert call[1][7] == '{"data": "hello"}'
+    assert call[1][5:11] == (
+        "--keep-alive",
+        "2",
+        "--qos-reliability",
+        "reliable",
+        "--qos-durability",
+        "transient_local",
+    )
+    assert call[1][11:13] == ("/ugv1/announce", MESSAGE_TYPE)
+    assert call[1][13] == '{"data": "hello"}'
     assert call[2] == 30.0
     assert len(context.lines) == len(result.output.splitlines())
