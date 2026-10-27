@@ -13,17 +13,18 @@ validates a file. What the engine does with a scenario is :mod:`fieldproof.runne
 The timeline's entries are the registered events of :mod:`fieldproof.events` (task P2-T03):
 each event brings its own entry model, the union of them is the ``timeline[]`` item, told
 apart by ``action``, and every entry carries the triggers of the timeline DSL
-(:mod:`fieldproof.dsl`: ``at``, ``after``, ``when``, ``every``). The assertions are the five
-primitives of task P1-T06 (``reach_pose``, ``within_time``, ``topic_rate``, ``no_collision``,
-``topic_value``), one model each, told apart by ``type``; :mod:`fieldproof.assertions`
-evaluates them.
+(:mod:`fieldproof.dsl`: ``at``, ``after``, ``when``, ``every``). The assertions are the
+registered assertion types of :mod:`fieldproof.assertions` (task P2-T05: the five primitives
+of P1-T06 and the library of v1, plus the installed plugins), each bringing its spec model,
+the union of them the ``assertions[]`` item, told apart by ``type``; the ``kpis[]`` are the
+KPI collectors of :mod:`fieldproof.assertions.kpi`.
 """
 
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from pydantic import (
@@ -35,8 +36,19 @@ from pydantic import (
     model_validator,
 )
 
+from fieldproof.assertions import KpiBase, assertion_union
+from fieldproof.assertions import registry as assertion_registry
+from fieldproof.assertions.kpi import KPI_TYPES, Kpi
+from fieldproof.assertions.primitives import (
+    NoCollision,
+    ReachPose,
+    TopicRate,
+    TopicValue,
+    WithinTime,
+)
 from fieldproof.dsl import (
     DURATION_SCHEMA,
+    AssertionBase,
     Duration,
     Placement,
     ScenarioError,
@@ -49,7 +61,6 @@ from fieldproof.dsl import (
 from fieldproof.events import entry_union
 from fieldproof.events.link import LINK_ACTIONS, LinkDrop, LinkRestore, LinkSet
 from fieldproof.events.navigation import NavigateToPose
-from fieldproof.expression import ExpressionError, compile_condition
 from fieldproof.manifest import Name, Resources, format_errors
 from fieldproof.network import DROP, PRESETS, LinkProfile
 from fieldproof.world import VIDEO_RECORDER_PLUGIN, Pose, WorldInfo, place, read_world
@@ -59,11 +70,15 @@ __all__ = [
     "ASSERTION_TYPES",
     "DURATION_SCHEMA",
     "KIND",
+    "KPI_TYPES",
     "LINK_ACTIONS",
     "SCHEMA_ID",
     "VIDEO_RECORDER_PLUGIN",
     "Assertion",
+    "AssertionBase",
     "Duration",
+    "Kpi",
+    "KpiBase",
     "LinkDrop",
     "LinkRestore",
     "LinkSet",
@@ -102,7 +117,8 @@ API_VERSION = "fieldproof.dev/v0alpha1"
 KIND = "Scenario"
 SCHEMA_ID = "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/scenario.schema.json"
 # The assertion primitives of task P1-T06.
-ASSERTION_TYPES = ("reach_pose", "within_time", "topic_rate", "no_collision", "topic_value")
+ASSERTION_TYPES = tuple(assertion_registry().names)
+"""The registered assertion types (the built-ins and the installed plugins)."""
 
 
 class Metadata(Strict):
@@ -311,142 +327,12 @@ else:
 
 
 # --------------------------------------------------------------------------------- assertions
-class AssertionBase(Strict):
-    """What every assertion has: a unique name and the type that selects its parameters."""
-
-    name: Name = Field(description="Assertion name: lower case, digits and underscores.")
-
-
-class ReachPose(AssertionBase):
-    """The vehicle's ground-truth pose comes within a tolerance of a target.
-
-    Passes at the first ground-truth sample within `tolerance_m` of the target (and within
-    `yaw_tolerance_rad` of its heading when given); fails when `within_s` passes first, or at
-    the end of the timeline. The evidence is the closest sample and the final pose.
-    """
-
-    type: Literal["reach_pose"]
-    vehicle: Name = Field(description="The vehicle whose ground-truth pose is read.")
-    target: Placement = Field(description="The target, in the world (frame or coordinates).")
-    tolerance_m: PositiveFloat = Field(
-        default=0.5, description="Distance to the target, in metres."
-    )
-    yaw_tolerance_rad: PositiveFloat | None = Field(
-        default=None, description="Heading tolerance (absent: the heading is not checked)."
-    )
-    within_s: Duration | None = Field(
-        default=None,
-        description="Deadline after the timeline starts (absent: the end of the timeline).",
-    )
-
-
-class WithinTime(AssertionBase):
-    """A timeline action completes successfully within a duration of its start."""
-
-    type: Literal["within_time"]
-    action: str = Field(description="The `name` of a timeline entry.")
-    max_s: Duration = Field(description="The action's result must arrive within this long.")
-
-
-class TopicRate(AssertionBase):
-    """A ROS topic keeps publishing at a rate.
-
-    Measured over a sliding window once `after_s` has passed after the timeline starts; fails
-    at the first window below `min_hz` (or above `max_hz`) and at the end of the timeline if
-    nothing was received.
-    """
-
-    type: Literal["topic_rate"]
-    topic: str = Field(
-        description="The topic (relative to the vehicle's namespace when `vehicle` is given)."
-    )
-    vehicle: Name | None = Field(default=None, description="The vehicle the topic belongs to.")
-    min_hz: float = Field(ge=0.0, description="Lowest acceptable rate over a window.")
-    max_hz: PositiveFloat | None = Field(default=None, description="Highest acceptable rate.")
-    window_s: Duration = Field(default=5.0, description="Length of the measurement window.")
-    after_s: Duration = Field(
-        default=0.0, description="Grace period after the timeline starts before windows count."
-    )
-    message_type: str | None = Field(
-        default=None,
-        description="Message type (`sensor_msgs/msg/LaserScan`; absent: discovered).",
-    )
-
-    @model_validator(mode="after")
-    def _ordered(self) -> TopicRate:
-        if self.max_hz is not None and self.max_hz < self.min_hz:
-            raise ValueError("max_hz must not be below min_hz")
-        return self
-
-
-class NoCollision(AssertionBase):
-    """The vehicle's chassis touches nothing during the timeline.
-
-    Read from the model's ground-truth contact sensor in Gazebo (the reference vehicles carry
-    one on the chassis, `<namespace>/contacts`); fails at the first contact.
-    """
-
-    type: Literal["no_collision"]
-    vehicle: Name = Field(description="The vehicle whose contact sensor is read.")
-    topic: str | None = Field(
-        default=None,
-        description="Gazebo topic of the `gz.msgs.Contacts` sensor (default: "
-        "`<namespace>/contacts`).",
-    )
-    ignore: list[str] = Field(
-        default_factory=list,
-        description="Entities whose contacts do not count (a model or collision name).",
-    )
-
-
-class TopicValue(AssertionBase):
-    """A condition over a field of a ROS topic's messages.
-
-    `condition` is an expression over `value`, the field of each message (`value < 1.5`,
-    `abs(value) <= 0.2`, `0 < value and value < 2`); `mode` says whether every message after
-    `after_s` must satisfy it (`always`, fails at the first that does not, passes at `within_s`
-    or the end) or one must (`eventually`, passes at the first that does, fails at `within_s`
-    or the end). `after_s` and `within_s` make a window: "the vehicle is stopped from 12 s to
-    27 s" is `mode: always`, `after_s: 12s`, `within_s: 27s`.
-    """
-
-    type: Literal["topic_value"]
-    topic: str = Field(
-        description="The topic (relative to the vehicle's namespace when `vehicle` is given)."
-    )
-    vehicle: Name | None = Field(default=None, description="The vehicle the topic belongs to.")
-    field: str = Field(
-        description="Field of the message (`twist.linear.x`, `ranges[0]`, `status.status`)."
-    )
-    condition: str = Field(description="Expression over `value` (comparisons, arithmetic, abs).")
-    mode: Literal["always", "eventually"] = Field(default="always")
-    after_s: Duration = Field(
-        default=0.0, description="Grace period after the timeline starts before messages count."
-    )
-    within_s: Duration | None = Field(
-        default=None,
-        description="End of the window: the deadline of `eventually`, the end of `always` "
-        "(absent: the end of the timeline).",
-    )
-    message_type: str | None = Field(
-        default=None,
-        description="Message type (`geometry_msgs/msg/Twist`; absent: discovered).",
-    )
-
-    @model_validator(mode="after")
-    def _compiles(self) -> TopicValue:
-        try:
-            compile_condition(self.condition)
-        except ExpressionError as error:
-            raise ValueError(f"condition: {error}") from error
-        if self.within_s is not None and self.within_s <= self.after_s:
-            raise ValueError("within_s must be later than after_s")
-        return self
-
-
-Assertion = Annotated[
-    ReachPose | WithinTime | TopicRate | NoCollision | TopicValue, Field(discriminator="type")
-]
+# The assertion: every registered type's spec model, told apart by `type` (built when the
+# module loads, from the registry; the type checker sees the base every spec derives from).
+if TYPE_CHECKING:
+    Assertion = AssertionBase
+else:
+    Assertion = assertion_union()
 
 
 class VideoOutput(Strict):
@@ -520,6 +406,10 @@ class Scenario(Strict):
     )
     timeline: list[TimelineEntry] = Field(default_factory=list)
     assertions: list[Assertion] = Field(default_factory=list)
+    kpis: list[Kpi] = Field(
+        default_factory=list,
+        description="KPI collectors: what to measure without judging (assertions.md).",
+    )
     outputs: Outputs = Outputs()
 
     _path: Path | None = PrivateAttr(default=None)
@@ -660,21 +550,27 @@ class Scenario(Strict):
                     )
         self.start_order()  # raises on a cycle
         self._check_timeline(names)
-        labels = [a.name for a in self.assertions]
-        if len(set(labels)) != len(labels):
-            raise ValueError("assertions: names must be unique")
         actions = [entry_label(e) for e in self.timeline]
-        for index, assertion in enumerate(self.assertions):
-            where = f"assertions[{index}] ({assertion.name})"
-            vehicle = getattr(assertion, "vehicle", None)
-            if vehicle is not None and vehicle not in names:
-                raise ValueError(f"{where}.vehicle: {vehicle!r} is not a vehicle")
-            if isinstance(assertion, WithinTime) and assertion.action not in actions:
-                known = ", ".join(actions) or "none"
-                raise ValueError(
-                    f"{where}.action: {assertion.action!r} is not a timeline entry ({known})"
-                )
+        for section, items in (("assertions", self.assertions), ("kpis", self.kpis)):
+            labels = [a.name for a in items]
+            if len(set(labels)) != len(labels):
+                raise ValueError(f"{section}: names must be unique")
+            for index, item in enumerate(items):
+                self._check_references(f"{section}[{index}] ({item.name})", item, names, actions)
         return self
+
+    @staticmethod
+    def _check_references(
+        where: str, item: AssertionBase | KpiBase, names: list[str], actions: list[str]
+    ) -> None:
+        """The vehicles and timeline entries an assertion or a KPI collector names exist."""
+        for vehicle in item.vehicle_names():
+            if vehicle not in names:
+                raise ValueError(f"{where}.vehicle: {vehicle!r} is not a vehicle")
+        for action in item.action_names():
+            if action not in actions:
+                known = ", ".join(actions) or "none"
+                raise ValueError(f"{where}.action: {action!r} is not a timeline entry ({known})")
 
 
 # ------------------------------------------------------------------------------------ loading

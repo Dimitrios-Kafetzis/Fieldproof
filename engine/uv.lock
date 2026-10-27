@@ -296,6 +296,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fieldproof-example-assertions" },
     { name = "fieldproof-example-events" },
     { name = "mcap" },
     { name = "pytest" },
@@ -315,6 +316,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fieldproof-example-assertions", editable = "../examples/plugins/example_assertions" },
     { name = "fieldproof-example-events", editable = "../examples/plugins/example_events" },
     { name = "mcap", specifier = "==1.5.0" },
     { name = "pytest", specifier = "==9.1.1" },
@@ -331,6 +333,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pyyaml" }]
+
+[[package]]
+name = "fieldproof-example-assertions"
+version = "0.1.0"
+source = { editable = "../examples/plugins/example_assertions" }
+dependencies = [
+    { name = "fieldproof" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "fieldproof" }]
 
 [[package]]
 name = "fieldproof-example-events"

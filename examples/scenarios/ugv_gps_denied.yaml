@@ -88,6 +88,18 @@ assertions:
   - name: no_collision
     type: no_collision
     vehicle: ugv1
+  # --- assertion library v1 (task P2-T05) ---
+  # The fix's story in order: present, lost, back, and the return leg made.
+  - name: denial_story
+    type: sequence
+    steps:
+      - { assertion: fix_present }
+      - { assertion: fix_lost }
+      - { assertion: fix_back }
+      - { assertion: returned }
+kpis:
+  - { name: out, type: path, vehicle: ugv1, action: drive_ahead }
+  - { name: back, type: path, vehicle: ugv1, action: drive_back }
 outputs:
   logs: true
   record: true

@@ -78,16 +78,20 @@ from rich.console import Console
 from fieldproof import __version__, ground, lockstep, observer
 from fieldproof.assertions import (
     ASSERTIONS_FILE,
-    DEFAULT_CONTACTS_TOPIC,
     FAILED,
+    KPIS_FILE,
     OBSERVE_FILE,
+    RESOURCES_FILE,
     SAMPLES_FILE,
     Evaluator,
     PlannedAssertion,
     Result,
     Sample,
     observe_plan,
+    plan_assertion,
 )
+from fieldproof.assertions import PlanContext as AssertionContext
+from fieldproof.assertions.kpi import collector_of, kpi_watches, plan_kpi
 from fieldproof.backend import Backend, BackendError, ContainerSpec, ExecResult, LineSink, Mount
 from fieldproof.clock import HOLD_MAX_S, ORIGIN_TIMEOUT_S, ClockMonitor, LockstepControl
 from fieldproof.config import AUTO, Config
@@ -133,17 +137,13 @@ from fieldproof.network import (
 )
 from fieldproof.observer import ACK_TOPIC, FileTail
 from fieldproof.report import REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
+from fieldproof.resources import Monitored, ResourceMonitor
 from fieldproof.scenario import (
     SEED_MAX,
-    Assertion,
-    NoCollision,
     Pose,
-    ReachPose,
     Scenario,
     ScenarioError,
     Time,
-    TopicRate,
-    TopicValue,
     Vehicle,
     VideoOutput,
     WorldInfo,
@@ -512,6 +512,8 @@ class Plan:
     assertions: tuple[PlannedAssertion, ...]
     observe: dict[str, Any]
     """What the recorder's observer watches and records (`observe.json`)."""
+    kpis: tuple[PlannedAssertion, ...] = ()
+    """The KPI collectors of the scenario's `kpis` section (task P2-T05)."""
     video: PlannedVideo | None = None
     domain_source: str = "explicit"
     """Where the domain id came from: `auto` (derived from the run id) or `explicit`."""
@@ -741,9 +743,7 @@ def plan(  # noqa: PLR0915
     )
     by_name = {v.name: v for v in vehicles}
     actions = _plan_actions(scenario, world, by_name, time_section.mode)
-    assertions = tuple(
-        _plan_assertion(world, by_name, a, index) for index, a in enumerate(scenario.assertions)
-    )
+    assertions, kpis = _plan_assertions(scenario, world, by_name, actions, time_section.mode)
     run_dir = base / identity
     video = _plan_video(scenario, world, short)
     links = None
@@ -763,6 +763,7 @@ def plan(  # noqa: PLR0915
         topics=scenario.outputs.topics,
         run_dir=RUN_DIR_IN_CONTAINER,
         conditions=[a.watch for a in actions if a.watch is not None],
+        watches=[w for k in kpis for w in kpi_watches(k)],
     )
     # The clock (task P2-T04): what the observer's clock manager needs in every mode (the
     # world's statistics, the target pace for the drift) and, in lockstep, the vehicles to
@@ -826,6 +827,7 @@ def plan(  # noqa: PLR0915
         actions=tuple(actions),
         assertions=assertions,
         observe=observe,
+        kpis=kpis,
         video=video,
         domain_source=domain_source,
         discovery=server,
@@ -1085,26 +1087,30 @@ def _behind_link(vehicle: PlannedVehicle, links: PlannedLinks, sim_host: str) ->
     )
 
 
-def _plan_assertion(
-    world: WorldInfo, by_name: dict[str, PlannedVehicle], assertion: Assertion, index: int
-) -> PlannedAssertion:
-    """Resolve an assertion's target, topic and model against the plan."""
-    where = f"assertions[{index}] ({assertion.name})"
-    if isinstance(assertion, ReachPose):
-        vehicle = by_name[assertion.vehicle]
-        target = place(assertion.target, world, f"{where}.target")
-        return PlannedAssertion(assertion, target=target, model=vehicle.name)
-    if isinstance(assertion, NoCollision):
-        vehicle = by_name[assertion.vehicle]
-        topic = assertion.topic or DEFAULT_CONTACTS_TOPIC
-        return PlannedAssertion(assertion, topic=vehicle.topic(topic), model=vehicle.name)
-    if isinstance(assertion, TopicRate | TopicValue):
-        if assertion.vehicle is not None:
-            topic = by_name[assertion.vehicle].topic(assertion.topic)
-        else:
-            topic = assertion.topic if assertion.topic.startswith("/") else f"/{assertion.topic}"
-        return PlannedAssertion(assertion, topic=topic)
-    return PlannedAssertion(assertion)
+def _plan_assertions(
+    scenario: Scenario,
+    world: WorldInfo,
+    by_name: dict[str, PlannedVehicle],
+    actions: Sequence[PlannedAction],
+    time_mode: str,
+) -> tuple[tuple[PlannedAssertion, ...], tuple[PlannedAssertion, ...]]:
+    """Resolve every assertion and KPI collector through its type's `plan` hook."""
+    labels = tuple(a.name for a in actions)
+    names = tuple(a.name for a in scenario.assertions)
+
+    def context(where: str) -> AssertionContext:
+        return AssertionContext(
+            world, by_name, actions=labels, assertions=names, where=where, time_mode=time_mode
+        )
+
+    assertions = tuple(
+        plan_assertion(a, context(f"assertions[{index}] ({a.name})"))
+        for index, a in enumerate(scenario.assertions)
+    )
+    kpis = tuple(
+        plan_kpi(k, context(f"kpis[{index}] ({k.name})")) for index, k in enumerate(scenario.kpis)
+    )
+    return assertions, kpis
 
 
 def _plan_vehicle(  # noqa: PLR0917
@@ -1349,6 +1355,13 @@ class RunRecord:
     containers: list[dict[str, Any]] = field(default_factory=list)
     timeline: list[ActionRecord] = field(default_factory=list)
     assertions: list[dict[str, Any]] = field(default_factory=list)
+    kpis: dict[str, Any] = field(default_factory=dict)
+    """The run's KPIs (task P2-T05): every collector's and every assertion's metrics, by
+    `<name>.<metric>`, each a value with its unit and source."""
+    kpi_collectors: list[dict[str, Any]] = field(default_factory=list)
+    """The KPI collectors' results (status `measured` or `missing`, detail, evidence)."""
+    resources: dict[str, Any] = field(default_factory=dict)
+    """The resource monitor: containers sampled, samples, the last sample per container."""
     observation: dict[str, Any] = field(default_factory=dict)
     """The observer's stream: samples, simulation time covered, problems."""
     video: dict[str, Any] | None = None
@@ -1512,7 +1525,9 @@ class Run:
         """Guards the record, which the workers add to while the main thread writes it."""
         self.tearing_down = False
         time_section = plan.scenario.time
-        self.evaluator = Evaluator(plan.assertions, sim_base=time_section.sim_base)
+        self.evaluator = Evaluator(
+            plan.assertions, [collector_of(k) for k in plan.kpis], sim_base=time_section.sim_base
+        )
         self.clock_monitor = ClockMonitor(time_section, plan.world.rtf)
         """The real-time factor and the drift of the run against its `time` section."""
         self.lockstep = (
@@ -1535,6 +1550,7 @@ class Run:
             started_at=utc_now(),
             vehicles=[{**v.describe(), "contract": None} for v in plan.vehicles],
             assertions=[r.to_dict() for r in self.evaluator.results],
+            kpi_collectors=[r.to_dict() for r in self.evaluator.kpi_results],
             time=plan.scenario.time.model_dump(),
             seed=plan.seed,
             stack={
@@ -1558,6 +1574,11 @@ class Run:
         if plan.links is not None:
             self.record.network = plan.links.to_dict()
         self._samples = FileTail(plan.run_dir / SAMPLES_FILE)
+        self._resources = FileTail(plan.run_dir / RESOURCES_FILE)
+        self.resource_monitor = ResourceMonitor(
+            backend, plan.run_dir / RESOURCES_FILE, wall=self.wall, on_error=self._monitor_error
+        )
+        """The containers' CPU and memory, sampled while the timeline runs (task P2-T05)."""
         self._observer_errors = 0
         self._last_alive_check = -math.inf
         self.schedule = Schedule(plan.actions)
@@ -1653,6 +1674,7 @@ class Run:
                 action.status, action.detail = "cancelled", f"the run ended {status}: {reason}"
         self._resolve(self.evaluator.skip_pending(f"the run ended {status}: {reason}"))
         self.record.clock = self.clock_summary()
+        self._record_kpis()
         self.record.observation = {
             "samples": self.evaluator.samples,
             "sim_elapsed_s": self.evaluator.sim_elapsed(),
@@ -2039,9 +2061,67 @@ class Run:
             waiting=waiting,
         )
 
+    def _monitor_error(self, container: str, message: str) -> None:
+        self.log.event(
+            "resources.error", f"{container}: {message}", level="warning", container=container
+        )
+
+    def _record_kpis(self) -> None:
+        """The KPIs and the collectors' results into the record."""
+        self.record.kpis = self.evaluator.kpis()
+        self.record.kpi_collectors = [r.to_dict() for r in self.evaluator.kpi_results]
+        monitor = self.resource_monitor
+        self.record.resources = {
+            "containers": sorted(monitor.last),
+            "samples": monitor.samples,
+            "last": {
+                name: {
+                    "cpu_pct": usage.cpu_pct,
+                    "memory_mb": round(usage.memory_bytes / (1024.0 * 1024.0), 2),
+                    "pids": usage.pids,
+                }
+                for name, usage in sorted(monitor.last.items())
+            },
+        }
+
+    def _write_kpis(self) -> None:
+        """`kpis.jsonl`: the collectors' results and the KPI map, relayed to `/fieldproof/kpis`."""
+        self._record_kpis()
+        with (self.plan.run_dir / KPIS_FILE).open("a") as file:
+            for result in self.evaluator.kpi_results:
+                file.write(json.dumps({"run_id": self.plan.run_id, **result.to_dict()}) + "\n")
+            file.write(
+                json.dumps({"run_id": self.plan.run_id, "kind": "kpis", "kpis": self.record.kpis})
+                + "\n"
+            )
+        for result in self.evaluator.kpi_results:
+            self.log.event(
+                f"kpi.{result.status}",
+                f"{result.name}: {result.reason}",
+                level="info" if result.status == "measured" else "warning",
+                kpi=result.name,
+                type=result.type,
+                metrics=result.metrics,
+            )
+
+    def start_monitor(self) -> None:
+        """Sample every container of the run from now on (the running phase)."""
+        monitored = []
+        for vehicle in self.plan.vehicles:
+            monitored.append(Monitored(vehicle.container_name, "vehicle", vehicle.name))
+            monitored.append(Monitored(vehicle.bridge_name, "bridge", vehicle.name))
+        monitored.append(Monitored(self.plan.sim.name, "sim"))
+        monitored.append(Monitored(self.plan.recorder.name, "recorder"))
+        self.resource_monitor.start(monitored)
+        self.log.event(
+            "resources.start",
+            f"sampling {len(monitored)} container(s) once a second",
+            containers=[m.name for m in monitored],
+        )
+
     def _poll_samples(self) -> list[Sample]:
-        """Read the observer's new lines, feed the evaluator, report its errors."""
-        lines = self._samples.lines()
+        """Read the observer's and the monitor's new lines, feed the evaluator, report errors."""
+        lines = [*self._samples.lines(), *self._resources.lines()]
         samples: list[Sample] = []
         for line in lines:
             try:
@@ -2408,6 +2488,7 @@ class Run:
             time_base="sim" if self.lockstep else "wall",
         )
         self.start_video()
+        self.start_monitor()
         try:
             self._run_actions(started, budget)
         finally:
@@ -2415,8 +2496,10 @@ class Run:
             if self.lockstep is not None:
                 self.lockstep.release()
         self.log.event("timeline.done", f"after {self.clock() - started:.1f} s")
+        self.resource_monitor.stop()  # the assertions and the KPIs judge the timeline
         self._observe()
         self._resolve(self.evaluator.finish(self.wall()))
+        self._write_kpis()
         self.record.clock = self.clock_summary()
         self.check_clock()
         failed = self.evaluator.failed
@@ -2640,6 +2723,17 @@ class Run:
                     self._triggered(triggered)
                 if record.status != OK and failed is None:
                     failed = (name, action, limit, record)
+            abort = self.evaluator.abort
+            if abort is not None and failed is None:
+                for other in running.values():
+                    other[4].status = CANCELLED
+                    other[4].detail = f"cancelled: assertion {abort.name} failed (on_fail: abort)"
+                self._settle_cancelled(f"assertion {abort.name} failed (on_fail: abort)")
+                self._write()
+                raise RunFailedError(
+                    f"assertion {abort.name} failed: {abort.reason} (on_fail: abort, the "
+                    "timeline was cancelled)"
+                )
             if failed is not None:
                 name, action, limit, record = failed
                 for other in running.values():
@@ -2661,6 +2755,11 @@ class Run:
         self.log.event(
             "action.triggered", f"{name}: {self.schedule.entries[name].reason}", action=name
         )
+
+    def _settle_cancelled(self, reason: str) -> None:
+        """The timeline is cancelled: what never ran is skipped, in the record and the evaluator."""
+        for name, status, why in self.schedule.settle(reason):
+            self._settle_one(name, status, reason if status == SKIPPED else why)
 
     def _settle(self) -> None:
         """End the entries that never ran or repeat no more, in the record and the evaluator."""
@@ -2788,6 +2887,7 @@ class Run:
     def teardown(self) -> None:
         """Stop and remove the run's containers in reverse order, keeping their logs."""
         self.tearing_down = True
+        self.resource_monitor.stop()
         if self.keep:
             names = [s.name for s in self.plan.containers() if self.backend.state(s.name).exists]
             if self.plan.links is not None:

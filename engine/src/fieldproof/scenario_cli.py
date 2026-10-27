@@ -22,6 +22,9 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from fieldproof.assertions import parameters_of as assertion_parameters
+from fieldproof.assertions import registry as assertion_registry
+from fieldproof.assertions.kpi import KPIS
 from fieldproof.backend import BackendError
 from fieldproof.config import ConfigError, load_config
 from fieldproof.determinism import DEFAULT_TOLERANCE_M, CompareError, compare_runs
@@ -203,6 +206,12 @@ def validate(
         errors.print(
             f"warning: event plugin not loaded: {escape(problem)}", style="yellow", highlight=False
         )
+    for problem in assertion_registry().problems:
+        errors.print(
+            f"warning: assertion plugin not loaded: {escape(problem)}",
+            style="yellow",
+            highlight=False,
+        )
     if failed:
         raise typer.Exit(code=2)
 
@@ -253,6 +262,72 @@ def events(
         for problem in events_known.problems:
             errors.print(f"warning: {escape(problem)}", style="yellow", highlight=False)
     if events_known.problems:
+        raise typer.Exit(code=2)
+
+
+def assertions(
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Print the registry as JSON instead of tables.")
+    ] = False,
+) -> None:
+    """List the assertion types and the KPI collectors the engine knows.
+
+    Each row is a `type` a scenario's `assertions` (or `kpis`) can name
+    (docs/reference/assertions.md), where it comes from (built-in, or the distribution that
+    registered it through the `fieldproof.assertions` entry point group), its parameters and
+    the metrics it reports. A plugin that could not be loaded is reported after the tables;
+    exit code 2 then.
+    """
+    known = assertion_registry()
+    rows = [
+        {
+            "type": kind,
+            "source": registered.source,
+            "summary": registered.assertion_type.summary,
+            "parameters": assertion_parameters(registered.spec),
+            "metrics": dict(registered.assertion_type.metrics),
+        }
+        for kind, registered in sorted(known.types.items())
+    ]
+    collectors = [
+        {
+            "type": kind,
+            "summary": kpi_type.summary,
+            "parameters": assertion_parameters(kpi_type.Spec),
+            "metrics": dict(kpi_type.metrics),
+        }
+        for kind, kpi_type in sorted(KPIS.items())
+    ]
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {"assertions": rows, "kpis": collectors, "problems": known.problems}, indent=2
+            )
+        )
+    else:
+        table = Table(title=f"{len(rows)} assertion type(s)", box=box.SIMPLE_HEAD)
+        table.add_column("Type", style="bold", no_wrap=True)
+        table.add_column("Source", no_wrap=True)
+        table.add_column("Summary")
+        table.add_column("Parameters")
+        for row in rows:
+            table.add_row(
+                str(row["type"]),
+                str(row["source"]),
+                str(row["summary"]),
+                ", ".join(row["parameters"]) or "-",
+            )
+        console.print(table)
+        table = Table(title=f"{len(collectors)} KPI collector(s)", box=box.SIMPLE_HEAD)
+        table.add_column("Type", style="bold", no_wrap=True)
+        table.add_column("Summary")
+        table.add_column("Metrics")
+        for row in collectors:
+            table.add_row(str(row["type"]), str(row["summary"]), ", ".join(row["metrics"]) or "-")
+        console.print(table)
+        for problem in known.problems:
+            errors.print(f"warning: {escape(problem)}", style="yellow", highlight=False)
+    if known.problems:
         raise typer.Exit(code=2)
 
 

@@ -65,6 +65,75 @@ assertions:
     vehicle: ugv1
     field: linear.x
     condition: value <= 1.5
+  # --- assertion library v1 (task P2-T05, docs/reference/assertions.md#the-library) ---
+  # The drive stays in the dock's yard: a box around the dock and the goal (the building's
+  # south wall is at y = 0, the roller door the vehicle drives through at x = 10).
+  - name: stays_in_yard
+    type: geofence
+    vehicle: ugv1
+    region: { box: { x_min: 5.0, x_max: 15.0, y_min: -5.0, y_max: 7.0 } }
+  # A 4 m drive in open space is close to a straight line (the path from the ground truth
+  # over the straight line to the goal; 0.95 on a GPU host).
+  - name: drives_straight
+    type: path_efficiency
+    vehicle: ugv1
+    action: drive_ahead
+    target: { x: 10.0, y: -1.0 }
+    min_ratio: 0.6
+  # The whole timeline completes within five minutes of wall clock (the drive is the only
+  # entry; `within_time` bounds one entry, `mission_time` a span of the timeline).
+  - name: mission_in_time
+    type: mission_time
+    max_s: 5m
+  # The odometry arrives fresh: the 95th percentile of the age of its messages (header stamp
+  # against the simulation clock when the observer receives them) stays under a quarter of a
+  # second of simulation time over every 2 s window.
+  - name: odom_fresh
+    type: message_latency
+    topic: odom
+    vehicle: ugv1
+    max_ms: 250
+    after_s: 2s
+  # The stack fits its budget: the vehicle container's memory stays under 1.8 GiB (the
+  # manifest's limit is 2 GiB) and its CPU under 250 % of a core averaged over 10 s (the
+  # quota is two cores; the daemon's samples overshoot it by a few percent).
+  - name: stack_fits
+    type: resource_usage
+    vehicle: ugv1
+    max_memory_mb: 1800
+    max_cpu_pct: 250
+    window_s: 10s
+  # Nav2's behaviour-tree navigator stays active throughout (the readiness probe waited for
+  # it; a lifecycle manager that deactivated it mid-run would show here).
+  - name: navigator_active
+    type: lifecycle_state
+    vehicle: ugv1
+    node: bt_navigator
+    state: active
+    mode: always
+  # Events in order: the goal is sent, Nav2 commands a forward speed, the goal is reached.
+  - name: mission_order
+    type: sequence
+    vehicle: ugv1
+    steps:
+      - { action: drive_ahead, event: started }
+      - { topic: cmd_vel, field: linear.x, condition: value > 0 }
+      - { assertion: reached_goal }
+  # A condition over two signals: the vehicle slows down as it arrives (within 0.6 m of
+  # the goal with the wheel odometry under 0.5 m/s), an `eventually` combinator.
+  - name: slows_at_goal
+    type: eventually
+    vehicle: ugv1
+    signals:
+      d: { metric: distance_to, target: { x: 10.0, y: -1.0 } }
+      v: { topic: odom, field: twist.twist.linear.x }
+    condition: d < 0.6 and abs(v) < 0.5
+kpis: # measured, not judged: the run's KPIs in run.json, the report and /fieldproof/kpis
+  - { name: drive, type: path, vehicle: ugv1, action: drive_ahead, target: { x: 10.0, y: -1.0 } }
+  - { name: mission, type: mission_time }
+  - { name: scan_age, type: latency, topic: scan, vehicle: ugv1 }
+  - { name: stack, type: resources, vehicle: ugv1 }
+  - { name: commanded, type: value, topic: cmd_vel, vehicle: ugv1, field: linear.x, count_if: value > 0 }
 outputs:
   logs: true
   record: true # recording/*.mcap in the run directory (opens in Foxglove Studio)

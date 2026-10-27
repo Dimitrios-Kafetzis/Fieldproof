@@ -7,16 +7,20 @@ and starts it on ``observe.json`` (:func:`fieldproof.assertions.observe_plan`). 
 
 - records the scenario's topics with ``ros2 bag record`` into ``recording/`` (MCAP) when the
   scenario asks for it, the ``/fieldproof/*`` side channels always included;
-- subscribes to the ROS topics the assertions name, measuring rates over sliding windows and
-  extracting fields, and to the Gazebo ground truth (``/world/<name>/pose/info`` for the models,
-  the vehicles' contact sensors), and appends one JSON line per observation to ``samples.jsonl``
-  for the runner's evaluator;
+- subscribes to the ROS topics the assertions name, measuring rates over sliding windows,
+  extracting fields and measuring the age of stamped messages (task P2-T05: the header stamp
+  against the simulation clock at receipt, a ``latency`` window once a second), asks the
+  lifecycle nodes the assertions name for their state once a second (``lifecycle`` samples,
+  also from their transition events), and subscribes to the Gazebo ground truth
+  (``/world/<name>/pose/info`` for the models, the vehicles' contact sensors), appending one
+  JSON line per observation to ``samples.jsonl`` for the runner's evaluator;
 - publishes the side channels: ``/fieldproof/events`` (the engine's log lines as they are
   written), ``/fieldproof/assertions`` (every verdict the runner writes),
-  ``/fieldproof/metrics`` (once a second: simulation time, real-time factor, rates, poses) and
+  ``/fieldproof/metrics`` (once a second: simulation time, real-time factor, rates, poses),
   ``/fieldproof/network`` (the ground station's link measurements, task P2-T02, when the run has
-  radio links), all as ``std_msgs/msg/String`` carrying JSON, so the recording holds the whole
-  run;
+  radio links), ``/fieldproof/resources`` (the engine's resource monitor, one sample per
+  container and second) and ``/fieldproof/kpis`` (the KPIs at the end of the timeline), all as
+  ``std_msgs/msg/String`` carrying JSON, so the recording holds the whole run;
 - manages the clock (task P2-T04, :class:`ClockManager`): it follows the world's statistics
   (paused, the simulator's own real-time factor), reports the drift between simulation time and
   the wall clock in the metrics and, in lockstep mode, steps the world through its
@@ -54,6 +58,11 @@ from typing import IO, Any, Protocol
 NODE_NAME = "fieldproof_observer"
 DISCOVERY_S = 1.0
 RATE_PERIOD_S = 1.0
+LIFECYCLE_PERIOD_S = 1.0
+LIFECYCLE_TIMEOUT_S = 2.0
+TRANSITION_EVENT_TYPE = "lifecycle_msgs/msg/TransitionEvent"
+UNAVAILABLE = "unavailable"
+UNRESPONSIVE = "unresponsive"
 METRICS_PERIOD_S = 1.0
 TAIL_PERIOD_S = 0.5
 CONTACT_HZ = 10.0
@@ -185,6 +194,41 @@ class RateWindow:
         return len(self.times) / self.window_s
 
 
+class LatencyWindow:
+    """Message ages (milliseconds) over a sliding window of simulation time."""
+
+    def __init__(self, window_s: float) -> None:
+        self.window_s = window_s
+        self.ages: deque[tuple[float, float]] = deque()
+        self.total = 0
+        self.reported_error = False
+
+    def add(self, now: float, age_ms: float) -> None:
+        """One message received at `now` (simulation seconds), `age_ms` old."""
+        self.ages.append((now, age_ms))
+        self.total += 1
+        self._prune(now)
+
+    def _prune(self, now: float) -> None:
+        while self.ages and self.ages[0][0] <= now - self.window_s:
+            self.ages.popleft()
+
+    def statistics(self, now: float) -> dict[str, float] | None:
+        """`count`, `mean_ms`, `max_ms`, `min_ms`, `p95_ms` over the window, or None if empty."""
+        self._prune(now)
+        if not self.ages:
+            return None
+        values = sorted(age for _t, age in self.ages)
+        index = min(len(values) - 1, max(0, math.ceil(0.95 * len(values)) - 1))
+        return {
+            "count": len(values),
+            "mean_ms": round(sum(values) / len(values), 2),
+            "max_ms": round(values[-1], 2),
+            "min_ms": round(values[0], 2),
+            "p95_ms": round(values[index], 2),
+        }
+
+
 def quaternion_yaw(x: float, y: float, z: float, w: float) -> float:
     """The heading of a quaternion."""
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
@@ -296,6 +340,13 @@ class Ros(Protocol):
     def timer(self, period_s: float, callback: Callable[[], None]) -> None:
         """Call `callback` every `period_s`."""
 
+    def lifecycle_state(self, node: str, callback: Callable[[str], None]) -> None:
+        """Ask the node's `get_state` service once (task P2-T05).
+
+        `callback` gets the state's label, or `unavailable` (no such service) or
+        `unresponsive` (no answer before the next call).
+        """
+
     def spin_once(self, timeout_s: float) -> None:
         """Process callbacks for up to `timeout_s`."""
 
@@ -367,6 +418,8 @@ class RclpyRos:
 
         self._steady = Clock(clock_type=ClockType.STEADY_TIME)
         self._handles: list[Any] = []
+        self._lifecycle: dict[str, tuple[Any, Any]] = {}
+        """Per lifecycle node, its `get_state` client and the request in flight."""
 
     def now_sim(self) -> float | None:
         """See :class:`Ros`."""
@@ -401,6 +454,41 @@ class RclpyRos:
         would never fire again (task P2-T04).
         """
         self._handles.append(self.node.create_timer(period_s, callback, clock=self._steady))
+
+    def lifecycle_state(self, node: str, callback: Callable[[str], None]) -> None:
+        """See :class:`Ros`.
+
+        One client per node, kept; a request still pending from the last call is answered
+        `unresponsive` and dropped before a new one is made.
+        """
+        from lifecycle_msgs.srv import GetState  # noqa: PLC0415  (inside the container only)
+
+        clients = self._lifecycle
+        client, pending = clients.get(node, (None, None))
+        if client is None:
+            client = self.node.create_client(GetState, f"{node}/get_state")
+            self._handles.append(client)
+        if pending is not None and not pending.done():
+            pending.cancel()
+            clients[node] = (client, None)
+            callback(UNRESPONSIVE)
+            return
+        if not client.service_is_ready():
+            clients[node] = (client, None)
+            callback(UNAVAILABLE)
+            return
+        future = client.call_async(GetState.Request())
+        clients[node] = (client, future)
+
+        def done(result: Any) -> None:
+            try:
+                response = result.result()
+            except Exception:
+                callback(UNRESPONSIVE)
+                return
+            callback(str(response.current_state.label) if response is not None else UNRESPONSIVE)
+
+        future.add_done_callback(done)
 
     def spin_once(self, timeout_s: float) -> None:
         """See :class:`Ros`."""
@@ -856,6 +944,11 @@ class Observer:
         self.stopping = False
         self.ready = False
         self.rates: dict[str, RateWindow] = {}
+        self.latencies: dict[str, LatencyWindow] = {}
+        """Per topic, the ages of its stamped messages (task P2-T05)."""
+        self.lifecycles: list[str] = [str(e["node"]) for e in config.get("lifecycles", [])]
+        """The lifecycle nodes whose state is asked for once a second (task P2-T05)."""
+        self.lifecycle_states: dict[str, str] = {}
         self.values: dict[str, list[tuple[str, bool]]] = {}
         """Per topic, the fields to extract and whether an error was already reported."""
         self.pending: dict[str, str | None] = {}
@@ -885,13 +978,7 @@ class Observer:
     # ----------------------------------------------------------------------------- set-up
     def start(self) -> None:
         """Subscriptions, publishers, timers and the recorder."""
-        for entry in self.config.get("rates", []):
-            self.rates[entry["topic"]] = RateWindow(float(entry.get("window_s", 5.0)))
-            self.pending.setdefault(entry["topic"], entry.get("type"))
-        for entry in self.config.get("values", []):
-            self.values.setdefault(entry["topic"], []).append((entry["field"], False))
-            if self.pending.get(entry["topic"]) is None:
-                self.pending[entry["topic"]] = entry.get("type")
+        self._plan_subscriptions()
         channels = self.config.get("side_channels", {})
         for key, topic in channels.items():
             self.publishers[key] = self.ros.publisher(topic)
@@ -899,18 +986,12 @@ class Observer:
             ("events", "events_file"),
             ("assertions", "assertions_file"),
             ("network", "network_file"),
+            ("resources", "resources_file"),
+            ("kpis", "kpis_file"),
         ):
             if key in self.publishers and self.config.get(file_key):
                 self.tails[key] = FileTail(Path(self.config[file_key]))
-        if self.gz is not None:
-            world = self.config.get("world")
-            if world and self.models:
-                topic = f"/world/{world}/pose/info"
-                if not self.gz.subscribe_poses(topic, self.on_poses):
-                    self.error(f"cannot subscribe to {topic}")
-            for topic in self.contact_models:
-                if not self.gz.subscribe_contacts(topic, partial(self.on_contacts, topic)):
-                    self.error(f"cannot subscribe to {topic}")
+        self._subscribe_gazebo()
         if self.recorder is not None:
             self.recorder.start()
             self.sink.emit("recording", command=self.recorder.command)
@@ -920,6 +1001,37 @@ class Observer:
         self.ros.timer(RATE_PERIOD_S, self.emit_rates)
         self.ros.timer(METRICS_PERIOD_S, self.emit_metrics)
         self.ros.timer(TAIL_PERIOD_S, self.relay_files)
+        if self.lifecycles:
+            self.ros.timer(LIFECYCLE_PERIOD_S, self.poll_lifecycles)
+
+    def _plan_subscriptions(self) -> None:
+        """The ROS topics to subscribe to: rates, fields, latencies, transition events."""
+        for entry in self.config.get("rates", []):
+            self.rates[entry["topic"]] = RateWindow(float(entry.get("window_s", 5.0)))
+            self.pending.setdefault(entry["topic"], entry.get("type"))
+        for entry in self.config.get("values", []):
+            self.values.setdefault(entry["topic"], []).append((entry["field"], False))
+            if self.pending.get(entry["topic"]) is None:
+                self.pending[entry["topic"]] = entry.get("type")
+        for entry in self.config.get("latencies", []):
+            self.latencies[entry["topic"]] = LatencyWindow(float(entry.get("window_s", 2.0)))
+            if self.pending.get(entry["topic"]) is None:
+                self.pending[entry["topic"]] = entry.get("type")
+        for node in self.lifecycles:
+            self.pending.setdefault(f"{node}/transition_event", TRANSITION_EVENT_TYPE)
+
+    def _subscribe_gazebo(self) -> None:
+        """The ground truth: the models' poses and the contact sensors."""
+        if self.gz is None:
+            return
+        world = self.config.get("world")
+        if world and self.models:
+            topic = f"/world/{world}/pose/info"
+            if not self.gz.subscribe_poses(topic, self.on_poses):
+                self.error(f"cannot subscribe to {topic}")
+        for topic in self.contact_models:
+            if not self.gz.subscribe_contacts(topic, partial(self.on_contacts, topic)):
+                self.error(f"cannot subscribe to {topic}")
 
     def error(self, message: str) -> None:
         """Report a problem in the stream (the runner shows it)."""
@@ -975,6 +1087,14 @@ class Observer:
         window = self.rates.get(topic)
         if window is not None:
             window.add(now)
+        latency = self.latencies.get(topic)
+        if latency is not None:
+            self._measure_latency(topic, latency, message)
+        if topic.endswith("/transition_event"):
+            node = topic[: -len("/transition_event")]
+            if node in self.lifecycles:
+                goal = getattr(message, "goal_state", None)
+                self.on_lifecycle(node, str(getattr(goal, "label", "")) or UNRESPONSIVE)
         fields = self.values.get(topic)
         if not fields:
             return
@@ -988,6 +1108,27 @@ class Observer:
                     self.sink.emit("value", sim, topic=topic, field=path, error=str(error))
                 continue
             self.sink.emit("value", sim, topic=topic, field=path, value=value)
+
+    def _measure_latency(self, topic: str, window: LatencyWindow, message: Any) -> None:
+        """The age of a stamped message: its header stamp against the simulation clock now."""
+        sim = self.ros.now_sim()
+        stamp = stamp_seconds(getattr(message, "header", None))
+        if stamp is None or sim is None:
+            if not window.reported_error and stamp is None:
+                window.reported_error = True
+                self.sink.emit("latency", sim, topic=topic, error="the message has no header stamp")
+            return
+        window.add(sim, (sim - stamp) * 1000.0)
+
+    def poll_lifecycles(self) -> None:
+        """Ask every lifecycle node for its state (answered asynchronously)."""
+        for node in self.lifecycles:
+            self.ros.lifecycle_state(node, partial(self.on_lifecycle, node))
+
+    def on_lifecycle(self, node: str, state: str) -> None:
+        """A lifecycle node's state (an answer, or a transition event's goal state)."""
+        self.lifecycle_states[node] = state
+        self.sink.emit("lifecycle", self.ros.now_sim(), node=node, state=state)
 
     def on_poses(self, message: Any) -> None:
         """A `Pose_V` of the world: the tracked models at `pose_hz`."""
@@ -1045,6 +1186,17 @@ class Observer:
                     window_s=window.window_s,
                     total=window.total,
                 )
+        for topic, latency in self.latencies.items():
+            statistics = latency.statistics(sim) if sim is not None else None
+            if statistics is not None:
+                self.sink.emit(
+                    "latency",
+                    sim,
+                    topic=topic,
+                    window_s=latency.window_s,
+                    total=latency.total,
+                    **statistics,
+                )
 
     def emit_metrics(self) -> None:
         """`/fieldproof/metrics` and a `clock` sample: simulation time and real-time factor."""
@@ -1073,6 +1225,7 @@ class Observer:
             **state,
             "rates_hz": {t: round(w.rate(now), 2) for t, w in self.rates.items() if w.covered(now)},
             "poses": self.poses,
+            "lifecycle": dict(self.lifecycle_states),
             "recording": self.recorder.alive if self.recorder is not None else False,
         }
         if "metrics" in self.publishers:

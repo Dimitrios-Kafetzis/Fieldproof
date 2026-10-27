@@ -253,7 +253,7 @@ def test_fleet_of_three_ugvs(tmp_path: Path) -> None:  # noqa: PLR0915
     assert record["vehicles"][1]["resources"] == {"cpus": 2.0, "memory": "3g"}
     assert [a["status"] for a in record["timeline"]] == ["ok"] * 3
     verdicts = {a["name"]: a for a in record["assertions"]}
-    assert len(verdicts) == 12
+    assert len(verdicts) == 15
     for name, assertion in verdicts.items():
         print(f"{name}: {assertion['reason']}", flush=True)  # noqa: T201
     assert {a["status"] for a in verdicts.values()} == {"passed"}, {

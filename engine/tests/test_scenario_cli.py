@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fakes import FakeBackend
+from fakes import FakeBackend, v0_text
 from typer.testing import CliRunner
 
 from fieldproof import scenario_cli
@@ -20,14 +21,20 @@ from fieldproof.cli import app
 from fieldproof.scenario import json_schema
 
 REPO = Path(__file__).resolve().parents[2]
-EXAMPLE = REPO / "examples/scenarios/ugv_nav_to_goal.yaml"
+ORIGINAL = REPO / "examples/scenarios/ugv_nav_to_goal.yaml"
+# The example as the fake backend's scripted samples can satisfy it: the five primitives only
+# (the assertion library v1 wants latencies, lifecycle states and resource samples).
+EXAMPLE = Path(tempfile.mkdtemp(prefix="fieldproof-example-")) / "ugv_nav_to_goal.yaml"
 runner = CliRunner()
 MANIFEST = REPO / "examples/vehicles/ugv_nav2/robot.yaml"
+EXAMPLE.write_text(
+    v0_text(ORIGINAL.read_text()).replace("../vehicles/ugv_nav2/robot.yaml", str(MANIFEST))
+)
 
 
 def example_copy(path: Path, **replacements: str) -> Path:
     """The example written elsewhere, its manifest path made absolute, with replacements."""
-    text = EXAMPLE.read_text().replace("../vehicles/ugv_nav2/robot.yaml", str(MANIFEST))
+    text = EXAMPLE.read_text()
     for old, new in replacements.items():
         text = text.replace(old, new)
     path.write_text(text)
@@ -165,7 +172,7 @@ def test_validate_fleet() -> None:
     out = plain(result.output)
     assert "ugv_fleet (world depot, 3 vehicle(s): ugv1 (ugv_nav2, " in out
     assert ", /ugv1), ugv2 (ugv_nav2, " in out
-    assert "3 timeline entries, 12 assertion(s)" in out
+    assert "3 timeline entries, 15 assertion(s)" in out
 
 
 def test_run_dry_run_with_a_discovery_server(tmp_path: Path) -> None:

@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 import yaml
-from fakes import FakeBackend, FakeClock, FakeContainer
+from fakes import FakeBackend, FakeClock, FakeContainer, v0_text
 from rich.console import Console
 from test_runner import SyncExecutor
 
@@ -32,7 +32,7 @@ from fieldproof.runner import (
     Status,
     plan,
 )
-from fieldproof.scenario import Scenario, ScenarioError, load_scenario, validate_data
+from fieldproof.scenario import Scenario, ScenarioError, validate_data
 
 REPO = Path(__file__).resolve().parents[2]
 LINK_LOSS = REPO / "examples/scenarios/ugv_link_loss.yaml"
@@ -53,7 +53,7 @@ def config(tmp_path_factory: pytest.TempPathFactory) -> Config:
 
 @pytest.fixture(scope="module")
 def link_loss() -> Scenario:
-    return load_scenario(LINK_LOSS)
+    return variant(LINK_LOSS, lambda _data: None)
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ def resolved(link_loss: Scenario, config: Config, tmp_path: Path) -> Plan:
 
 
 def variant(path: Path, mutate: Callable[[dict[str, Any]], None]) -> Scenario:
-    text = path.read_text()
+    text = v0_text(path.read_text())
     data = yaml.safe_load(text)
     mutate(data)
     return validate_data(data, path.resolve(), text)

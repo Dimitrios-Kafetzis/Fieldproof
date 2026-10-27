@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable, Sequence
+import re
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from fieldproof.backend import (
     ExecResult,
     HostInfo,
     LineSink,
+    ResourceUsage,
 )
 
 WORLD_LIST = "/world/depot/control\n/world/depot/create\n/world/depot/set_physics\n"
@@ -37,6 +39,19 @@ TRAFFIC_OK = (
     '"in": [{"kind": "netem", "handle": "20:", "bytes": 917404, "packets": 3100, "drops": 3, '
     '"backlog": 0}]}'
 )
+
+
+V1_MARKER = re.compile(r"^  # --- assertion library v1.*?(?=^outputs:)", re.S | re.M)
+
+
+def v0_text(text: str) -> str:
+    """An example scenario's text without the assertion library v1 block and the `kpis`.
+
+    The fakes script the five primitives' samples (poses, rates, values, contacts); the
+    library's assertions (task P2-T05) want latencies, lifecycle states and resource samples
+    that the fake-backend tests do not play, so they load the examples as they were.
+    """
+    return V1_MARKER.sub("", text)
 
 
 def world_stats(sim_s: float, *, paused: bool) -> str:
@@ -277,6 +292,10 @@ class FakeBackend:
     network_on_start: list[dict[str, Any] | str] | None = None
     network_on_goal: list[dict[str, Any] | str] = field(default_factory=list)
     network_file: Path | None = None
+    # The resource monitor (task P2-T05): the usage samples each container's statistics
+    # stream yields (by name, or `*` for every container), in order; none by default.
+    usage_samples: dict[str, list[ResourceUsage]] = field(default_factory=dict)
+    usage_requested: list[str] = field(default_factory=list)
 
     def image_exists(self, image: str) -> bool:
         return image in self.images
@@ -435,6 +454,12 @@ class FakeBackend:
         if container is None:
             return ContainerState(exists=False)
         return ContainerState(True, container.running, container.exit_code, paused=container.paused)
+
+    def usage(self, name: str) -> Iterator[ResourceUsage]:
+        self.usage_requested.append(name)
+        if name not in self.containers:
+            raise BackendError(f"{name}: no such container")
+        yield from self.usage_samples.get(name, self.usage_samples.get("*", []))
 
     def logs(self, name: str) -> str:
         return self.containers[name].logs

@@ -298,6 +298,9 @@ def test_02_link_loss_scenario(tmp_path: Path) -> None:
         "reached_goal": "passed",
         "arrived_in_time": "passed",
         "no_collision": "passed",
+        "holds_while_lost_combined": "passed",
+        "never_moves_while_lost": "passed",
+        "outage_story": "passed",
     }
     network = record["network"]
     (link,) = network["periods"]

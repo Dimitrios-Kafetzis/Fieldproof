@@ -102,6 +102,23 @@ assertions:
   - name: no_collision
     type: no_collision
     vehicle: ugv1
+  # --- assertion library v1 (task P2-T05) ---
+  # The events happen in the order the triggers imply: the drive ends, the container is
+  # frozen (after the drive and the parameter, whichever ends later), then killed. The
+  # parameter is left out: `ros2 param set` may answer after the drive ends under load, and a
+  # sequence watches each step only once the previous one happened.
+  - name: events_in_order
+    type: sequence
+    steps:
+      - { action: drive_ahead }
+      - { action: freeze_stack }
+      - { action: stop_stack }
+  - name: mission_in_time
+    type: mission_time
+    max_s: 8m
+kpis:
+  - { name: drive, type: path, vehicle: ugv1, action: drive_ahead }
+  - { name: stack, type: resources, vehicle: ugv1 }
 outputs:
   logs: true
   record: true

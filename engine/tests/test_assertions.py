@@ -51,6 +51,11 @@ def planned(data: dict[str, Any], **resolved: Any) -> PlannedAssertion:
     return PlannedAssertion(scenario.assertions[0], **resolved)
 
 
+def bare(evidence: dict[str, Any]) -> dict[str, Any]:
+    """The evidence without the excerpt of the stream (task P2-T05 adds it to every verdict)."""
+    return {k: v for k, v in evidence.items() if k != "excerpt"}
+
+
 def sample(kind: str, t: float, sim: float | None = None, **data: Any) -> Sample:
     return Sample(kind, T0 + t, sim, {"kind": kind, "wall": T0 + t, "sim": sim, **data})
 
@@ -177,7 +182,7 @@ def test_within_time_passes_when_the_action_completes_in_time() -> None:
     (result,) = evaluator.action("drive", "finished", T0 + 25.0, "ok")
     assert result.status == PASSED
     assert result.reason == "drive completed in 23.0 s (limit 30 s)"
-    assert result.evidence == {"started_t_s": 2.0, "duration_s": 23.0, "action_status": "ok"}
+    assert bare(result.evidence) == {"started_t_s": 2.0, "duration_s": 23.0, "action_status": "ok"}
 
 
 def test_within_time_fails_as_soon_as_the_limit_passes() -> None:
@@ -248,7 +253,12 @@ def test_topic_rate_passes_with_evidence_of_the_windows() -> None:
     (result,) = evaluator.finish(T0 + 8.0)
     assert result.status == PASSED
     assert result.reason == "/scan stayed between 9.8 and 10.2 Hz over 2 window(s) (minimum 8 Hz)"
-    assert result.evidence == {"windows": 2, "lowest_hz": 9.8, "highest_hz": 10.2, "messages": 170}
+    assert bare(result.evidence) == {
+        "windows": 2,
+        "lowest_hz": 9.8,
+        "highest_hz": 10.2,
+        "messages": 170,
+    }
 
 
 def test_topic_rate_fails_at_the_first_slow_or_fast_window() -> None:
@@ -318,7 +328,7 @@ def test_no_collision_ignores_named_entities_and_passes() -> None:
     (result,) = evaluator.finish(T0 + 10.0)
     assert result.status == PASSED
     assert result.reason == "no contact of ugv1 in 10.0 s (2 ignored contact message(s))"
-    assert result.evidence == {"ignored_contacts": 2, "messages": 2}
+    assert bare(result.evidence) == {"ignored_contacts": 2, "messages": 2}
 
 
 def test_no_collision_reads_the_other_side_whichever_it_is() -> None:
@@ -402,7 +412,7 @@ def test_topic_value_always() -> None:
     (result,) = evaluator.finish(T0 + 3.0)
     assert result.status == PASSED
     assert result.reason == "/cmd_vel linear.x satisfied 'value <= 1.5' in all 2 message(s)"
-    assert result.evidence == {"samples": 2, "lowest": 0.3, "highest": 1.1, "last": 1.1}
+    assert bare(result.evidence) == {"samples": 2, "lowest": 0.3, "highest": 1.1, "last": 1.1}
     evaluator = Evaluator([value_assertion()])
     evaluator.start(T0)
     evaluator.feed(value(1.0, 0.3))
@@ -471,7 +481,16 @@ def test_skip_pending_and_bookkeeping() -> None:
     assert evaluator.pending == []
     assert evaluator.skip_pending("again") == []
     data = evaluator.results[0].to_dict()
-    assert set(data) == {"name", "type", "status", "reason", "t_s", "sim_s", "evidence"}
+    assert set(data) == {
+        "name",
+        "type",
+        "status",
+        "reason",
+        "t_s",
+        "sim_s",
+        "evidence",
+        "metrics",
+    }
 
 
 def test_observe_plan() -> None:

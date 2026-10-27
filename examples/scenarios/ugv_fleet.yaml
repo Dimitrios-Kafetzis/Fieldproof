@@ -122,6 +122,30 @@ assertions:
     vehicle: ugv3
     field: linear.x
     condition: value <= 1.5
+  # --- assertion library v1 (task P2-T05) ---
+  # The vehicles keep their distance from one another (the yard, the hall and the dock are
+  # far apart; a stack driving its vehicle into another's would show here).
+  - name: ugv1_ugv2_apart
+    type: min_distance
+    vehicle: ugv1
+    to: { vehicle: ugv2 }
+    min_m: 2.0
+  - name: ugv2_ugv3_apart
+    type: min_distance
+    vehicle: ugv2
+    to: { vehicle: ugv3 }
+    min_m: 2.0
+  # The fleet's mission, the three concurrent drives, completes within five minutes.
+  - name: fleet_in_time
+    type: mission_time
+    max_s: 5m
+kpis:
+  - { name: ugv1_drive, type: path, vehicle: ugv1, action: ugv1_to_yard }
+  - { name: ugv2_drive, type: path, vehicle: ugv2, action: ugv2_along_hall }
+  - { name: ugv3_drive, type: path, vehicle: ugv3, action: ugv3_across_yard }
+  - { name: ugv1_stack, type: resources, vehicle: ugv1 }
+  - { name: ugv2_stack, type: resources, vehicle: ugv2 }
+  - { name: ugv3_stack, type: resources, vehicle: ugv3 }
 outputs:
   logs: true
   record: true # recording/*.mcap: the three vehicles' topics under their namespaces

@@ -362,6 +362,7 @@ def test_06_gps_denied_scenario(tmp_path: Path) -> None:
         "reached_goal": "passed",
         "returned": "passed",
         "no_collision": "passed",
+        "denial_story": "passed",
     }
 
     events = log_events(run_dir)
