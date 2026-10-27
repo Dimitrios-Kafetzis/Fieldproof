@@ -83,6 +83,32 @@ assertions:
     type: within_time
     action: clear_crate
     max_s: 30s
+  # --- assertion library v1 (task P2-T05) ---
+  # The replanned path keeps the chassis clear of the crate: the ground-truth distance between
+  # the model origins never drops under 0.5 m (the crate is 0.6 m wide, the vehicle about
+  # 0.5 m; Nav2's inflation keeps the centres about 0.8 m apart).
+  - name: clears_the_crate
+    type: min_distance
+    vehicle: ugv1
+    to: { model: crate }
+    min_m: 0.5
+  # The detour around the crate costs little: the straight line is at least half the path.
+  - name: detour_is_short
+    type: path_efficiency
+    vehicle: ugv1
+    action: drive_ahead
+    target: { x: 10.0, y: -1.5 }
+    min_ratio: 0.5
+  # In order: the crate appears, the goal is reached, the crate is cleared.
+  - name: replan_story
+    type: sequence
+    steps:
+      - { action: spawn_crate }
+      - { assertion: reached_goal }
+      - { action: clear_crate }
+kpis:
+  - { name: crate_gap, type: distance, vehicle: ugv1, to: { model: crate } }
+  - { name: drive, type: path, vehicle: ugv1, action: drive_ahead, target: { x: 10.0, y: -1.5 } }
 outputs:
   logs: true
   record: true

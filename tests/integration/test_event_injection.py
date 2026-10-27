@@ -4,12 +4,12 @@ and the engine-side events against the real stack.
 ``fieldproof run examples/scenarios/ugv_events.yaml`` drives the example vehicle 4 m ahead from
 the loading dock while the timeline exercises every trigger and every engine-side event:
 
-- ``say_hello`` (``example.announce``, the example plugin): ``at: 2s``, ``every: 5s``,
+- ``say_hello`` (``example.announce``, the example plugin): ``at: 1s``, ``every: 3s``,
   ``count: 3``; three occurrences published a ``std_msgs/msg/String`` on ``/announce`` from
   the vehicle's container, which the recording holds;
 - ``tighten_failsafe`` (``param.set``): ``when`` the vehicle's ground truth is more than 1 m
   from its spawn, ``ros2 param set`` on the stack's ``link_monitor`` succeeded;
-- ``freeze_stack`` (``container.pause``): ``after`` the drive and the parameter change, 1 s
+- ``freeze_stack`` (``container.pause``): ``after`` the drive and the parameter change, 5 s
   later, the container was paused for 3 s and resumed (Docker refuses to pause or resume a
   container in the wrong state, so the backend's lines in the log are the evidence);
 - ``stop_stack`` (``container.kill``): ``after`` the pause, the container was killed and the
@@ -117,21 +117,21 @@ def test_01_events_scenario(tmp_path: Path) -> None:  # noqa: PLR0915
     timeline = {a["name"]: a for a in record["timeline"]}
     assert set(timeline) == {*ENTRIES, "say_hello#2", "say_hello#3"}
     assert {a["status"] for a in record["timeline"]} == {"ok"}
-    assert timeline["say_hello"]["trigger"] == {"at_s": 2.0, "every_s": 5.0, "count": 3}
+    assert timeline["say_hello"]["trigger"] == {"at_s": 1.0, "every_s": 3.0, "count": 3}
     assert timeline["say_hello#3"]["occurrence"] == 3
     assert timeline["say_hello"]["detail"].startswith("published 'fieldproof says hello'")
     assert timeline["tighten_failsafe"]["trigger"]["when"]["metric"] == "distance_to"
     assert timeline["tighten_failsafe"]["detail"] == "/link_monitor loss_timeout_s = 5.0"
     assert timeline["tighten_failsafe"]["params"]["parameter"] == "loss_timeout_s"
     assert timeline["freeze_stack"]["trigger"] == {
-        "at_s": 1.0,
+        "at_s": 5.0,
         "after": ["drive_ahead", "tighten_failsafe"],
     }
     tighten_end = timeline["tighten_failsafe"]["t_s"] + timeline["tighten_failsafe"]["duration_s"]
-    assert timeline["freeze_stack"]["t_s"] >= tighten_end + 1.0
+    assert timeline["freeze_stack"]["t_s"] >= tighten_end + 5.0
     assert timeline["freeze_stack"]["detail"] == "paused for 3 s, resumed"
     drive_t, drive_s = timeline["drive_ahead"]["t_s"], timeline["drive_ahead"]["duration_s"]
-    assert timeline["freeze_stack"]["t_s"] >= drive_t + drive_s + 1.0
+    assert timeline["freeze_stack"]["t_s"] >= drive_t + drive_s + 5.0
     assert timeline["stop_stack"]["detail"] == "SIGKILL sent"
     assert timeline["stop_stack"]["t_s"] >= timeline["freeze_stack"]["t_s"] + 3.0
     # The timeline waited for the condition, which held once the vehicle had moved.
@@ -147,6 +147,8 @@ def test_01_events_scenario(tmp_path: Path) -> None:  # noqa: PLR0915
         "stack_frozen": "passed",
         "stack_stopped": "passed",
         "no_collision": "passed",
+        "events_in_order": "passed",
+        "mission_in_time": "passed",
     }
 
     # The container was paused, resumed and killed (Docker refuses each on a container in the

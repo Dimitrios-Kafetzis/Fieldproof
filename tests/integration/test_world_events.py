@@ -248,6 +248,9 @@ def test_02_obstacle_scenario(tmp_path: Path) -> None:
         "kept_planning": "passed",
         "no_collision": "passed",
         "crate_cleared": "passed",
+        "clears_the_crate": "passed",
+        "detour_is_short": "passed",
+        "replan_story": "passed",
     }
 
     # The crate appeared while the vehicle was still north of it, and the vehicle left the

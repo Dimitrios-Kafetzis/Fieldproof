@@ -112,16 +112,16 @@ class Placement(Strict):
         return self
 
 
-# ------------------------------------------------------------------------------ the triggers
-class When(Strict):
-    """A condition of the run that triggers a timeline entry the first time it holds.
+# ------------------------------------------------------------------------------- the signals
+class Signal(Strict):
+    """Something of the run a condition reads: a field of a ROS topic or a metric.
 
-    Either a field of a ROS topic's messages (`topic`, `field`, like a `topic_value`
-    assertion) or a `metric` of the run: `sim_time` (the simulator's clock, in seconds; the
-    one trigger in simulation time), `rtf` (the measured real-time factor), or the vehicle's
-    ground-truth `x`, `y`, `z`, `yaw` (radians) and `distance_to` a `target` placement
-    (metres). `condition` is an expression over `value` (`value > 0.3`, `value < 2.0`).
-    `vehicle` says whose topic or ground truth; it defaults to the entry's vehicle.
+    Either a field of a ROS topic's messages (`topic`, `field`) or a `metric` of the run:
+    `sim_time` (the simulator's clock, in seconds), `rtf` (the measured real-time factor), or
+    the vehicle's ground-truth `x`, `y`, `z`, `yaw` (radians) and `distance_to` a `target`
+    placement (metres). `vehicle` says whose topic or ground truth; it defaults to the entry's
+    or the assertion's vehicle. A `when` trigger is a signal with a `condition` (task P2-T03);
+    the temporal combinators of the assertion library name several (task P2-T05).
     """
 
     topic: str | None = Field(
@@ -145,10 +145,9 @@ class When(Strict):
     vehicle: Name | None = Field(
         default=None, description="The vehicle (default: the entry's) the topic or metric is of."
     )
-    condition: str = Field(description="Expression over `value` (comparisons, arithmetic, abs).")
 
     @model_validator(mode="after")
-    def _consistent(self) -> When:
+    def _one_source(self) -> Signal:
         if (self.topic is None) == (self.metric is None):
             raise ValueError("give either topic (with field) or metric")
         if self.topic is not None and self.field is None:
@@ -159,20 +158,38 @@ class When(Strict):
             raise ValueError("target goes with metric distance_to")
         if self.metric == "distance_to" and self.target is None:
             raise ValueError("distance_to needs a target")
+        return self
+
+    def needs_vehicle(self) -> bool:
+        """Whether the signal reads something of a vehicle."""
+        return self.topic is not None or self.metric in VEHICLE_METRICS
+
+    def subject(self) -> str:
+        """`odom.twist.twist.linear.x`, `distance_to`."""
+        return f"{self.topic}.{self.field}" if self.topic is not None else str(self.metric)
+
+
+# ------------------------------------------------------------------------------ the triggers
+class When(Signal):
+    """A condition of the run that triggers a timeline entry the first time it holds.
+
+    A :class:`Signal` (a topic field or a metric of the run) with a `condition`, an expression
+    over `value` (`value > 0.3`, `value < 2.0`).
+    """
+
+    condition: str = Field(description="Expression over `value` (comparisons, arithmetic, abs).")
+
+    @model_validator(mode="after")
+    def _compiles(self) -> When:
         try:
             compile_condition(self.condition)
         except ExpressionError as error:
             raise ValueError(f"condition: {error}") from error
         return self
 
-    def needs_vehicle(self) -> bool:
-        """Whether the condition reads something of a vehicle."""
-        return self.topic is not None or self.metric in VEHICLE_METRICS
-
     def summary(self) -> str:
         """`odom.twist.twist.linear.x > 0.3`, `distance_to < 2`."""
-        subject = f"{self.topic}.{self.field}" if self.topic is not None else str(self.metric)
-        return f"{subject}: {self.condition}"
+        return f"{self.subject()}: {self.condition}"
 
 
 class TimelineBase(Strict):
@@ -280,3 +297,33 @@ class TimelineBase(Strict):
 def entry_label(entry: TimelineBase) -> str:
     """The label of a timeline entry in the record (`name`, or `<action>@<at>s`)."""
     return entry.name or f"{entry.action_name}@{entry.at:g}s"
+
+
+# ---------------------------------------------------------------------------- the assertions
+ON_FAIL = ("continue", "abort")
+
+
+class AssertionBase(Strict):
+    """What every assertion has: a unique name, the type that selects its parameters, `on_fail`.
+
+    Assertion plugins subclass it with a `type` literal and their parameters (task P2-T05,
+    :mod:`fieldproof.assertions`). :meth:`vehicle_names` and :meth:`action_names` are what
+    the scenario checks against its vehicles and timeline before any plan is made.
+    """
+
+    name: Name = Field(description="Assertion name: lower case, digits and underscores.")
+    type: str = Field(description="The assertion type (a registered one).")
+    on_fail: Literal["continue", "abort"] = Field(
+        default="continue",
+        description="What a failure does to the run: `continue` (the timeline completes, the "
+        "evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+    )
+
+    def vehicle_names(self) -> list[str]:
+        """The vehicles the assertion refers to (its `vehicle` field by default)."""
+        vehicle = getattr(self, "vehicle", None)
+        return [vehicle] if isinstance(vehicle, str) else []
+
+    def action_names(self) -> list[str]:
+        """The timeline entries the assertion refers to (none by default)."""
+        return []

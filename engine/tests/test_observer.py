@@ -16,7 +16,9 @@ import pytest
 
 from fieldproof import observer
 from fieldproof.observer import (
+    TRANSITION_EVENT_TYPE,
     FileTail,
+    LatencyWindow,
     Observer,
     RateWindow,
     Recorder,
@@ -207,6 +209,8 @@ class FakeRos:
         self.spins = 0
         self.shut_down = False
         self.refuse: set[str] = set()
+        self.lifecycle_asked: list[str] = []
+        self.lifecycle_answers: dict[str, str] = {}
 
     def now_sim(self) -> float | None:
         return self.sim
@@ -225,6 +229,10 @@ class FakeRos:
 
     def timer(self, period_s: float, callback: Callable[[], None]) -> None:
         self.timers.append((period_s, callback))
+
+    def lifecycle_state(self, node: str, callback: Callable[[str], None]) -> None:
+        self.lifecycle_asked.append(node)
+        callback(self.lifecycle_answers.get(node, "unavailable"))
 
     def spin_once(self, timeout_s: float) -> None:
         self.spins += 1
@@ -660,3 +668,114 @@ def test_world_control_loop_answers_each_request() -> None:
     assert answers[3]["ok"] is False
     assert len(calls) == 3
     assert calls[0][0] == "/world/depot/control"
+
+
+# ------------------------------------------------------------------ latencies and lifecycles
+def stamped(stamp_s: float, **fields: Any) -> Any:
+    return SimpleNamespace(
+        header=SimpleNamespace(
+            stamp=SimpleNamespace(sec=int(stamp_s), nanosec=round((stamp_s % 1) * 1e9))
+        ),
+        **fields,
+    )
+
+
+def test_latency_window_statistics() -> None:
+    window = LatencyWindow(2.0)
+    assert window.statistics(10.0) is None
+    for i, age in enumerate([10.0, 20.0, 30.0, 40.0, 500.0]):
+        window.add(10.0 + i * 0.1, age)
+    assert window.statistics(10.4) == {
+        "count": 5,
+        "mean_ms": 120.0,
+        "max_ms": 500.0,
+        "min_ms": 10.0,
+        "p95_ms": 500.0,
+    }
+    assert window.statistics(12.25) == {
+        "count": 2,
+        "mean_ms": 270.0,
+        "max_ms": 500.0,
+        "min_ms": 40.0,
+        "p95_ms": 500.0,
+    }
+    assert window.statistics(20.0) is None
+    assert window.total == 5
+
+
+def test_observer_measures_latency_and_lifecycle_states(run_dir: Path) -> None:
+    ros, gz, clock = FakeRos(), FakeGz(), FakeClock()
+    ros.types = {"/scan": "sensor_msgs/msg/LaserScan", "/odom": "nav_msgs/msg/Odometry"}
+    ros.lifecycle_answers = {"/bt_navigator": "active"}
+    sink = Sink(run_dir / "samples.jsonl", clock=clock)
+    watcher = Observer(
+        config(
+            run_dir,
+            rates=[],
+            values=[],
+            latencies=[
+                {"topic": "/scan", "window_s": 2.0, "type": None},
+                {"topic": "/odom", "window_s": 2.0, "type": None},
+            ],
+            lifecycles=[{"node": "/bt_navigator"}, {"node": "/planner_server"}],
+            resources_file=str(run_dir / "resources.jsonl"),
+            kpis_file=str(run_dir / "kpis.jsonl"),
+            side_channels={
+                "events": "/fieldproof/events",
+                "resources": "/fieldproof/resources",
+                "kpis": "/fieldproof/kpis",
+            },
+        ),
+        sink,
+        ros,
+        gz,
+        clock=clock,
+    )
+    watcher.start()
+    assert set(ros.subscriptions) == {
+        "/scan",
+        "/odom",
+        "/bt_navigator/transition_event",
+        "/planner_server/transition_event",
+    }
+    assert ros.subscriptions["/odom"][0] == "nav_msgs/msg/Odometry"
+    assert ros.subscriptions["/bt_navigator/transition_event"][0] == TRANSITION_EVENT_TYPE
+    assert [p for p, _c in ros.timers] == [1.0, 1.0, 1.0, 0.5, 1.0]
+    # Stamped scans: their age against the simulation clock; one without a header once.
+    ros.sim = 20.0
+    ros.deliver("/scan", stamped(19.95, ranges=[1.0]))
+    ros.deliver("/scan", stamped(19.90, ranges=[1.0]))
+    ros.deliver("/odom", SimpleNamespace(pose=None))
+    ros.deliver("/odom", SimpleNamespace(pose=None))
+    watcher.emit_rates()
+    # The transition event, then the poll (one answer per node, unavailable for the other).
+    ros.deliver(
+        "/bt_navigator/transition_event",
+        SimpleNamespace(goal_state=SimpleNamespace(label="activating")),
+    )
+    watcher.poll_lifecycles()
+    assert ros.lifecycle_asked == ["/bt_navigator", "/planner_server"]
+    # The resources and KPI files are relayed like the engine log.
+    (run_dir / "resources.jsonl").write_text('{"kind": "resource", "cpu_pct": 1}\n')
+    (run_dir / "kpis.jsonl").write_text('{"kind": "kpis"}\n')
+    watcher.relay_files()
+    watcher.emit_metrics()
+    lines = samples(run_dir)
+    latencies = [s for s in lines if s["kind"] == "latency"]
+    assert latencies[0]["topic"] == "/odom"
+    assert latencies[0]["error"] == "the message has no header stamp"
+    assert [s["topic"] for s in latencies[1:]] == ["/scan"]
+    assert latencies[1]["count"] == 2
+    assert latencies[1]["p95_ms"] == pytest.approx(100.0, abs=0.01)
+    assert latencies[1]["mean_ms"] == pytest.approx(75.0, abs=0.01)
+    assert latencies[1]["total"] == 2
+    states = [(s["node"], s["state"]) for s in lines if s["kind"] == "lifecycle"]
+    assert states == [
+        ("/bt_navigator", "activating"),
+        ("/bt_navigator", "active"),
+        ("/planner_server", "unavailable"),
+    ]
+    assert ros.published["/fieldproof/resources"] == ['{"kind": "resource", "cpu_pct": 1}']
+    assert ros.published["/fieldproof/kpis"] == ['{"kind": "kpis"}']
+    assert watcher.lifecycle_states == {"/bt_navigator": "active", "/planner_server": "unavailable"}
+    assert "/fieldproof/metrics" not in ros.published, "no metrics channel configured"

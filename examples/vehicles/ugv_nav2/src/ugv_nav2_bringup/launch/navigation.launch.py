@@ -10,7 +10,9 @@ remapped exactly as Nav2 expects: the controller and the behaviours publish `cmd
 velocity smoother reads it and publishes `cmd_vel_smoothed`, the collision monitor publishes
 `cmd_vel_safe`, and the vehicle's loss-of-link failsafe (`link_monitor`, outside the lifecycle
 manager) publishes the vehicle's `cmd_vel`: it holds the vehicle in place while the ground
-station's heartbeat is missing. Under a `namespace` the parameter file is rewritten with the
+station's heartbeat is missing. The bringup watchdog (`bringup_watchdog`, also outside the
+manager) retries the bringup when the manager aborts it after one lost transition call, which
+it does not retry itself. Under a `namespace` the parameter file is rewritten with the
 namespace as its root key (nav2_common's RewrittenYaml, as nav2_bringup does): a ROS 2 parameter
 file names its nodes, and `controller_server:` reaches `/controller_server` only, not
 `/ugv1/controller_server`.
@@ -96,6 +98,19 @@ def generate_launch_description() -> LaunchDescription:
         arguments=["--ros-args", "--log-level", log_level],
         remappings=[("cmd_vel_in", "cmd_vel_safe"), ("cmd_vel_out", "cmd_vel")],
     )
+    bringup_watchdog = Node(
+        package="ugv_nav2_bringup",
+        executable="bringup_watchdog",
+        name="bringup_watchdog",
+        output="screen",
+        arguments=["--ros-args", "--log-level", log_level],
+        parameters=[
+            {
+                "manager": "lifecycle_manager_navigation",
+                "node_names": [name for _, _, name, _ in SERVERS],
+            },
+        ],
+    )
     lifecycle_manager = Node(
         package="nav2_lifecycle_manager",
         executable="lifecycle_manager",
@@ -113,6 +128,7 @@ def generate_launch_description() -> LaunchDescription:
             *nodes,
             link_monitor,
             lifecycle_manager,
+            bringup_watchdog,
         ]
     )
     return LaunchDescription(

@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 import yaml
-from fakes import FakeBackend, FakeClock
+from fakes import FakeBackend, FakeClock, v0_text
 from rich.console import Console
 from test_runner import SyncExecutor, scenario_variant
 
@@ -62,7 +62,7 @@ def fleet_samples() -> list[dict[str, Any] | str]:
 
 @pytest.fixture(scope="module")
 def fleet() -> Scenario:
-    return load_scenario(FLEET)
+    return fleet_variant(lambda _data: None)
 
 
 @pytest.fixture(scope="module")
@@ -86,7 +86,7 @@ def clock() -> FakeClock:
 
 
 def fleet_variant(mutate: Callable[[dict[str, Any]], None]) -> Scenario:
-    text = FLEET.read_text()
+    text = v0_text(FLEET.read_text())
     data = yaml.safe_load(text)
     mutate(data)
     return validate_data(data, FLEET.resolve(), text)
@@ -295,7 +295,7 @@ def derived_scenario(tmp_path: Path, manifest: str, vehicle_lines: str) -> Scena
     file = tmp_path / "examples" / "scenarios" / "one.yaml"
     file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text(
-        EXAMPLE.read_text()
+        v0_text(EXAMPLE.read_text())
         .replace("manifest: ../vehicles/ugv_nav2/robot.yaml", f"manifest: {manifest}")
         .replace(
             "    spawn:\n      frame: spawn_dock",

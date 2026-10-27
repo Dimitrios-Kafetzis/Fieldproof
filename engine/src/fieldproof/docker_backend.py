@@ -15,7 +15,7 @@ import io
 import math
 import tarfile
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,9 @@ from fieldproof.backend import (
     ExecResult,
     HostInfo,
     LineSink,
+    ResourceUsage,
 )
+from fieldproof.resources import usage_from_stats
 
 
 class DockerBackend:
@@ -233,6 +235,29 @@ class DockerBackend:
             health=str(health) if health else None,
             paused=bool(state.get("Paused")),
         )
+
+    def usage(self, name: str) -> Iterator[ResourceUsage]:
+        """The daemon's statistics stream of the container, one sample a second (task P2-T05).
+
+        The stream ends when the container stops; the first message carries no CPU delta and
+        is skipped, as `docker stats` does.
+        """
+        try:
+            container = self.client.containers.get(name)
+            stream = container.stats(stream=True, decode=True)
+        except NotFound as error:
+            raise BackendError(f"{name}: no such container") from error
+        except (APIError, requests.RequestException) as error:
+            raise BackendError(
+                f"{name}: cannot read the container's statistics: {error}"
+            ) from error
+        try:
+            for data in stream:
+                usage = usage_from_stats(data) if isinstance(data, dict) else None
+                if usage is not None:
+                    yield usage
+        except (APIError, requests.RequestException):
+            return  # the container stopped, the stream closed
 
     def logs(self, name: str) -> str:
         """The container's output so far."""

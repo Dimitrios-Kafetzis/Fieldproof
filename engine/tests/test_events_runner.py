@@ -13,13 +13,13 @@ from typing import Any
 
 import pytest
 import yaml
-from fakes import FakeClock
+from fakes import FakeClock, v0_text
 from test_runner import GOOD_SAMPLES, T0, execute, ready_backend
 
 from fieldproof.backend import ExecResult
 from fieldproof.config import Config, load_config
 from fieldproof.runner import LOG_FILE, Plan, Status, plan
-from fieldproof.scenario import Scenario, load_scenario, validate_data
+from fieldproof.scenario import Scenario, validate_data
 
 REPO = Path(__file__).resolve().parents[2]
 EVENTS = REPO / "examples/scenarios/ugv_events.yaml"
@@ -37,11 +37,11 @@ def config(tmp_path_factory: pytest.TempPathFactory) -> Config:
 
 @pytest.fixture(scope="module")
 def example() -> Scenario:
-    return load_scenario(EVENTS)
+    return variant(lambda _data: None)
 
 
 def variant(mutate: Callable[[dict[str, Any]], None]) -> Scenario:
-    text = EVENTS.read_text()
+    text = v0_text(EVENTS.read_text())
     data = yaml.safe_load(text)
     mutate(data)
     return validate_data(data, EVENTS.resolve(), text)
@@ -89,11 +89,11 @@ def test_plan_resolves_every_trigger(resolved: Plan) -> None:
         "drive_ahead",
         "tighten_failsafe",
         "stop_stack",
-        "freeze_stack",
         "say_hello",
+        "freeze_stack",
     ]
     hello = by_name["say_hello"].to_dict()
-    assert hello["trigger"] == {"at_s": 2.0, "every_s": 5.0, "count": 3}
+    assert hello["trigger"] == {"at_s": 1.0, "every_s": 3.0, "count": 3}
     assert hello["topic"] == "/announce"
     assert hello["text"] == "fieldproof says hello"
     tighten = by_name["tighten_failsafe"]
@@ -108,7 +108,7 @@ def test_plan_resolves_every_trigger(resolved: Plan) -> None:
     assert data["node"] == "/link_monitor"
     assert data["value"] == "5.0"
     assert by_name["freeze_stack"].to_dict()["trigger"] == {
-        "at_s": 1.0,
+        "at_s": 5.0,
         "after": ["drive_ahead", "tighten_failsafe"],
     }
     assert by_name["stop_stack"].to_dict() == {
@@ -153,7 +153,7 @@ def test_run_passes_through_every_trigger(resolved: Plan, clock: FakeClock) -> N
     by_name = {a.name: a for a in record.timeline}
     assert by_name["say_hello"].occurrence == 1
     assert by_name["say_hello#3"].occurrence == 3
-    assert by_name["say_hello#3"].trigger == {"at_s": 2.0, "every_s": 5.0, "count": 3}
+    assert by_name["say_hello#3"].trigger == {"at_s": 1.0, "every_s": 3.0, "count": 3}
     assert by_name["say_hello"].detail == "published 'fieldproof says hello' on /announce"
     assert by_name["tighten_failsafe"].detail == "/link_monitor loss_timeout_s = 5.0"
     assert by_name["tighten_failsafe"].params == {
@@ -190,8 +190,8 @@ def test_run_passes_through_every_trigger(resolved: Plan, clock: FakeClock) -> N
         "say_hello",
         "tighten_failsafe",
         "say_hello#2",
-        "freeze_stack",
         "say_hello#3",
+        "freeze_stack",
         "stop_stack",
     ]
     assert starts[2]["event_action"] == "param.set"

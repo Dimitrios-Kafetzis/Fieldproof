@@ -14,7 +14,16 @@ import typer
 
 from fieldproof import __version__
 from fieldproof.bridge import app as bridge_app
-from fieldproof.scenario_cli import clock, compare, events, report, run, schema, validate
+from fieldproof.scenario_cli import (
+    assertions,
+    clock,
+    compare,
+    events,
+    report,
+    run,
+    schema,
+    validate,
+)
 from fieldproof.vehicle_cli import manifest_app, vehicle_app
 
 APP_NAME = "fieldproof"
@@ -34,6 +43,7 @@ app.command("validate")(validate)
 app.command("run")(run)
 app.command("schema")(schema)
 app.command("events")(events)
+app.command("assertions")(assertions)
 app.command("report")(report)
 app.command("clock")(clock)
 app.command("compare")(compare)

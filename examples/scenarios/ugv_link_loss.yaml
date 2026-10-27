@@ -105,6 +105,41 @@ assertions:
   - name: no_collision
     type: no_collision
     vehicle: ugv1
+  # --- assertion library v1 (task P2-T05) ---
+  # Two signals at once: while the vehicle reports the link lost, its wheel odometry stays
+  # under 0.05 m/s for ten seconds running (`eventually ... for_s`, a hold).
+  - name: holds_while_lost_combined
+    type: eventually
+    vehicle: ugv1
+    signals:
+      lost: { topic: link_state, field: data }
+      speed: { topic: odom, field: twist.twist.linear.x }
+    condition: not lost and abs(speed) < 0.05
+    after_s: 5s
+    for_s: 10s
+    within_s: 36s
+  # And it never moves while lost, once the failsafe has had its time to brake.
+  - name: never_moves_while_lost
+    type: never
+    vehicle: ugv1
+    signals:
+      lost: { topic: link_state, field: data }
+      speed: { topic: odom, field: twist.twist.linear.x }
+    condition: not lost and abs(speed) > 0.05
+    after_s: 18s
+    within_s: 33s
+  # The story in order, told by the other assertions' verdicts: the loss reported, the hold,
+  # the link back, the goal reached.
+  - name: outage_story
+    type: sequence
+    steps:
+      - { assertion: reports_link_lost }
+      - { assertion: holds_while_lost }
+      - { assertion: reports_link_back }
+      - { assertion: reached_goal }
+kpis:
+  - { name: drive, type: path, vehicle: ugv1, action: drive_along_hall }
+  - { name: heartbeat_age, type: latency, topic: odom, vehicle: ugv1 }
 outputs:
   logs: true
   record: true

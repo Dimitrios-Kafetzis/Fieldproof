@@ -4,8 +4,9 @@ A complete event plugin for the Fieldproof engine, small enough to copy
 ([events.md](../../../docs/reference/events.md#writing-a-plugin)): a Python distribution with one
 `fieldproof.events` entry point, an entry model (`Announce`: the fields a scenario writes under
 `action: example.announce`), a `plan` hook (the topic resolved under the vehicle's namespace)
-and an `apply` hook (`ros2 topic pub --once` inside the vehicle's container, the record filled
-in). The engine's development environment installs it, so it is registered after
+and an `apply` hook (`ros2 topic pub --once` inside the vehicle's container, reliable, transient
+local and kept alive for 2 s so a recorder that discovers the topic late still gets the message,
+the record filled in). The engine's development environment installs it, so it is registered after
 `uv sync --project engine`:
 
 ```bash

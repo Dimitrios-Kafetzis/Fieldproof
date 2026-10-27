@@ -2,8 +2,9 @@
 
 The record the runner writes next to them (``run.json``) is the engine's view (phases,
 containers, the stream). The report is the reader's: the verdict, every assertion with its
-reason and evidence, the timeline, the durations and the artefacts of the run directory (the
-MCAP recording first). :func:`write_reports` renders the three at the end of a run;
+reason and evidence (and, for a failed one, an excerpt of the stream just before the verdict,
+task P2-T05), the KPIs of the run, the timeline, the durations and the artefacts of the run
+directory (the MCAP recording first). :func:`write_reports` renders the three at the end of a run;
 ``fieldproof report`` renders them again from a run
 directory. The JUnit document (task P1-T07) is the report for CI: one test suite per run, one
 test case per assertion and per timeline entry, and one for the run itself, so a test reporter
@@ -118,6 +119,9 @@ def build_report(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         "vehicles": list(record.get("vehicles") or []),
         "assertions": assertions,
         "assertion_counts": counts,
+        "kpis": dict(record.get("kpis") or {}),
+        "kpi_collectors": list(record.get("kpi_collectors") or []),
+        "resources": record.get("resources"),
         "timeline": list(record.get("timeline") or []),
         "phases": list(record.get("phases") or []),
         "recording": _recording(artifacts),
@@ -143,6 +147,8 @@ def _cell(text: Any) -> str:
 def _evidence(evidence: dict[str, Any]) -> str:
     parts = []
     for key, value in evidence.items():
+        if key == "excerpt":
+            continue  # rendered under the table for the failed assertions
         if isinstance(value, dict):
             inner = ", ".join(f"{k} {_fmt(v, digits=2)}" for k, v in value.items() if v is not None)
             parts.append(f"{key}: {inner}")
@@ -210,8 +216,10 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"{_fmt(a.get('t_s'), ' s')} | {_cell(a.get('reason') or '-')} | "
                 f"{_cell(_evidence(a.get('evidence') or {}))} |"
             )
+        lines += _excerpt_lines(assertions)
     else:
         lines.append("The scenario declares no assertions.")
+    lines += _kpi_lines(report)
     lines += ["", "## Timeline", ""]
     timeline = report.get("timeline") or []
     if timeline:
@@ -233,6 +241,59 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"| {phase.get('name')} | {_fmt(phase.get('duration_s'), ' s')} |")
     lines += ["", "## Artefacts", "", *_artefact_lines(report)]
     return "\n".join(lines) + "\n"
+
+
+def _excerpt_lines(assertions: list[dict[str, Any]]) -> list[str]:
+    """The stream just before each failed assertion's verdict (task P2-T05)."""
+    lines: list[str] = []
+    for a in assertions:
+        excerpt = (a.get("evidence") or {}).get("excerpt") or []
+        if a.get("status") != "failed" or not excerpt:
+            continue
+        columns = [
+            "t_s",
+            "sim_s",
+            *sorted({k for entry in excerpt for k in entry if k not in ("t_s", "sim_s")}),
+        ]
+        lines += [
+            "",
+            f"### Evidence: `{a.get('name')}`",
+            "",
+            f"{_cell(a.get('reason') or '-')}. The last {len(excerpt)} sample(s) the assertion "
+            "saw before its verdict:",
+            "",
+            "| " + " | ".join(columns) + " |",
+            "| " + " | ".join("---" for _ in columns) + " |",
+        ]
+        for entry in excerpt:
+            lines.append(
+                "| " + " | ".join(_cell(_fmt(entry.get(c), digits=3)) for c in columns) + " |"
+            )
+    return lines
+
+
+def _kpi_lines(report: dict[str, Any]) -> list[str]:
+    """The run's KPIs: every collector's and every assertion's metrics (task P2-T05)."""
+    kpis = report.get("kpis") or {}
+    collectors = report.get("kpi_collectors") or []
+    if not kpis and not collectors:
+        return []
+    lines = ["", "## KPIs", ""]
+    if collectors:
+        summary = ", ".join(
+            f"`{c.get('name')}` ({c.get('type')}) {c.get('status')}" for c in collectors
+        )
+        lines += [f"{len(collectors)} collector(s): {summary}.", ""]
+    if kpis:
+        lines += ["| KPI | Value | Unit | Source |", "| --- | --- | --- | --- |"]
+        for name, kpi in kpis.items():
+            value, unit = _fmt(kpi.get("value"), digits=3), _cell(kpi.get("unit") or "-")
+            lines.append(
+                f"| `{name}` | {value} | {unit} | `{kpi.get('source')}` ({kpi.get('type')}) |"
+            )
+    else:
+        lines.append("Nothing was measured.")
+    return lines
 
 
 def _clock_lines(report: dict[str, Any]) -> list[str]:
@@ -371,6 +432,15 @@ def _junit_case(
     return ET.SubElement(suite, "testcase", attrib)
 
 
+def _junit_kpis(properties: ET.Element, kpis: dict[str, Any]) -> None:
+    """The run's KPIs as `kpi.<name>` properties (task P2-T05)."""
+    for name, kpi in kpis.items():
+        value = kpi.get("value")
+        if value is not None:
+            unit = f" {kpi['unit']}" if kpi.get("unit") else ""
+            ET.SubElement(properties, "property", name=f"kpi.{name}", value=f"{value}{unit}")
+
+
 def render_junit(report: dict[str, Any]) -> str:
     """The report as a JUnit XML document.
 
@@ -411,6 +481,7 @@ def render_junit(report: dict[str, Any]) -> str:
     for key, value in facts.items():
         if value is not None:
             ET.SubElement(properties, "property", name=key, value=_junit_text(value))
+    _junit_kpis(properties, report.get("kpis") or {})
     failures = errors = skipped = 0
     for assertion in report.get("assertions") or []:
         status = str(assertion.get("status") or "pending")
