@@ -338,8 +338,8 @@ if python3 - <<'PY'
 import yaml
 doc = yaml.safe_load(open(".github/dependabot.yml"))
 eco = sorted(u["package-ecosystem"] for u in doc["updates"])
-assert sorted(set(eco)) == ["github-actions", "npm", "pip"], eco  # no docker: issue #9, see pins.yml
-dirs = sorted(u["directory"] for u in doc["updates"] if u["package-ecosystem"] == "pip")
+assert sorted(set(eco)) == ["github-actions", "npm", "uv"], eco  # no docker: issue #9, see pins.yml
+dirs = sorted(u["directory"] for u in doc["updates"] if u["package-ecosystem"] == "uv")
 assert dirs == ["/engine", "/tools/docs"], dirs
 import os
 for u in doc["updates"]:
@@ -348,7 +348,7 @@ for u in doc["updates"]:
     assert u["groups"], u
     assert os.path.isdir("." + u["directory"]), u["directory"]
 PY
-then pass "Dependabot: github-actions, pip (engine, tools/docs) and npm, weekly, grouped, build(deps) prefix, directories exist"; else fail "Dependabot configuration"; fi
+then pass "Dependabot: github-actions, uv (engine, tools/docs) and npm, weekly, grouped, build(deps) prefix, directories exist"; else fail "Dependabot configuration"; fi
 
 # Run from docker/ with every profile enabled, exactly as the workflows do: bake resolves the
 # build contexts relative to its working directory and profile-aware versions drop base-ros2.
