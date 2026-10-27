@@ -217,9 +217,10 @@ commitlint keeps exempting that exact shape so `make lint-commits` stays clean o
 ## Dependabot
 
 `.github/dependabot.yml` opens one grouped pull request per ecosystem every Monday, titled
-`build(deps): ...`: GitHub Actions (SHA pins and version comments), pip in `tools/docs/` (the
-documentation toolchain, `uv.lock`) and `engine/` (`uv.lock`), and npm in `cockpit/`
-(`pnpm-lock.yaml`). A bump of an engine dependency must also update the mypy hook in
+`build(deps): ...`: GitHub Actions (SHA pins and version comments), uv in `tools/docs/` (the
+documentation toolchain) and `engine/` (both update `pyproject.toml` and `uv.lock` together; the
+`pip` ecosystem bumped the manifest alone, which `uv sync --locked` then refused), and npm in
+`cockpit/` (`pnpm-lock.yaml`). A bump of an engine dependency must also update the mypy hook in
 `.pre-commit-config.yaml`, and a TypeScript bump the eslint hook; `make test-layout` says which.
 Major versions of `typescript` and `@types/node` are ignored in the npm entry: the cockpit
 follows Node 22 and TypeScript stays where `typescript-eslint` supports it, so those bumps are
