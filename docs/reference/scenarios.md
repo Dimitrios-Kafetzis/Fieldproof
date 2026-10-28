@@ -38,6 +38,10 @@ metadata:
   tags: [smoke, nav, ugv]
 world:
   file: depot.sdf                        # in the workspace's worlds directory
+source:                                  # optional: a field log instead of the simulator (replay.md)
+  kind: replay
+  log: ../logs/ugv_dock_drive.mcap
+  vehicles: { ugv1: { topics: { /scan: scan, /odom: odom } } }
 vehicles:
   - name: ugv1                           # the model name in Gazebo and the container
     manifest: ../vehicles/ugv_nav2/robot.yaml   # relative to this file
@@ -113,7 +117,8 @@ a string such as `90s`, `1m30s` or `2h`.
 | Section | Fields |
 | --- | --- |
 | `metadata` | `name`, `description`, `tags` |
-| `world` | `file`: a world file of the workspace's worlds directory (`depot.sdf`, [worlds.md](worlds.md)); its `<frame name="...">` elements are the named poses vehicles spawn at and goals refer to; the `<world name>` is what the runner waits for |
+| `world` | `file`: a world file of the workspace's worlds directory (`depot.sdf`, [worlds.md](worlds.md)); its `<frame name="...">` elements are the named poses vehicles spawn at and goals refer to; the `<world name>` is what the runner waits for. Required with the simulator; optional in a replay (its frames then serve the placements, nothing is simulated) |
+| `source` | optional ([replay.md](replay.md)): `kind: replay`, a field `log` (an MCAP file or a rosbag2 directory, relative to the scenario), the playback `rate`, `start_s` and `duration_s`, the clock's `lead_in_s`, and per vehicle what the log feeds it (`topics`, the `tf` topic with its frame filter, the `ground_truth` pose topic). No simulator and no bridge run; the vehicles' actuators are open-loop; `spawn` becomes optional, lockstep, `time.rtf`, video, the network and the simulator's events and `no_collision` are refused |
 | `vehicles[]` | `name` (unique), `manifest` (a `robot.yaml` with a `runtime` section, relative to the scenario, inside the workspace), `namespace` (unique; empty by default, the root; in a fleet one per vehicle, see [Fleets](#fleets)), `frame_prefix` (for a stack that keeps one shared TF tree; empty by default), `spawn` (a placement), `image` (overrides the manifest's `runtime.image`), `env` (extra environment of the vehicle container), `resources` (fields that replace the manifest's `runtime.resources`: `cpus`, `cpuset`, `memory`, `pids`), `depends_on` (vehicles that must be ready before this one's container starts) |
 | `network` | radio links between the vehicles and a ground station ([network.md](network.md)): `profile` (every vehicle's link: a preset `wifi_good`, `lte_rural`, `rf_900mhz_5km` or a name under `profiles`; `wifi_good` by default), `links` (vehicle name to the profile of its link instead), `profiles` (the scenario's own: `latency_ms`, `jitter_ms`, `loss_pct`, `reorder_pct`, `rate_kbit`, `description`), `verify` (`off`, `warn` by default, `fail`: what a link whose measured latency is not within 10 % of its profile does). Absent: one shared network, no shaping |
 | `time` | [ADR-0006](../adr/0006-sim-time-default-realtime-locked-mode.md), [time.md](time.md): `mode` (`sim` by default: free-running, the timeline on the wall clock; `realtime`: the real-time factor pinned to 1.0 and the drift judged; `lockstep`: the simulator stepped only once every vehicle acknowledged, the timeline in simulation time), `rtf` (target real-time factor, applied to the world's physics after it loads; absent: the world's own setting; 1.0 in `realtime`; the pace cap of a step in `lockstep`), `tolerance` (allowed deviation of a window's real-time factor, warned about), `max_drift_s` and `on_drift` (the real-time-locked mode's drift budget and whether a lost lock fails the run or warns), `step_s` and `ack_timeout_s` (the lockstep step and how long a vehicle may take to acknowledge one), `timeout_s` (the wall-clock budget of the run from the moment every vehicle is ready; 600 s by default) |
@@ -248,6 +253,7 @@ recorder_s = 60.0          # the recorder's observer reporting ready
 discovery_s = 60.0         # the discovery server listening (discovery = "server")
 contract_s = 180.0         # a vehicle's bridge contract check (--check-contracts)
 ground_s = 60.0            # the ground station reporting ready (radio links)
+replay_s = 120.0           # the replay player reporting ready (the log opened, paused; replay.md)
 teardown_s = 10.0          # grace period of a container stop
 ```
 
@@ -283,8 +289,14 @@ machine of phases, each a gate the next one waits for:
 | `teardown` | each link's traffic counters read from its holder (radio links); vehicles, the ground station and the link holders, the recorder (SIGINT to `ros2 bag record`, so the MCAP is finalised), bridges, the simulator and the discovery server are stopped (grace `timeouts.teardown_s`) and removed in reverse order, their logs saved first; then every container labelled with the run id is removed, whatever the in-memory list says; then the run's networks (radio links) | |
 | `finished` | the record and the report (`report.json`, `report.md`) are written | |
 
+A replay run ([replay.md](replay.md#how-a-replay-runs)) has a `replay` phase in place of
+`sim`, `spawn` and `bridges`: the player container (role `player`,
+`fieldproof-<short>-player`) opens the log, starts the clock and reports `ready`
+(`timeouts.replay_s`); the `running` phase then lasts until the log is played and the
+timeline's entries are done.
+
 Every container carries the labels `io.fieldproof.run=<run_id>`, `io.fieldproof.domain=<id>`,
-`io.fieldproof.role` (`discovery`, `sim`, `spawn`, `bridge`, `recorder`, `link`, `ground`,
+`io.fieldproof.role` (`discovery`, `sim`, `player`, `spawn`, `bridge`, `recorder`, `link`, `ground`,
 `vehicle`) and, for a vehicle's containers, `io.fieldproof.vehicle=<name>`, and is named
 `fieldproof-<short>-sim`, `fieldproof-<short>-discovery`, `fieldproof-<short>-spawn-<vehicle>`,
 `fieldproof-<short>-bridge-<vehicle>`, `fieldproof-<short>-recorder`,
@@ -386,8 +398,9 @@ still present afterwards.
   on the fake backend with its exit codes, the fleet with `--check-contracts`; the timeline
   DSL, the scheduler and the events have their own suites ([events.md](events.md#tests));
   `test_docker_backend.py`: the Docker backend against a stub of the SDK's client (the budget
-  mapped, the host's capacity, one connection per thread). `make test-engine` runs them with
-  coverage.
+  mapped, the host's capacity, one connection per thread); `test_replay.py` (task P2-T07): the
+  replay source's schema, plan and run on the fake backend ([replay.md](replay.md#tests)).
+  `make test-engine` runs them with coverage.
 - `tests/integration/test_run.py` (`make test-integration`, after the vertical-slice test):
   `fieldproof run` of the example scenario passes against the real stack with its five
   assertions, the MCAP recording and the reports, the run directory is complete and no container

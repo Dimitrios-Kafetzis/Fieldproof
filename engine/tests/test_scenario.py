@@ -83,9 +83,13 @@ def test_example_loads(example: Scenario) -> None:
     assert example.directory == EXAMPLE.parent.resolve()
     assert len(example.digest) == 8
     assert int(example.digest, 16) >= 0
+    assert example.world is not None
     assert example.world.file == "depot.sdf"
+    assert example.source is None
     assert [v.name for v in example.vehicles] == ["ugv1"]
-    assert example.vehicle("ugv1").spawn.frame == "spawn_dock"
+    spawn = example.vehicle("ugv1").spawn
+    assert spawn is not None
+    assert spawn.frame == "spawn_dock"
     assert example.time.mode == "sim"
     assert example.time.timeout_s == 600.0
     drive = example.timeline[0]
@@ -288,7 +292,7 @@ def test_json_schema_is_committed_and_current() -> None:
     schema = json_schema()
     assert schema["$schema"].endswith("2020-12/schema")
     assert schema["title"] == "Fieldproof scenario v0"
-    assert set(schema["required"]) == {"apiVersion", "kind", "metadata", "world", "vehicles"}
+    assert set(schema["required"]) == {"apiVersion", "kind", "metadata", "vehicles"}
     assert schema["$defs"]["NavigateToPose"]["properties"]["action"]["const"] == "navigate_to_pose"
     assertion = schema["properties"]["assertions"]["items"]
     assert assertion["discriminator"]["propertyName"] == "type"

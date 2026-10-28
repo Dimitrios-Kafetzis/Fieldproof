@@ -16,7 +16,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import Field
 
 from fieldproof.backend import ExecResult
-from fieldproof.dsl import Duration, Placement, TimelineBase
+from fieldproof.dsl import Duration, Placement, ScenarioError, TimelineBase
 from fieldproof.events import FAILED, OK, TIMEOUT, ActionRecord, Event, EventContext, PlanContext
 from fieldproof.manifest import Name
 from fieldproof.world import Pose, place
@@ -69,7 +69,14 @@ class NavigateToPoseEvent(Event):
     def plan(self, entry: NavigateToPose, context: PlanContext) -> dict[str, Any]:
         """The goal in the world and in the vehicle's map frame."""
         goal_world = place(entry.goal, context.world, f"{context.where}.goal")
-        spawn = context.vehicle(entry.vehicle).spawn
+        vehicle = context.vehicle(entry.vehicle)
+        if not getattr(vehicle, "has_spawn", True):
+            raise ScenarioError(
+                f"{context.where}.goal: the goal is sent in {entry.vehicle}'s map frame, which "
+                "starts at its spawn pose; give the vehicle a spawn (where it was in the world "
+                "when the log started)"
+            )
+        spawn = vehicle.spawn
         return {"goal_world": goal_world, "goal_map": spawn.relative(goal_world)}
 
     def apply(

@@ -425,6 +425,10 @@ uv run --project engine fieldproof run examples/scenarios/ugv_gps_denied.yaml
 
 ## Known limits
 
+- In a replay run ([replay.md](replay.md)) the clock, world and fault events are refused at
+  validation (no simulator, no bridge); `navigate_to_pose` (with a spawn), `container.*` and
+  `param.set` work.
+
 - The fault events reach what the bridge routes through an injector: the IMU, the GNSS fix,
   the laser scan, the odometry, the joint states, the drive command and the battery of the
   reference vehicles. The camera topics stay on the C++ path (images at 15 Hz are too heavy

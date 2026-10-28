@@ -330,6 +330,7 @@ class SpawnObjectEvent(WorldEvent):
 
     def plan(self, entry: SpawnObject, context: PlanContext) -> dict[str, Any]:
         """The model's pose in the world (a shape stands on the placement) and its SDF."""
+        context.require_simulator(self.action, "the simulator's world")
         ground = place(entry.pose, context.world, f"{context.where}.pose")
         pose = Pose(ground.x, ground.y, ground.z + entry.height / 2, ground.yaw)
         if any(v.name == entry.model for v in context.vehicles.values()):
@@ -368,6 +369,7 @@ class RemoveObjectEvent(WorldEvent):
 
     def plan(self, entry: RemoveObject, context: PlanContext) -> dict[str, Any]:
         """The service; a vehicle cannot be removed (the run watches its containers)."""
+        context.require_simulator(self.action, "the simulator's world")
         if any(v.name == entry.model for v in context.vehicles.values()):
             raise ScenarioError(
                 f"{context.where}.model: {entry.model!r} is a vehicle of the scenario "
@@ -395,6 +397,7 @@ class TeleportEvent(WorldEvent):
 
     def plan(self, entry: Teleport, context: PlanContext) -> dict[str, Any]:
         """The model and its new pose (a vehicle keeps its spawn height above the ground)."""
+        context.require_simulator(self.action, "the simulator's world")
         pose = place(entry.pose, context.world, f"{context.where}.pose")
         if entry.vehicle is not None:
             model = context.vehicle(entry.vehicle).name
@@ -429,6 +432,7 @@ class SetWindEvent(WorldEvent):
 
     def plan(self, entry: SetWind, context: PlanContext) -> dict[str, Any]:  # noqa: ARG002
         """The service."""
+        context.require_simulator(self.action, "the simulator's world")
         return {"service": service_name(context.world.name, self.verb)}
 
     def request(self, entry: SetWind, resolved: Mapping[str, Any]) -> str:  # noqa: ARG002

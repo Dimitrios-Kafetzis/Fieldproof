@@ -70,6 +70,32 @@ def fmt(value: Any, unit: str = "", digits: int = 1) -> str:
     return esc(value)
 
 
+def source_text(source: dict[str, Any] | None) -> str | None:
+    """The replayed log of a run (task P2-T07) in one line, or None for a simulated run."""
+    if not source or source.get("kind") != "replay":
+        return None
+    text = (
+        f"replay of `{source.get('log')}` at {fmt(source.get('rate'), 'x', 2)}: "
+        f"{fmt(source.get('duration_s'), ' s')} of the log from "
+        f"{fmt(source.get('start_s'), ' s')}, {len(source.get('topics') or [])} topic(s), "
+        f"the clock {fmt(source.get('lead_in_s'), ' s')} ahead of the first message"
+    )
+    playing, done = source.get("playing_t_s"), source.get("done_t_s")
+    if playing is not None:
+        text += (
+            f"; playing from {fmt(-playing, ' s')} before the timeline"
+            if playing < 0
+            else f"; playing from {fmt(playing, ' s')} on the timeline"
+        )
+    if done is not None:
+        text += (
+            ", played before the timeline started" if done < 0 else f", played by {fmt(done, ' s')}"
+        )
+    elif playing is not None:
+        text += ", not played to its end"
+    return text
+
+
 def badge(verdict: Any) -> str:
     """A coloured verdict."""
     text = str(verdict or "-")
@@ -194,6 +220,9 @@ def render_html(report: dict[str, Any]) -> str:
             else ""
         ),
         _overrides(report.get("overrides") or {}),
+        f"Source: {esc(source_text(report.get('source')))}"
+        if source_text(report.get("source"))
+        else "",
     ]
     parts.append(_facts(facts))
     assertions = report.get("assertions") or []

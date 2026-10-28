@@ -82,7 +82,9 @@ def test_validate_example() -> None:
     result = runner.invoke(app, ["validate", str(EXAMPLE)])
     assert result.exit_code == 0, result.output
     out = plain(result.output)
-    assert out.startswith(f"ok {EXAMPLE}: ugv_nav_to_goal (world depot, 1 vehicle(s): ugv1")
+    assert out.startswith(
+        f"ok {EXAMPLE}: ugv_nav_to_goal (source the simulator, world depot, 1 vehicle(s): ugv1"
+    )
     assert "1 timeline entry, 5 assertion(s), time sim, budget 600 s" in out
 
 
@@ -170,7 +172,7 @@ def test_validate_fleet() -> None:
     result = runner.invoke(app, ["validate", str(FLEET)])
     assert result.exit_code == 0, result.output
     out = plain(result.output)
-    assert "ugv_fleet (world depot, 3 vehicle(s): ugv1 (ugv_nav2, " in out
+    assert "ugv_fleet (source the simulator, world depot, 3 vehicle(s): ugv1 (ugv_nav2, " in out
     assert ", /ugv1), ugv2 (ugv_nav2, " in out
     assert "3 timeline entries, 15 assertion(s)" in out
 

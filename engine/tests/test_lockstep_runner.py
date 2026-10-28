@@ -139,6 +139,7 @@ def clock() -> FakeClock:
 def test_lockstep_plan(config: Config, tmp_path: Path) -> None:
     resolved = lockstep_plan(config, tmp_path)
     assert resolved.seed == 7
+    assert resolved.sim is not None
     assert resolved.sim.command[-3:] == ("--seed", "7", "depot.sdf")
     (vehicle,) = resolved.vehicles
     agent = vehicle.agent
@@ -163,6 +164,7 @@ def test_lockstep_plan(config: Config, tmp_path: Path) -> None:
     clock_config = resolved.observe["clock"]
     assert clock_config == {
         "world": "depot",
+        "source": "sim",
         "mode": "lockstep",
         "target_rtf": 1.0,
         "step_s": 0.1,
@@ -180,6 +182,7 @@ def test_free_running_plan_has_no_agents_but_a_clock_config(config: Config, tmp_
     assert all(v.agent is None for v in resolved.vehicles)
     assert resolved.observe["clock"] == {
         "world": "depot",
+        "source": "sim",
         "mode": "sim",
         "target_rtf": 1.0,
         "step_s": 0.1,

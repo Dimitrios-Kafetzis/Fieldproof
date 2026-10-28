@@ -128,6 +128,10 @@ class Timeouts(Strict):
     ground_s: PositiveFloat = Field(
         default=60.0, description="The ground station reporting ready (radio links)."
     )
+    replay_s: PositiveFloat = Field(
+        default=120.0,
+        description="The replay player reporting ready (the log opened, paused; task P2-T07).",
+    )
     teardown_s: PositiveFloat = Field(default=10.0, description="Grace period of a container stop.")
 
 

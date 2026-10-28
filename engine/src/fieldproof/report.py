@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fieldproof.html import render_html
+from fieldproof.html import render_html, source_text
 
 RECORD_FILE = "run.json"
 REPORT_JSON = "report.json"
@@ -120,6 +120,7 @@ def build_report(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         "seed": record.get("seed"),
         "overrides": dict(record.get("overrides") or {}),
         "world": (record.get("stack") or {}).get("world"),
+        "source": record.get("source") or {"kind": "sim"},
         "vehicles": list(record.get("vehicles") or []),
         "assertions": assertions,
         "assertion_counts": counts,
@@ -202,6 +203,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         )
     )
     lines += _clock_lines(report)
+    lines += _source_lines(report)
     counts = report.get("assertion_counts") or {}
     lines += ["", "## Assertions", ""]
     assertions = report.get("assertions") or []
@@ -338,6 +340,12 @@ def _clock_lines(report: dict[str, Any]) -> list[str]:
     if report.get("seed") is not None:
         parts.append(f"seed {report['seed']}")
     return [", ".join(parts)]
+
+
+def _source_lines(report: dict[str, Any]) -> list[str]:
+    """The source of the run's inputs, when it is a replayed field log."""
+    text = source_text(report.get("source"))
+    return [f"- Source: {text}"] if text else []
 
 
 def _network_lines(network: dict[str, Any] | None) -> list[str]:

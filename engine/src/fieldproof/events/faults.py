@@ -194,6 +194,7 @@ class FaultEvent(Event):
 
     def plan(self, entry: Any, context: PlanContext) -> dict[str, Any]:
         """The injector's node and the parameters, both ways."""
+        context.require_simulator(self.action, "the vehicle's bridge (its fault injectors)")
         vehicle = context.vehicle(entry.vehicle)
         node = injector_node(context, vehicle, self.sensor_of(entry), kinds=self.kinds)
         return {"node": node, "set": self.parameters(entry), "restore": self.restore(entry)}

@@ -73,6 +73,12 @@ GOOD_SAMPLES = [
 ]
 
 
+def sim_of(resolved: Plan) -> ContainerSpec:
+    """The simulator container of a plan (every plan here has one)."""
+    assert resolved.sim is not None
+    return resolved.sim
+
+
 def ready_backend(resolved: Plan, clock: FakeClock | None = None) -> FakeBackend:
     backend = FakeBackend()
     backend.images = {s.image for s in resolved.containers()} | {
@@ -183,7 +189,7 @@ def test_plan_resolves_the_example(resolved: Plan, config: Config, tmp_path: Pat
     assert resolved.discovery is None
     assert resolved.discovery_mode == "multicast"
     assert resolved.database == tmp_path / "runs" / "fieldproof.sqlite", "the runs directory's"
-    sim = resolved.sim
+    sim = sim_of(resolved)
     assert sim.name == "fieldproof-abc123-sim"
     assert sim.image == config.image("sim")
     assert sim.command == (
@@ -361,9 +367,9 @@ def test_plan_namespace_and_overrides(config: Config, tmp_path: Path) -> None:
     )
     assert resolved.run_id == "custom-id"
     assert resolved.run_dir == tmp_path / "custom-id"
-    assert resolved.sim.name == "fieldproof-id-sim"
-    assert resolved.sim.network == "lab"
-    assert resolved.sim.env["ROS_DOMAIN_ID"] == "9"
+    assert sim_of(resolved).name == "fieldproof-id-sim"
+    assert sim_of(resolved).network == "lab"
+    assert sim_of(resolved).env["ROS_DOMAIN_ID"] == "9"
     assert resolved.domain_source == "explicit"
     (vehicle,) = resolved.vehicles
     assert vehicle.bridge.command == (
@@ -685,7 +691,7 @@ def test_video_is_recorded_and_saved(filmed: Plan, clock: FakeClock) -> None:
     backend.video_file_polls_needed = 3
     record, log = execute(resolved, backend, clock)
     assert record.status == Status.PASSED
-    sim = resolved.sim.name
+    sim = sim_of(resolved).name
     requests = [a[2] for n, a in backend.execs if n == sim and "record_video" in a[2]]
     assert len(requests) == 2
     assert "gz service -s /spectator/record_video --reqtype gz.msgs.VideoRecord" in requests[0]
@@ -964,7 +970,7 @@ def test_no_ready_conditions(config: Config, clock: FakeClock, tmp_path: Path) -
 
 # -------------------------------------------------------------------------------- failures
 def test_missing_images(resolved: Plan, clock: FakeClock) -> None:
-    backend = FakeBackend(images={resolved.sim.image})
+    backend = FakeBackend(images={sim_of(resolved).image})
     record, _ = execute(resolved, backend, clock)
     assert record.status == Status.ERROR
     assert "image(s) not built" in str(record.reason)
@@ -1152,7 +1158,7 @@ def test_world_never_ready(resolved: Plan, clock: FakeClock) -> None:
 
 def test_sim_exits(resolved: Plan, clock: FakeClock) -> None:
     backend = ready_backend(resolved)
-    backend.exit_on_poll[resolved.sim.name] = 1
+    backend.exit_on_poll[sim_of(resolved).name] = 1
     record, _ = execute(resolved, backend, clock)
     assert record.status == Status.ERROR
     assert "sim container fieldproof-abc123-sim exited (137)" in str(record.reason)

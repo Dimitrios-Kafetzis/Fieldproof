@@ -296,6 +296,15 @@ class FakeBackend:
     # stream yields (by name, or `*` for every container), in order; none by default.
     usage_samples: dict[str, list[ResourceUsage]] = field(default_factory=dict)
     usage_requested: list[str] = field(default_factory=list)
+    # The replay player (task P2-T07): the status lines written into the run directory's
+    # replay.jsonl when the player starts (`ready`, `playing` and `done` by default, so the
+    # log counts as played at once) and when the vehicle's readiness probe answers.
+    replay_on_start: list[dict[str, Any] | str] | None = None
+    replay_on_goal: list[dict[str, Any] | str] = field(default_factory=list)
+    replay_file: Path | None = None
+    exit_on_state: dict[str, int] = field(default_factory=dict)
+    """Containers that exit (code 137) once their state has been read this many times."""
+    state_reads: dict[str, int] = field(default_factory=dict)
 
     def image_exists(self, image: str) -> bool:
         return image in self.images
@@ -356,6 +365,31 @@ class FakeBackend:
             if samples is None:
                 samples = [{"kind": "ready", "recording": True, "subscribed": [], "waiting": []}]
             self.write_samples(samples)
+        if spec.role == "player":
+            run_dir = next(m.source for m in spec.mounts if not m.read_only)
+            self.replay_file = Path(run_dir) / "replay.jsonl"
+            lines = self.replay_on_start
+            if lines is None:
+                lines = [
+                    {"event": "started", "t0_ns": 1_700_000_000_000_000_000},
+                    {"event": "ready", "after_s": 2.0},
+                    {"event": "playing", "late_s": 0.0},
+                    {"event": "done", "exit_code": 0, "played_s": 120.0},
+                ]
+            self.write_replay(lines)
+
+    def write_replay(self, lines: Sequence[dict[str, Any] | str]) -> None:
+        """Append status lines to the run's replay.jsonl as the player would."""
+        if self.replay_file is None:
+            return
+        self.replay_file.parent.mkdir(parents=True, exist_ok=True)
+        with self.replay_file.open("a") as file:
+            for line in lines:
+                if isinstance(line, str):
+                    file.write(line + "\n")
+                    continue
+                record = {"wall": self.wall(), "sim": None, **line}
+                file.write(json.dumps(record) + "\n")
 
     def write_samples(self, samples: Sequence[dict[str, Any] | str]) -> None:
         """Append samples to the run's samples.jsonl as the observer would (strings verbatim)."""
@@ -444,6 +478,7 @@ class FakeBackend:
                 self.clock.sleep(self.goal_duration_s)
             self.write_samples(self.samples_on_goal)
             self.write_network(self.network_on_goal)
+            self.write_replay(self.replay_on_goal)
             return self.goal_result
         if "param set" in command:
             return self.param_result
@@ -453,6 +488,9 @@ class FakeBackend:
         container = self.containers.get(name)
         if container is None:
             return ContainerState(exists=False)
+        self.state_reads[name] = self.state_reads.get(name, 0) + 1
+        if name in self.exit_on_state and self.state_reads[name] >= self.exit_on_state[name]:
+            container.running, container.exit_code = False, 137
         return ContainerState(True, container.running, container.exit_code, paused=container.paused)
 
     def usage(self, name: str) -> Iterator[ResourceUsage]:

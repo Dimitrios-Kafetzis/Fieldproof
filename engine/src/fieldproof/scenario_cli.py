@@ -177,8 +177,16 @@ def describe(scenario: Scenario, resolved: Plan) -> str:
         + ")"
         for v in resolved.vehicles
     )
+    replay = resolved.replay
+    source = (
+        f"replay of {replay.log.name} ({replay.info.duration_s:.0f} s, "
+        f"{len(replay.play_topics)} topic(s), {replay.source.rate:g}x)"
+        if replay is not None
+        else "the simulator"
+    )
     return (
-        f"world {resolved.world.name}, {len(resolved.vehicles)} vehicle(s): {vehicles}; "
+        f"source {source}, world {resolved.world.name or 'none'}, "
+        f"{len(resolved.vehicles)} vehicle(s): {vehicles}; "
         f"{len(resolved.actions)} timeline entr{'y' if len(resolved.actions) == 1 else 'ies'}, "
         f"{len(scenario.assertions)} assertion(s), time {scenario.time.mode}, "
         f"budget {scenario.time.timeout_s:g} s"
@@ -188,6 +196,19 @@ def describe(scenario: Scenario, resolved: Plan) -> str:
 def clock_note(scenario: Scenario) -> str:
     """What the scenario's time mode means for the run (task P2-T04), for `validate`."""
     time_section = scenario.time
+    if scenario.source is not None:
+        source = scenario.source
+        return (
+            f"source replay: no simulator; the clock starts {source.lead_in_s:g} s before the "
+            f"log's first played message and runs at {source.rate:g}x, the stacks come up on "
+            "it, the timeline starts once they are ready and ends once the log is played; "
+            "actuators are open-loop"
+            + (
+                "; time.mode realtime judges the clock's drift against the wall clock"
+                if time_section.mode == "realtime"
+                else ""
+            )
+        )
     if time_section.mode == "realtime":
         return (
             "time.mode realtime: the real-time factor is pinned to 1.0 and the drift between "
@@ -650,6 +671,13 @@ def clock(  # noqa: PLR0917
         raise fail(error) from error
     world = str((record.get("stack") or {}).get("world") or "")
     run_id = str(record.get("run_id") or "")
+    if (record.get("source") or {}).get("kind") == "replay":
+        raise fail(
+            ValueError(
+                f"{run_id or run_dir}: a replay run has no simulator clock (the player paces "
+                "the log; source.rate sets the pace)"
+            )
+        )
     if not world or not run_id:
         raise fail(ValueError(f"{run_dir}: run.json names no world or run id"))
     try:

@@ -63,6 +63,7 @@ from fieldproof.events.link import LINK_ACTIONS, LinkDrop, LinkRestore, LinkSet
 from fieldproof.events.navigation import NavigateToPose
 from fieldproof.manifest import Name, Resources, format_errors
 from fieldproof.network import DROP, PRESETS, LinkProfile
+from fieldproof.replay import GroundTruth, ReplaySource, ReplayTf, ReplayVehicle
 from fieldproof.world import VIDEO_RECORDER_PLUGIN, Pose, WorldInfo, place, read_world
 
 __all__ = [
@@ -77,6 +78,7 @@ __all__ = [
     "Assertion",
     "AssertionBase",
     "Duration",
+    "GroundTruth",
     "Kpi",
     "KpiBase",
     "LinkDrop",
@@ -90,6 +92,9 @@ __all__ = [
     "Placement",
     "Pose",
     "ReachPose",
+    "ReplaySource",
+    "ReplayTf",
+    "ReplayVehicle",
     "Scenario",
     "ScenarioError",
     "Strict",
@@ -160,7 +165,13 @@ class Vehicle(Strict):
         pattern=r"^([a-z][a-z0-9_]*[/_]?)?$",
         description="Prefix of every frame of the vehicle (`ugv1/`, `ugv1_`; empty: none).",
     )
-    spawn: Placement
+    spawn: Placement | None = Field(
+        default=None,
+        description="Where the vehicle spawns, in the world (a frame of the world file, or "
+        "coordinates); its map frame starts there. Required with the simulator; optional in a "
+        "replay (where it says where the vehicle was in the ground truth's frame when the "
+        "log started, for goals in the world and `align: spawn`).",
+    )
     image: str | None = Field(default=None, description="Image to run instead of the manifest's.")
     env: dict[str, str] = Field(
         default_factory=dict, description="Extra environment of the vehicle container."
@@ -389,7 +400,16 @@ class Scenario(Strict):
     api_version: Literal["fieldproof.dev/v0alpha1"] = Field(alias="apiVersion")
     kind: Literal["Scenario"]
     metadata: Metadata
-    world: World
+    world: World | None = Field(
+        default=None,
+        description="The world the simulator loads (required with the simulator; in a replay, "
+        "optional: its named frames then serve the placements, nothing is simulated).",
+    )
+    source: ReplaySource | None = Field(
+        default=None,
+        description="Where the run's inputs come from: absent, the simulator; `kind: replay`, "
+        "a field log played into the vehicles (replay.md).",
+    )
     vehicles: list[Vehicle] = Field(min_length=1)
     network: Network | None = Field(
         default=None,
@@ -542,11 +562,55 @@ class Scenario(Strict):
         for label in by_label:
             visit(label, [label])
 
+    @property
+    def replay(self) -> ReplaySource | None:
+        """The replay source, when the run replays a field log (task P2-T07)."""
+        return self.source
+
+    def _check_source(self, names: list[str]) -> None:
+        """What a replay run can and cannot combine with (docs/reference/replay.md)."""
+        source = self.source
+        if source is None:
+            if self.world is None:
+                raise ValueError("world: required (the simulator loads it) unless source is replay")
+            for vehicle in self.vehicles:
+                if vehicle.spawn is None:
+                    raise ValueError(
+                        f"vehicles[{vehicle.name}].spawn: required (where the vehicle spawns in "
+                        "the world) unless source is replay"
+                    )
+            return
+        for name in source.vehicles:
+            if name not in names:
+                raise ValueError(f"source.vehicles: {name!r} is not a vehicle of the scenario")
+        if self.network is not None:
+            raise ValueError(
+                "network: radio links shape the traffic between the bridges and the vehicles, "
+                "which a replay run has not (source: replay); leave the section out"
+            )
+        if self.time.mode == "lockstep":
+            raise ValueError(
+                "time.mode: lockstep steps the simulator; a replay run (source: replay) plays "
+                "a log at source.rate instead (sim or realtime)"
+            )
+        if self.time.rtf is not None:
+            raise ValueError("time.rtf: a replay run is paced by source.rate; leave rtf out")
+        if self.time.mode == "realtime" and source.rate != REALTIME_RTF:
+            raise ValueError(
+                f"source.rate: the real-time-locked mode plays the log at {REALTIME_RTF:g}"
+            )
+        if self.outputs.video is not None:
+            raise ValueError(
+                "outputs.video: a video is recorded from a camera of the simulator's world, "
+                "which a replay run has not"
+            )
+
     @model_validator(mode="after")
     def _consistent(self) -> Scenario:
         names = [v.name for v in self.vehicles]
         if len(set(names)) != len(names):
             raise ValueError("vehicles: names must be unique")
+        self._check_source(names)
         namespaces = [v.namespace for v in self.vehicles]
         if len(set(namespaces)) != len(namespaces):
             raise ValueError(

@@ -19,6 +19,7 @@ from fieldproof.assertions.core import (
     DEFAULT_CONTACTS_TOPIC,
     FAILED,
     PASSED,
+    REPLAY,
     AssertionSpec,
     AssertionType,
     Checker,
@@ -29,7 +30,7 @@ from fieldproof.assertions.core import (
     Watch,
     compile_or_refuse,
 )
-from fieldproof.dsl import AssertionBase, Duration, Placement
+from fieldproof.dsl import AssertionBase, Duration, Placement, ScenarioError
 from fieldproof.expression import ExpressionError, compile_condition
 from fieldproof.manifest import Name
 
@@ -715,6 +716,11 @@ class NoCollisionType(AssertionType):
     def plan(self, spec: NoCollision, context: PlanContext) -> PlannedAssertion:
         """The contact topic under the vehicle's namespace, the vehicle's model."""
         vehicle = context.vehicle(spec.vehicle)
+        if context.source == REPLAY:
+            raise ScenarioError(
+                f"{context.where}: no_collision reads the simulator's contact sensor, which a "
+                "replay run has not"
+            )
         topic = vehicle.topic(spec.topic or DEFAULT_CONTACTS_TOPIC)
         return PlannedAssertion(spec, topic=topic, model=vehicle.name)
 

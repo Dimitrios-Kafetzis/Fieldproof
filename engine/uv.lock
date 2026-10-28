@@ -288,6 +288,8 @@ source = { editable = "." }
 dependencies = [
     { name = "docker" },
     { name = "fieldproof-bridge" },
+    { name = "mcap" },
+    { name = "mcap-ros2-support" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -298,7 +300,6 @@ dependencies = [
 dev = [
     { name = "fieldproof-example-assertions" },
     { name = "fieldproof-example-events" },
-    { name = "mcap" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "types-docker" },
@@ -308,6 +309,8 @@ dev = [
 requires-dist = [
     { name = "docker", specifier = "==7.2.0" },
     { name = "fieldproof-bridge", editable = "../bridge/fieldproof_bridge" },
+    { name = "mcap", specifier = "==1.6.0" },
+    { name = "mcap-ros2-support", specifier = "==0.6.0" },
     { name = "pydantic", specifier = "==2.14.1" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "rich", specifier = "==15.0.0" },
@@ -318,7 +321,6 @@ requires-dist = [
 dev = [
     { name = "fieldproof-example-assertions", editable = "../examples/plugins/example_assertions" },
     { name = "fieldproof-example-events", editable = "../examples/plugins/example_events" },
-    { name = "mcap", specifier = "==1.6.0" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-cov", specifier = "==7.1.0" },
     { name = "types-docker", specifier = "==7.2.0.20261006" },
@@ -437,6 +439,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ca/6a/5039c5204c30478a27c9bd28ef2b5d1e947cae35b2636fae786ff777c1c6/mcap-1.6.0.tar.gz", hash = "sha256:d9aa1d9706ada964740536c7598b735a5aab677493d52c2be59fbd7467ec5664", size = 25657, upload-time = "2026-10-19T17:48:51.008Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cd/15/fa7ff687a128ec51084a48fb1e039b247a9add47b974c125278d97f370be/mcap-1.6.0-py3-none-any.whl", hash = "sha256:7cd37fba2cf51d033f2139ca837d2ed3024dcec3cd9f8ecdf3d4d15930df6e17", size = 21955, upload-time = "2026-10-19T17:48:49.61Z" },
+]
+
+[[package]]
+name = "mcap-ros2-support"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mcap" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/40/2ffa9b837d3f243d889fa6a115db642033d9d3fd6a98abcfbf5eb66a943f/mcap_ros2_support-0.6.0.tar.gz", hash = "sha256:eb3058fa9dfba1c4e828fed1c02d133d2361db6446cf3f54b850de3b612fcb34", size = 24568, upload-time = "2026-10-19T17:50:49.816Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/19/0dfd9356fa4eac4efd68fbde35242f3f04fa500f53fc7149579611318f3b/mcap_ros2_support-0.6.0-py3-none-any.whl", hash = "sha256:0b5f86c88432a1370b6c8f0e8a26d1403dc02495d751052e3dd9f9a0679645ef", size = 22585, upload-time = "2026-10-19T17:50:48.551Z" },
 ]
 
 [[package]]

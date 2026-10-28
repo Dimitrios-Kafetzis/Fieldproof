@@ -37,7 +37,10 @@ time:
 
 `fieldproof validate` prints a note on what the mode means for the run; `fieldproof run
 --dry-run` shows the resolved `time` section, the seed and the world's physics step and
-real-time factor.
+real-time factor. A replay run ([replay.md](replay.md), task P2-T07) has no simulator: its
+clock is the player's, from the log's timestamps at `source.rate` (which stands in for the
+world's real-time factor; `rtf` is refused), `sim` and `realtime` (at rate 1.0) apply as above
+and `lockstep` is refused; the `clock` samples carry `source: log` and nothing is ever paused.
 
 ## What every mode records
 

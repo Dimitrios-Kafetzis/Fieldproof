@@ -62,6 +62,9 @@ BUILTIN_MODULES = (
     "fieldproof.events.sim",
 )
 BUILTIN = "built-in"
+SIM = "sim"
+REPLAY = "replay"
+"""The sources of a run (task P2-T07)."""
 # Statuses of an action record.
 PENDING = "pending"
 WAITING = "waiting"
@@ -150,12 +153,22 @@ class PlanContext:
     """The entry being planned, for error messages (`timeline[2]`)."""
     time_mode: str = "sim"
     """The scenario's `time.mode` (`sim`, `realtime`, `lockstep`; task P2-T04)."""
+    source: str = SIM
+    """Where the run's inputs come from: `sim` (the simulator) or `replay` (a field log,
+    task P2-T07): no simulator, no bridge, so no world, clock or fault event."""
 
     def vehicle(self, name: str | None, what: str = "vehicle") -> VehicleHandle:
         """The vehicle called `name`, or a :class:`ScenarioError` naming `where.what`."""
         if name is None or name not in self.vehicles:
             raise ScenarioError(f"{self.where}.{what}: {name!r} is not a vehicle of the scenario")
         return self.vehicles[name]
+
+    def require_simulator(self, action: str, what: str = "the simulator") -> None:
+        """Refuse the entry in a replay run (a :class:`ScenarioError` naming `what`)."""
+        if self.source == REPLAY:
+            raise ScenarioError(
+                f"{self.where}: {action} needs {what}, which a replay run (source: replay) has not"
+            )
 
 
 class EventContext(Protocol):
