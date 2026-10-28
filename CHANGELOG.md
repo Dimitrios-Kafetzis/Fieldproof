@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.17.1...v0.18.0) (2026-10-28)
+
+
+### Features
+
+* **engine:** run matrix, run database, scenario overrides and HTML reports ([#95](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/95)) ([b821825](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/b82182549c6ccdbc4f998f92a8e735ebacea365d))
+
+
+### Build and dependencies
+
+* **deps:** bump mkdocs-material in /tools/docs in the docs group ([#93](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/93)) ([e08df62](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/e08df628de037b953ae7d8cfda2f9cf502318a45))
+
 ## [0.17.1](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.17.0...v0.17.1) (2026-10-27)
 
 
