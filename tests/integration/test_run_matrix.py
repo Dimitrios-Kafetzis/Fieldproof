@@ -135,4 +135,6 @@ def test_matrix_of_two_failing_cases(tmp_path: Path) -> None:  # noqa: PLR0915
     assert diff["seeds"] == [1, 2]
     assert diff["overrides"]["changed"] == {"seed": [1, 2]}
     assert diff["counts"]["regressed"] == 0
-    assert any(k["name"].startswith("mission") for k in diff["kpis"]), diff["kpis"]
+    reached = {k["name"]: k for k in diff["kpis"]}["reached_goal.reached_at_s"]
+    assert reached["delta"] is not None, diff["kpis"]
+    assert reached["unit"] == "s"
