@@ -11,7 +11,7 @@ Makefile targets.
 | Workflow | File | Runs on | Does |
 | --- | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-layout`, `make test-docs`, `make test-engine`, `make test-cockpit` (plus the Vite build), `make test-host`, and when the change touches the images or the ROS workspaces: build `base-ros2`, `sim`, `dev` from the GHCR layer cache, run `make test-images`, `make test-ros`, `make tidy`, `make test-worlds`, `make test-vehicles` (the example vehicle image built on `base-ros2`) and `make test-integration` against them |
-| Scenario tests | `.github/workflows/scenario-tests.yml` | push to `main`, nightly, manual (an image tag and a scenario), pull requests that touch the workflow, `tools/ci/scenario-run.sh`, `examples/`, `engine/`, `fieldproof.toml` or the `Makefile` | pull the published `base-ros2`, `sim` and `bridge` images, build the example vehicle image on them, fetch the Fuel models, run the UGV scenario headless with software rendering under the flaky-run policy (one retry, flagged), upload the run (MCAP, reports, JUnit, logs) as artefacts; a second job (not on pull requests) runs the lockstep scenario twice and compares the runs (the determinism test of P2-T04); see [Scenario tests](#scenario-tests) |
+| Scenario tests | `.github/workflows/scenario-tests.yml` | push to `main`, nightly, manual (an image tag and a scenario), pull requests that touch the workflow, `tools/ci/scenario-run.sh`, `examples/`, `engine/`, `fieldproof.toml` or the `Makefile` | pull the published `base-ros2`, `sim` and `bridge` images, build the example vehicle image on them, fetch the Fuel models, run the UGV scenario headless with software rendering under the flaky-run policy (one retry, flagged), upload the run (MCAP, reports, JUnit, logs) as artefacts; a second job (not on pull requests) runs the lockstep scenario twice and compares the runs (the determinism test of P2-T04); a third (not on pull requests) runs the example run matrix, twelve runs in one JUnit document (P2-T06); see [Scenario tests](#scenario-tests) |
 | PR title | `.github/workflows/pr-title.yml` | pull request opened, edited, synchronised | the title must be a Conventional Commit (`make lint-title`), see [Pull request titles](#pull-request-titles) |
 | Images | `.github/workflows/images.yml` | push to `main`, called by Release, manual | build and push `sha-<short>` tags, syft SBOM and Trivy scan per image, then tag `main` (or `vX.Y.Z`) |
 | Release | `.github/workflows/release.yml` | push to `main` | release-please keeps the release pull request current; when it merges, tags `vX.Y.Z`, creates the GitHub release and calls Images |
@@ -143,6 +143,20 @@ every pull request, so the job runs on pushes to `main`, nightly and on demand, 
 both run directories as `determinism-runs-<run number>-<attempt>`. `make test-determinism`
 runs the same on a workstation (`PYTEST_FLAGS="--basetemp runs/determinism"` keeps the runs).
 
+**Run matrix.** The workflow's third job (task P2-T06) runs the example matrix
+(`examples/matrices/ugv_nav_matrix.yaml`: the UGV scenario over six seeds and two vehicle CPU
+budgets, twelve runs) through `fieldproof matrix` against the same published images
+([matrix.md](../reference/matrix.md)): first `--dry-run` (every case resolved, the schedule
+printed), then the run with software rendering, one case at a time on the runner's four cores
+(the scheduler fits one), a failed case retried once and flagged when flaky (a `::warning::`
+annotation; a failed case an `::error::`), the Markdown report in the job summary, then
+`fieldproof runs list` of the run database. The matrix directory (`matrix.json`, `matrix.log`,
+the single `junit.xml` with a test suite per case, `report.md`, `report.html`, every attempt's
+run directory) and the database are uploaded as `matrix-runs-<run number>-<attempt>`. Twelve
+runs take about an hour, so the job runs on pushes to `main`, nightly and on demand (the
+dispatch input `matrix` names another file); `make matrix` runs the same on a workstation, as
+many cases at once as its cores and memory fit.
+
 ## Published images
 
 | Tag | Meaning |
@@ -252,6 +266,7 @@ but never fails the check, because any timestamp is a valid snapshot and it move
 | `make test-vehicles` | the image job's vehicle step: manifests, the generated Dockerfile, the example vehicle image built on the local `base-ros2` and started on a Docker network ([manifest.md](../reference/manifest.md)) |
 | `make test-integration` | the image job's last step: the simulator, the bridge container and the vehicle in the depot, `fieldproof vehicle wait` until Nav2 is active, a `NavigateToPose` goal reached ([manifest.md](../reference/manifest.md#the-integration-test)); then `fieldproof run` of the example scenario with its assertions, MCAP recording and report, an interrupted run, and the failing example scenario ([scenarios.md](../reference/scenarios.md#tests), [assertions.md](../reference/assertions.md#tests)); the radio links ([network.md](../reference/network.md#tests)), the events scenario, the world events plugin and the obstacle scenario, the fault injectors and the GNSS-denial scenario ([events.md](../reference/events.md#tests)) |
 | `FIELDPROOF_IMAGE_TAG=main tools/ci/scenario-run.sh examples/scenarios/ugv_nav_to_goal.yaml`, `make demo` | the run step of the Scenario tests workflow against the published images, with its flaky-run policy; the demo without it ([Scenario tests](#scenario-tests)) |
+| `FIELDPROOF_IMAGE_TAG=main make matrix` | the matrix job of the Scenario tests workflow: the example matrix's twelve runs, one JUnit document ([matrix.md](../reference/matrix.md)) |
 | `make lint-title TITLE="..."` | the PR title check |
 | `make branch-protection` / `tools/ci/branch-protection.sh --check` | the required checks wiring |
 

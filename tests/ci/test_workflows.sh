@@ -178,7 +178,8 @@ assert "schedule" in on and "workflow_dispatch" in on, on.keys()
 assert on["workflow_dispatch"]["inputs"]["image-tag"]["default"] == "main"
 assert ".github/workflows/scenario-tests.yml" in on["pull_request"]["paths"]
 assert "examples/**" in on["pull_request"]["paths"]
-assert list(doc["jobs"]) == ["scenario", "determinism"], list(doc["jobs"])
+assert list(doc["jobs"]) == ["scenario", "determinism", "matrix"], list(doc["jobs"])
+assert on["workflow_dispatch"]["inputs"]["matrix"]["default"] == "examples/matrices/ugv_nav_matrix.yaml"
 job = doc["jobs"]["scenario"]
 assert job["runs-on"] == "ubuntu-24.04"
 steps = job["steps"]
@@ -208,8 +209,23 @@ assert any(
     "io.fieldproof.run" in str(s.get("run", "")) and str(s.get("if", "")).strip() == "always()"
     for s in det["steps"]
 ), "the determinism job checks nothing is left"
+# The matrix job (task P2-T06): the example matrix through `fieldproof matrix`, not on pull requests.
+mat = doc["jobs"]["matrix"]
+assert mat["runs-on"] == "ubuntu-24.04"
+assert mat["if"].strip() == "github.event_name != 'pull_request'", mat.get("if")
+mat_runs = "\n".join(str(s.get("run", "")) for s in mat["steps"])
+assert "docker pull" in mat_runs and "make vehicle-image" in mat_runs and "make assets" in mat_runs
+assert "fieldproof matrix" in mat_runs and "--dry-run" in mat_runs and "--render software" in mat_runs
+assert "fieldproof runs list" in mat_runs
+mat_uploads = [s for s in mat["steps"] if "upload-artifact" in str(s.get("uses", ""))]
+assert len(mat_uploads) == 1 and mat_uploads[0]["with"]["path"] == "runs"
+assert str(mat_uploads[0].get("if", "")).strip() == "always()"
+assert any(
+    "io.fieldproof.run" in str(s.get("run", "")) and str(s.get("if", "")).strip() == "always()"
+    for s in mat["steps"]
+), "the matrix job checks nothing is left"
 PY
-then pass "scenario-tests.yml: main, nightly and dispatch; published images, scenario-run.sh, artefacts always uploaded; the determinism job"; else fail "scenario-tests.yml rules"; fi
+then pass "scenario-tests.yml: main, nightly and dispatch; published images, scenario-run.sh, artefacts always uploaded; the determinism and matrix jobs"; else fail "scenario-tests.yml rules"; fi
 
 # ---------------------------------------------------------------------------------------------
 section "3. Helpers"

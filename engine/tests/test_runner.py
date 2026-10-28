@@ -182,6 +182,7 @@ def test_plan_resolves_the_example(resolved: Plan, config: Config, tmp_path: Pat
     assert resolved.domain_source == "auto"
     assert resolved.discovery is None
     assert resolved.discovery_mode == "multicast"
+    assert resolved.database == tmp_path / "runs" / "fieldproof.sqlite", "the runs directory's"
     sim = resolved.sim
     assert sim.name == "fieldproof-abc123-sim"
     assert sim.image == config.image("sim")
@@ -198,7 +199,7 @@ def test_plan_resolves_the_example(resolved: Plan, config: Config, tmp_path: Pat
     assert resolved.seed == 0, "Gazebo's default seed: the example sets none"
     assert sim.env["FIELDPROOF_SEED"] == str(resolved.seed)
     assert sim.env["LIBGL_ALWAYS_SOFTWARE"] == "1"
-    assert sim.env["GZ_PARTITION"] == "fieldproof"
+    assert sim.env["GZ_PARTITION"] == "fieldproof-abc123", "the run's own partition (P2-T06)"
     assert sim.devices == ()
     assert [m.target for m in sim.mounts] == [
         "/fieldproof/worlds",
@@ -245,7 +246,7 @@ def test_plan_resolves_the_recorder_and_assertions(
     assert recorder.user.count(":") == 1
     assert recorder.working_dir == RUN_DIR_IN_CONTAINER
     assert recorder.env["HOME"] == "/tmp"  # noqa: S108
-    assert recorder.env["GZ_PARTITION"] == "fieldproof"
+    assert recorder.env["GZ_PARTITION"] == "fieldproof-abc123"
     assert [(m.source, m.target, m.read_only) for m in recorder.mounts] == [
         (OBSERVER_FILE, OBSERVER_IN_CONTAINER, True),
         (resolved.run_dir, RUN_DIR_IN_CONTAINER, False),
@@ -551,7 +552,9 @@ def test_run_record_and_files(resolved: Plan, clock: FakeClock) -> None:
     assert backend.containers == {}
     assert leftovers(backend, resolved.run_id) == []
     run_dir = resolved.run_dir
-    assert (run_dir / SCENARIO_COPY).read_text() == EXAMPLE.read_text()
+    # The copy is the document as validated (the v0 text here; with --set, the overridden
+    # document), not the file as it is on disk (task P2-T06).
+    assert (run_dir / SCENARIO_COPY).read_text() == resolved.scenario.text
     assert sorted(p.name for p in (run_dir / "logs").iterdir()) == [
         "bridge-ugv1.log",
         "recorder.log",

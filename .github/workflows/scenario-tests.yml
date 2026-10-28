@@ -39,6 +39,11 @@ on:
         type: string
         required: false
         default: examples/scenarios/ugv_nav_to_goal.yaml
+      matrix:
+        description: Matrix file to run (the matrix job)
+        type: string
+        required: false
+        default: examples/matrices/ugv_nav_matrix.yaml
 
 permissions:
   contents: read
@@ -54,6 +59,7 @@ env:
   # `sim` and `bridge` at the same tag (fieldproof.toml, overridden by the environment).
   FIELDPROOF_IMAGE_TAG: ${{ inputs.image-tag || 'main' }}
   SCENARIO: ${{ inputs.scenario || 'examples/scenarios/ugv_nav_to_goal.yaml' }}
+  MATRIX: ${{ inputs.matrix || 'examples/matrices/ugv_nav_matrix.yaml' }}
 
 jobs:
   scenario:
@@ -156,6 +162,65 @@ jobs:
         with:
           name: determinism-runs-${{ github.run_number }}-${{ github.run_attempt }}
           path: runs/determinism
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Nothing of the runs is left on the runner
+        if: always()
+        run: |
+          left="$(docker ps -a --filter label=io.fieldproof.run --format '{{.Names}}')"
+          if [ -n "$left" ]; then
+            echo "::error::containers left behind: $left"
+            exit 1
+          fi
+          echo "no container carries the io.fieldproof.run label"
+
+  # The run matrix of task P2-T06: the example matrix (twelve runs of the UGV scenario over six
+  # seeds and two vehicle CPU budgets) through `fieldproof matrix` against the published images,
+  # one case at a time on the runner's four cores (the scheduler fits one), failed cases retried
+  # once and flagged when flaky, a single JUnit document for the twelve, the Markdown report in
+  # the job summary and every run recorded in the run database. Twelve runs take about an hour,
+  # so nightly and on demand, not on every pull request.
+  matrix:
+    name: Run matrix (twelve runs, published images)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Free disk space for the images
+        run: tools/ci/free-disk.sh
+      - name: Cache the Fuel archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: assets/fuel/archives
+          key: fuel-${{ hashFiles('assets/fuel.lock') }}
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+      - name: Pull the published stack images (base-ros2, sim, bridge at ${{ env.FIELDPROOF_IMAGE_TAG }})
+        run: |
+          for image in base-ros2 sim bridge; do
+            docker pull --quiet "ghcr.io/dimitrios-kafetzis/fieldproof-${image}:${FIELDPROOF_IMAGE_TAG}"
+          done
+      - name: Fetch the Fuel models pinned in assets/fuel.lock
+        run: make assets
+      - name: Build the example vehicle image on the published base image
+        run: make vehicle-image
+      - name: Plan the matrix (every case resolved, the schedule printed)
+        run: uv run --locked --project engine fieldproof matrix "$MATRIX" --dry-run --runs-dir runs
+      - name: Run the matrix (software rendering; one retry per case, flagged)
+        run: uv run --locked --project engine fieldproof matrix "$MATRIX" --render software --runs-dir runs
+      - name: List the runs recorded in the run database
+        if: always()
+        run: uv run --locked --project engine fieldproof runs list --runs-dir runs -n 30 || true
+      - name: Upload the matrix (record, JUnit, reports, every run's directory, the database)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: matrix-runs-${{ github.run_number }}-${{ github.run_attempt }}
+          path: runs
           if-no-files-found: warn
           retention-days: 14
       - name: Nothing of the runs is left on the runner

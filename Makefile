@@ -68,6 +68,8 @@ VEHICLE_TEST_FLAGS ?=
 FIELDPROOF := $(UV) run --locked --project engine fieldproof
 # The scenario `make run` runs (task P1-T05) and extra `fieldproof run` arguments (RUN_FLAGS=--keep).
 SCENARIO ?= examples/scenarios/ugv_nav_to_goal.yaml
+MATRIX ?= examples/matrices/ugv_nav_matrix.yaml
+MATRIX_FLAGS ?=
 RUN_FLAGS ?=
 # Extra pytest arguments of `make test-determinism`.
 PYTEST_FLAGS ?=
@@ -244,6 +246,13 @@ scenario-schema: ## Export the scenario JSON Schema (engine/schemas/scenario.sch
 run: assets ## Run a scenario end to end with the Docker backend (SCENARIO=examples/scenarios/ugv_nav_to_goal.yaml, RUN_FLAGS=)
 	$(UV) sync --locked --project engine
 	$(FIELDPROOF) run $(SCENARIO) $(RUN_FLAGS)
+
+# A run matrix (task P2-T06): every case its own `fieldproof run`, as many at once as the host
+# fits, failed cases retried and flagged when flaky, one JUnit document for the whole; writes
+# runs/<matrix_id>/ and records every run in runs/fieldproof.sqlite.
+matrix: assets ## Run a matrix of scenarios (MATRIX=examples/matrices/ugv_nav_matrix.yaml, MATRIX_FLAGS=--parallel 2|--dry-run|--only PATTERN)
+	$(UV) sync --locked --project engine
+	$(FIELDPROOF) matrix $(MATRIX) $(MATRIX_FLAGS)
 
 # The M1 demo from a fresh clone: pulls the published stack images (DEMO_FLAGS=--local uses
 # `make images` instead), fetches the assets, builds the vehicle image and runs the scenario.

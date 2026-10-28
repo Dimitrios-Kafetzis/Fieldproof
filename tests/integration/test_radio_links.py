@@ -285,7 +285,8 @@ def test_02_link_loss_scenario(tmp_path: Path) -> None:
     )
     output = plain(completed.stdout + completed.stderr)
     print(output[-6000:], flush=True)  # noqa: T201
-    (run_dir,) = runs.iterdir()
+    # The runs directory also holds the run database (task P2-T06).
+    (run_dir,) = [p for p in runs.iterdir() if p.is_dir()]
     record = json.loads((run_dir / "run.json").read_text())
     assert completed.returncode == 0, record.get("reason")
     assert record["status"] == "passed"

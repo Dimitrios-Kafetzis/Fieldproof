@@ -120,4 +120,5 @@ nav:
       - Radio links: reference/network.md
       - Events: reference/events.md
       - Time and determinism: reference/time.md
+      - Run matrix and run database: reference/matrix.md
       - Worlds: reference/worlds.md

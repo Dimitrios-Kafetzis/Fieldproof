@@ -223,6 +223,7 @@ default that matches this repository, and the repository's own `fieldproof.toml`
 ```toml
 [runs]
 directory = "runs"
+database = "fieldproof.sqlite"   # the run database, relative to the runs directory ("" disables it)
 
 [docker]
 network = "fieldproof"
@@ -256,7 +257,10 @@ scenario file (`outputs.directory`), the command line (`--runs-dir`, `--render`,
 compose stack also reads (`FIELDPROOF_IMAGE_PREFIX`, `FIELDPROOF_IMAGE_TAG`, `FIELDPROOF_RENDER`,
 `ROS_DOMAIN_ID`, `FIELDPROOF_DISCOVERY`), `fieldproof.toml`, the defaults.
 `FIELDPROOF_IMAGE_TAG=main fieldproof run ...` therefore runs the published images, as
-`FIELDPROOF_IMAGE_TAG=main make up` does.
+`FIELDPROOF_IMAGE_TAG=main make up` does. Above all of them, `fieldproof run --set path=value`
+replaces a value of the scenario document itself before it is validated (`--set seed=3 --set
+time.rtf=2`, `--set 'vehicles[ugv1].resources.cpus=1'`; [matrix.md](matrix.md#scenario-overrides)),
+which is how a run matrix varies a scenario ([matrix.md](matrix.md)).
 
 ## Running a scenario
 
@@ -334,10 +338,10 @@ or `outputs.directory`; `runs/` is git-ignored):
 
 | File | Contents |
 | --- | --- |
-| `scenario.yaml` | the scenario file as it was run |
-| `run.json` | the record: `run_id`, the scenario's name, path and hash, the engine version, `started_at`, `finished_at`, the current `phase`, the `status` and `reason`, every phase with its start, end and duration, the `vehicles` (name, manifest, namespace, frame prefix, image, the budget applied, `depends_on`, the DDS profile, the contract check's counts when one ran), the containers with their images, the timeline entries with their status (`ok`, `failed`, `timeout`, `cancelled`), duration and detail (`goal SUCCEEDED`, `goal ABORTED`, `no result within 300 s`), the `assertions` with their verdict, reason, time and evidence, the `observation` (samples, simulation time covered, problems), the `time` settings, the `seed`, the `clock` (mode, target and measured real-time factor, drift, the real-time-locked verdict, the lockstep's steps; [time.md](time.md#what-every-mode-records)) and the `stack` (network, render mode, domain id and where it came from, discovery mode, world and its physics step, images); rewritten at every phase change and verdict, so a run that died still has a record |
-| `engine.log` | one JSON object per line (`ts`, `t` seconds since the start, `run_id`, `level`, `event`, `message` and the event's fields): the phases, every container started and stopped, the readiness probe's lines, the actions and their results, the verdicts (`assertion.passed`, `assertion.failed`), the teardown, the recording and report written; what the console shows, with the same events |
-| `observe.json`, `samples.jsonl`, `assertions.jsonl`, `recording/`, `report.json`, `report.md`, `junit.xml` | the observer's plan and stream, the verdicts, the MCAP recording and the reports ([assertions.md](assertions.md#the-run-directory)) |
+| `scenario.yaml` | the scenario as it was run: the file's text, or, with `--set` or in a matrix case, the overridden document as YAML ([matrix.md](matrix.md#scenario-overrides)) |
+| `run.json` | the record: `run_id`, the scenario's name, path and hash, the engine version, `started_at`, `finished_at`, the current `phase`, the `status` and `reason`, every phase with its start, end and duration, the `vehicles` (name, manifest, namespace, frame prefix, image, the budget applied, `depends_on`, the DDS profile, the contract check's counts when one ran), the containers with their images, the timeline entries with their status (`ok`, `failed`, `timeout`, `cancelled`), duration and detail (`goal SUCCEEDED`, `goal ABORTED`, `no result within 300 s`), the `assertions` with their verdict, reason, time and evidence, the `observation` (samples, simulation time covered, problems), the `time` settings, the `seed`, the `overrides` applied to the file by path (`--set`, a matrix case), the `clock` (mode, target and measured real-time factor, drift, the real-time-locked verdict, the lockstep's steps; [time.md](time.md#what-every-mode-records)) and the `stack` (network, render mode, domain id and where it came from, discovery mode, world and its physics step, images); rewritten at every phase change and verdict, so a run that died still has a record |
+| `engine.log` | one JSON object per line (`ts`, `t` seconds since the start, `run_id`, `component` (`run`; a matrix's log says `matrix`), `level`, `event`, `message` and the event's fields): the phases, every container started and stopped, the readiness probe's lines, the actions and their results, the verdicts (`assertion.passed`, `assertion.failed`), the teardown, the recording and report written; what the console shows, with the same events |
+| `observe.json`, `samples.jsonl`, `assertions.jsonl`, `recording/`, `report.json`, `report.md`, `report.html`, `junit.xml` | the observer's plan and stream, the verdicts, the MCAP recording and the reports ([assertions.md](assertions.md#the-run-directory)); the run is also recorded in the runs directory's `fieldproof.sqlite` ([matrix.md](matrix.md#the-run-database)) |
 | `video/<camera>.mp4` | the video of the run from the world's camera, when `outputs.video` is set ([Video](#video)) |
 | `logs/sim.log`, `logs/bridge-<vehicle>.log`, `logs/recorder.log`, `logs/vehicle-<vehicle>.log`, `logs/discovery.log` | the containers' output, saved during the teardown when `outputs.logs` is true |
 
@@ -350,6 +354,10 @@ or `outputs.directory`; `runs/` is git-ignored):
 | `timeout` | `time.timeout_s` passed before or during an action | 1 |
 | `error` | the run could not proceed: an image or Fuel model missing, the simulator, a bridge, the discovery server or the recorder not coming up or exiting, a spawn failing, `set_physics` refused, a bridge contract check failing, the Docker daemon unreachable | 1 (2 when the scenario or the configuration does not even validate) |
 | `interrupted` | Ctrl-C or SIGTERM | 130 |
+
+A run on its own derives its ROS domain from its id and its Gazebo transport partition is the
+run's own (`fieldproof-<short id>`), so two runs on one host, a matrix's parallel cases among
+them, never share topics ([matrix.md](matrix.md#scheduling)).
 
 The console ends with the verdict (`PASS`, `FAIL`, `TIMEOUT`, `ERROR`, `INTERRUPTED`), the
 scenario, the run id, the reason and the run directory, one line per assertion with its verdict

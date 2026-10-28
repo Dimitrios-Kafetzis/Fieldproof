@@ -3,9 +3,10 @@
 Task P0-T07 ships the entry point and ``--version``, P1-T03 the ``bridge`` commands, P1-T04 the
 ``manifest`` and ``vehicle`` commands, P1-T05 ``validate``, ``run`` and ``schema`` (scenarios),
 P1-T06 ``report``, P2-T03 ``events`` (the registered timeline actions), P2-T04 ``clock`` (the
-simulator's clock of a running run) and ``compare`` (two runs' trajectories); the remaining
-commands of the architecture (``replay``, ``matrix``, ``cockpit``) arrive with the Phase 2 and 3
-tasks.
+simulator's clock of a running run) and ``compare`` (two runs' trajectories), P2-T06 ``matrix``
+(parameter sweeps, parallel runs, retries) and ``runs`` (the run database: ``list``, ``show``,
+``diff``, ``index``); the remaining commands of the architecture (``replay``, ``cockpit``)
+arrive with the Phase 2 and 3 tasks.
 """
 
 from typing import Annotated
@@ -14,6 +15,8 @@ import typer
 
 from fieldproof import __version__
 from fieldproof.bridge import app as bridge_app
+from fieldproof.matrix_cli import matrix
+from fieldproof.runs_cli import runs_app
 from fieldproof.scenario_cli import (
     assertions,
     clock,
@@ -47,6 +50,8 @@ app.command("assertions")(assertions)
 app.command("report")(report)
 app.command("clock")(clock)
 app.command("compare")(compare)
+app.command("matrix")(matrix)
+app.add_typer(runs_app, name="runs")
 
 
 def _print_version(value: bool) -> None:
