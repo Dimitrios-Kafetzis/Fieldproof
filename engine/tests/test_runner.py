@@ -182,6 +182,7 @@ def test_plan_resolves_the_example(resolved: Plan, config: Config, tmp_path: Pat
     assert resolved.domain_source == "auto"
     assert resolved.discovery is None
     assert resolved.discovery_mode == "multicast"
+    assert resolved.database == tmp_path / "runs" / "fieldproof.sqlite", "the runs directory's"
     sim = resolved.sim
     assert sim.name == "fieldproof-abc123-sim"
     assert sim.image == config.image("sim")

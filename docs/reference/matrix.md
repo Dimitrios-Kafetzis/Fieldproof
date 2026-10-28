@@ -152,7 +152,9 @@ Every run records itself at its end in `fieldproof.sqlite` in the runs directory
 (`fieldproof.toml` `[runs] database`, relative to `[runs] directory`, `--runs-dir` or a
 scenario's `outputs.directory`; an empty value disables it), after its reports are written
 (the log says `database.recorded`; a database that cannot be written is a warning, never a
-failed run). A matrix records its runs with their case, attempt and flakiness, and itself.
+failed run; `fieldproof run --database FILE` names another file). A matrix passes its
+database to every case's run and records its runs with their case, attempt and flakiness,
+and itself.
 `fieldproof runs index [ROOT]` reads run directories (any directory holding a `run.json`,
 three levels deep, and the `matrix.json` records) into the database, for runs from before the
 database or copied from CI artefacts.

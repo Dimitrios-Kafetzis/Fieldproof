@@ -3,7 +3,7 @@
 A two-case matrix of the failing example scenario (``ugv_nav_fails_on_time.yaml``, one second
 for the drive, so each run is short and fails by design on ``arrived_in_time``) over two
 seeds, with no retry: both cases run as their own ``fieldproof run`` processes under the
-matrix directory, each with its own ROS domain, each ``failed`` naming ``arrived_in_time``,
+matrix directory, one at a time, each ``failed`` naming ``arrived_in_time``,
 the matrix exits 1 with ``FAIL``, the single JUnit document has one test suite per case with
 the case's properties, the Markdown and HTML reports and the record are written, every run
 and the matrix are in the run database (``fieldproof runs list``, ``runs diff`` of the two),
@@ -100,7 +100,10 @@ def test_matrix_of_two_failing_cases(tmp_path: Path) -> None:  # noqa: PLR0915
         assert (run_dir / "report.html").is_file()
         assert (run_dir / "console.log").is_file()
         assert containers_of(attempt["run_id"]) == [], "nothing of the run is left"
-    assert len(domains) == 2, "every case has a domain of its own"
+    # One case at a time: the second case takes the domain the first one released (the pool
+    # keeps cases running at once apart, docs/reference/matrix.md#scheduling).
+    assert len(domains) == 1, domains
+    assert all(1 <= d <= 100 for d in domains)
     root = ET.fromstring((matrix_dir / "junit.xml").read_text())  # noqa: S314 (our own document)
     suites = root.findall("testsuite")
     assert [s.get("name") for s in suites] == [

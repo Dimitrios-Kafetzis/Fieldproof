@@ -350,6 +350,7 @@ def test_matrix_passes(config: Config, tmp_path: Path, capacity: Capacity) -> No
     assert argv[argv.index("--run-id") + 1] == invocation["run_id"]
     assert "--quiet" in argv
     assert "--domain-id" in argv
+    assert argv[argv.index("--database") + 1] == str(tmp_path / "runs" / "fieldproof.sqlite")
     sets = [argv[i + 1] for i, a in enumerate(argv) if a == "--set"]
     assert sorted(sets) == ["seed=1", "vehicles[ugv1].resources.cpus=1"]
     # The directory: the file as given, the record, the log, the JUnit, the reports.

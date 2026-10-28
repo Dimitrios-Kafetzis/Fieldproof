@@ -662,10 +662,13 @@ def plan(  # noqa: PLR0915
     now: datetime | None = None,
     token: str | None = None,
     seed: int | None = None,
+    database: Path | str | None = None,
 ) -> Plan:
     """Resolve the scenario against the workspace; raise :class:`ScenarioError` if it cannot run.
 
     `seed` overrides the scenario's; without either the run uses Gazebo's default seed, 0.
+    `database` names the run database instead of the runs directory's (a matrix keeps its
+    cases' runs in the workspace's database).
     """
     worlds_dir = config.resolve(config.stack.worlds)
     world_file = worlds_dir / scenario.world.file
@@ -704,7 +707,7 @@ def plan(  # noqa: PLR0915
         "GZ_PARTITION": f"{GZ_PARTITION}-{short}",
         "FIELDPROOF_SEED": str(seed),
     }
-    database = base / config.runs.database if config.runs.database else None
+    database = _plan_database(config, base, database)
     # What every ROS container of the run gets on top: with a discovery server, where it is and
     # super-client mode, so graph queries (the readiness probe, the observer, `ros2 topic list`)
     # see the whole graph as they do with multicast.
@@ -845,6 +848,15 @@ def plan(  # noqa: PLR0915
         seed=seed,
         database=database,
     )
+
+
+def _plan_database(config: Config, base: Path, database: Path | str | None) -> Path | None:
+    """The run database: the one named, else the runs directory's, else none (task P2-T06)."""
+    if database is not None:
+        return Path(database).resolve()
+    if config.runs.database:
+        return base / config.runs.database
+    return None
 
 
 def _check_step(time_section: Time, world: WorldInfo) -> None:

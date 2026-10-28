@@ -14,7 +14,8 @@ budgets plus allowances for the simulator, the bridges and the recorder) against
 cores and memory less a reserve for the engine, and ``parallel: auto`` starts a case whenever
 it fits next to the running ones (one always runs); an explicit ``parallel: N`` runs up to N at
 once. Every running case gets a ROS domain of its own from a pool derived from the matrix id,
-so parallel cases never share one (the Gazebo partition is the run's own already).
+so parallel cases never share one (the Gazebo partition is the run's own already); every case
+records its run in the matrix's database (``--database``), not in one of its own.
 
 A case whose attempt fails, times out or errors (not one interrupted, not a usage error) is run
 again up to ``retries`` times; a case that passes after a failed attempt is *flaky*: green in
@@ -748,6 +749,7 @@ class MatrixRun:
             "--domain-id",
             str(domain),
             "--quiet",
+            *(["--database", str(self.database)] if self.database is not None else []),
             *self.run_args,
         ]
         for path, value in overrides.items():

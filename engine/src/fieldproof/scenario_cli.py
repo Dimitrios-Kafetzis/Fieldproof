@@ -138,6 +138,7 @@ def resolve(
     video: bool | None = None,
     seed: int | None = None,
     overrides: dict[str, Any] | None = None,
+    database: Path | None = None,
 ) -> tuple[Scenario, Plan]:
     """Load the scenario and the configuration and plan the run.
 
@@ -163,6 +164,7 @@ def resolve(
         network=network,
         discovery=discovery,
         seed=seed,
+        database=database,
     )
     return scenario, resolved
 
@@ -429,6 +431,15 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
         ),
     ] = None,
     set_values: SetOption = None,
+    database: Annotated[
+        Path | None,
+        typer.Option(
+            "--database",
+            help="The run database to record the run in (default: fieldproof.sqlite in the "
+            "runs directory, per the workspace's [runs] database).",
+            show_default=False,
+        ),
+    ] = None,
 ) -> None:
     """Run SCENARIO: start the simulator, the bridges and the vehicles, run the timeline.
 
@@ -451,6 +462,7 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             video=video,
             seed=seed,
             overrides=parse_overrides(set_values),
+            database=database,
         )
     except (ScenarioError, ConfigError, ManifestError) as error:
         raise fail(error) from error
