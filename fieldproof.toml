@@ -8,6 +8,7 @@
 
 [runs]
 directory = "runs"
+database = "fieldproof.sqlite" # the run database, relative to the runs directory; "" disables it
 
 [docker]
 network = "fieldproof"

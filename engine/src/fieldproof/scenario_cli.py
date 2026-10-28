@@ -1,5 +1,9 @@
 """``fieldproof validate``, ``run``, ``schema`` (task P1-T05) and ``report`` (task P1-T06).
 
+``--set path=value`` on ``validate`` and ``run`` (task P2-T06) overrides values of the scenario
+file before it is validated (:mod:`fieldproof.overrides`); ``report --format html`` renders the
+HTML page (:mod:`fieldproof.html`).
+
 ``validate`` reads scenarios against schema v0 and resolves them against the workspace (the
 world file and its frames, every vehicle's manifest, the timeline's goals, the assertions)
 without touching Docker; ``run`` does the same and then executes the plan with the Docker
@@ -29,7 +33,10 @@ from fieldproof.backend import BackendError
 from fieldproof.config import ConfigError, load_config
 from fieldproof.determinism import DEFAULT_TOLERANCE_M, CompareError, compare_runs
 from fieldproof.events import parameters_of, registry
+from fieldproof.html import render_html
+from fieldproof.overrides import OverrideError, load_scenario_with, parse_assignment
 from fieldproof.report import (
+    REPORT_HTML,
     REPORT_JSON,
     REPORT_JUNIT,
     REPORT_MD,
@@ -57,7 +64,6 @@ from fieldproof.scenario import (
     ScenarioError,
     VideoOutput,
     json_schema,
-    load_scenario,
 )
 from fieldproof.world import parse_stats
 from fieldproof_bridge.manifest import ManifestError
@@ -81,6 +87,28 @@ RenderOption = Annotated[
         "--render", help="Simulator rendering: auto, gpu or software.", show_default=False
     ),
 ]
+SetOption = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--set",
+        help="Override a value of the scenario before it is validated: path=value, the value "
+        "as YAML (time.rtf=2, vehicles[ugv1].resources.cpus=1, timeline[drive].goal.x=5, "
+        "seed=3); repeatable.",
+        show_default=False,
+    ),
+]
+
+
+def parse_overrides(assignments: list[str] | None) -> dict[str, Any]:
+    """The `--set` assignments as overrides by path (a `ScenarioError` for a bad one)."""
+    overrides: dict[str, Any] = {}
+    for assignment in assignments or []:
+        try:
+            path, value = parse_assignment(assignment)
+        except OverrideError as error:
+            raise ScenarioError(f"--set {error}") from error
+        overrides[path] = value
+    return overrides
 
 
 def with_file(path: Path, error: Exception) -> str:
@@ -109,13 +137,15 @@ def resolve(
     run_id: str | None = None,
     video: bool | None = None,
     seed: int | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> tuple[Scenario, Plan]:
     """Load the scenario and the configuration and plan the run.
 
     `video` overrides `outputs.video` (`--video` turns the world's default camera on,
-    `--no-video` turns the recording off); `seed` overrides the scenario's seed.
+    `--no-video` turns the recording off); `seed` overrides the scenario's seed; `overrides`
+    (`--set`) replace values of the document before it is validated (task P2-T06).
     """
-    scenario = load_scenario(scenario_path)
+    scenario = load_scenario_with(scenario_path, overrides or {})
     if video is not None:
         scenario.outputs.video = VideoOutput() if video else None
     config = load_config(config_path, start=scenario.directory)
@@ -176,17 +206,18 @@ def validate(
         list[Path], typer.Argument(help="Scenario files to validate.", show_default=False)
     ],
     config_path: ConfigOption = None,
+    set_values: SetOption = None,
 ) -> None:
     """Validate SCENARIOS against schema v0 and resolve them against the workspace.
 
     The world file must exist in the workspace's worlds directory and declare every frame the
     scenario names; every vehicle manifest must load with a runtime section; no container is
-    started. Exit code 2 with one line per problem otherwise.
+    started. Exit code 2 with one line per problem otherwise. --set applies to every file.
     """
     failed = False
     for path in scenarios:
         try:
-            scenario, resolved = resolve(path, config_path)
+            scenario, resolved = resolve(path, config_path, overrides=parse_overrides(set_values))
         except (ScenarioError, ConfigError, ManifestError) as error:
             errors.print(
                 with_file(path, error), style="red", highlight=False, soft_wrap=True, markup=False
@@ -397,13 +428,15 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             show_default=False,
         ),
     ] = None,
+    set_values: SetOption = None,
 ) -> None:
     """Run SCENARIO: start the simulator, the bridges and the vehicles, run the timeline.
 
     Everything the run did lands in runs/<run_id>/ (the scenario as run, run.json, engine.log,
     the containers' logs). Exit code 0 when the run passed, 1 when it failed, timed out or could
     not start, 130 when interrupted; the containers are stopped and removed in every case
-    unless --keep is given.
+    unless --keep is given. --set overrides values of the scenario file (the run records the
+    effective document and the overrides).
     """
     try:
         scenario, resolved = resolve(
@@ -417,6 +450,7 @@ def run(  # noqa: PLR0917  (Typer reads the options from the signature)
             run_id=run_id,
             video=video,
             seed=seed,
+            overrides=parse_overrides(set_values),
         )
     except (ScenarioError, ConfigError, ManifestError) as error:
         raise fail(error) from error
@@ -503,18 +537,20 @@ def report(
     ],
     config_path: ConfigOption = None,
     output_format: Annotated[
-        str, typer.Option("--format", "-f", help="md (Markdown), json or junit (JUnit XML).")
+        str,
+        typer.Option("--format", "-f", help="md (Markdown), html, json or junit (JUnit XML)."),
     ] = "md",
     write: Annotated[
         bool,
         typer.Option(
-            "--write", help="Rewrite report.md, report.json and junit.xml in the run dir."
+            "--write",
+            help="Rewrite report.md, report.html, report.json and junit.xml in the run dir.",
         ),
     ] = False,
 ) -> None:
     """Render the report of a run from its run.json (Markdown by default)."""
-    if output_format not in ("md", "json", "junit"):
-        raise fail(ValueError(f"--format {output_format!r}: expected md, json or junit"))
+    if output_format not in ("md", "html", "json", "junit"):
+        raise fail(ValueError(f"--format {output_format!r}: expected md, html, json or junit"))
     run_dir = run_directory(run, config_path)
     try:
         record = load_record(run_dir)
@@ -525,11 +561,14 @@ def report(
         typer.echo(json.dumps(rendered, indent=2))
     elif output_format == "junit":
         typer.echo(render_junit(rendered), nl=False)
+    elif output_format == "html":
+        typer.echo(render_html(rendered), nl=False)
     else:
         typer.echo(render_markdown(rendered), nl=False)
     if write:
         errors.print(
-            f"written: {run_dir / REPORT_MD}, {run_dir / REPORT_JSON}, {run_dir / REPORT_JUNIT}",
+            f"written: {run_dir / REPORT_MD}, {run_dir / REPORT_HTML}, {run_dir / REPORT_JSON}, "
+            f"{run_dir / REPORT_JUNIT}",
             highlight=False,
         )
 

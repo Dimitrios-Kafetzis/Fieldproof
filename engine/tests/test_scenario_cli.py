@@ -481,8 +481,13 @@ def test_report_command(fake: ReadyFake, tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert "no such run directory or run id" in plain(result.output)
     result = runner.invoke(app, ["report", str(run_dir), "--format", "html"])
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("<!DOCTYPE html>")
+    assert "Fieldproof run report: ugv_nav_to_goal" in result.output
+    assert (run_dir / "report.html").read_text() == result.output
+    result = runner.invoke(app, ["report", str(run_dir), "--format", "pdf"])
     assert result.exit_code == 2
-    assert "expected md, json or junit" in plain(result.output)
+    assert "expected md, html, json or junit" in plain(result.output)
     (run_dir / "run.json").write_text("{bad")
     result = runner.invoke(app, ["report", str(run_dir)])
     assert result.exit_code == 2

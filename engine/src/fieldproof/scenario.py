@@ -414,11 +414,23 @@ class Scenario(Strict):
 
     _path: Path | None = PrivateAttr(default=None)
     _digest: str = PrivateAttr(default="")
+    _text: str = PrivateAttr(default="")
+    _overrides: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     @property
     def path(self) -> Path | None:
         """Where the scenario was loaded from."""
         return self._path
+
+    @property
+    def text(self) -> str:
+        """The document as validated: the file's text, or the overridden document as YAML."""
+        return self._text
+
+    @property
+    def overrides(self) -> dict[str, Any]:
+        """The overrides applied to the file (`--set`, a matrix case), by path."""
+        return self._overrides
 
     @property
     def directory(self) -> Path:
@@ -585,6 +597,7 @@ def validate_data(data: Any, path: Path | None = None, text: str = "") -> Scenar
         raise ScenarioError(prefix + format_errors(error)) from error
     scenario._path = path
     scenario._digest = hashlib.sha256(text.encode()).hexdigest()[:8] if text else ""
+    scenario._text = text
     return scenario
 
 

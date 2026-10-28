@@ -1,14 +1,14 @@
-"""Reports of a run (task P1-T06): ``report.json``, ``report.md`` and ``junit.xml``.
+"""Reports of a run (task P1-T06): ``report.json``, ``report.md``, ``report.html``, ``junit.xml``.
 
 The record the runner writes next to them (``run.json``) is the engine's view (phases,
 containers, the stream). The report is the reader's: the verdict, every assertion with its
 reason and evidence (and, for a failed one, an excerpt of the stream just before the verdict,
 task P2-T05), the KPIs of the run, the timeline, the durations and the artefacts of the run
-directory (the MCAP recording first). :func:`write_reports` renders the three at the end of a run;
-``fieldproof report`` renders them again from a run
-directory. The JUnit document (task P1-T07) is the report for CI: one test suite per run, one
-test case per assertion and per timeline entry, and one for the run itself, so a test reporter
-shows a failed scenario by the assertion that failed it.
+directory (the MCAP recording first). :func:`write_reports` renders the four at the end of a run
+(the HTML one, task P2-T06, through :mod:`fieldproof.html`); ``fieldproof report`` renders them
+again from a run directory. The JUnit document (task P1-T07) is the report for CI: one test
+suite per run, one test case per assertion and per timeline entry, and one for the run itself,
+so a test reporter shows a failed scenario by the assertion that failed it.
 """
 
 from __future__ import annotations
@@ -19,11 +19,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fieldproof.html import render_html
+
 RECORD_FILE = "run.json"
 REPORT_JSON = "report.json"
 REPORT_MD = "report.md"
 REPORT_JUNIT = "junit.xml"
-REPORT_FILES = (REPORT_JSON, REPORT_MD, REPORT_JUNIT)
+REPORT_HTML = "report.html"
+REPORT_FILES = (REPORT_JSON, REPORT_MD, REPORT_HTML, REPORT_JUNIT)
 RECORDING_DIR = "recording"
 VERDICTS = {
     "passed": "PASS",
@@ -115,6 +118,7 @@ def build_report(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         "clock": record.get("clock"),
         "time": record.get("time"),
         "seed": record.get("seed"),
+        "overrides": dict(record.get("overrides") or {}),
         "world": (record.get("stack") or {}).get("world"),
         "vehicles": list(record.get("vehicles") or []),
         "assertions": assertions,
@@ -441,23 +445,23 @@ def _junit_kpis(properties: ET.Element, kpis: dict[str, Any]) -> None:
             ET.SubElement(properties, "property", name=f"kpi.{name}", value=f"{value}{unit}")
 
 
-def render_junit(report: dict[str, Any]) -> str:
-    """The report as a JUnit XML document.
+def junit_suite(
+    report: dict[str, Any],
+    *,
+    suite_name: str | None = None,
+    properties: dict[str, Any] | None = None,
+) -> ET.Element:
+    """The ``testsuite`` element of a run's report (see :func:`render_junit`).
 
-    One ``testsuite`` named after the scenario, with the run's facts as properties and three
-    kinds of ``testcase``: ``<scenario>.assertions`` (one per assertion: a ``failure`` when it
-    failed, ``skipped`` when it was skipped or still pending), ``<scenario>.timeline`` (one per
-    entry: a ``failure`` unless its status is ``ok``) and ``<scenario>`` / ``run`` for the run
-    itself (a ``failure`` when the run failed, an ``error`` when it timed out, errored or was
-    interrupted). The counts on the suite are what a test reporter sums.
+    `suite_name` replaces the scenario's name (a matrix names its cases), `properties` are
+    added to the run's facts. The suite carries its own counts.
     """
     scenario = report.get("scenario") or {}
-    suite_name = str(scenario.get("name") or report["run_id"])
-    suites = ET.Element("testsuites", name="fieldproof")
-    suite = ET.SubElement(suites, "testsuite", name=suite_name)
+    suite_name = suite_name or str(scenario.get("name") or report["run_id"])
+    suite = ET.Element("testsuite", name=suite_name)
     if report.get("started_at"):
         suite.set("timestamp", str(report["started_at"]))
-    properties = ET.SubElement(suite, "properties")
+    props = ET.SubElement(suite, "properties")
     recording = report.get("recording") or {}
     facts = {
         "run_id": report["run_id"],
@@ -478,10 +482,13 @@ def render_junit(report: dict[str, Any]) -> str:
         else None,
         "run_dir": report.get("run_dir"),
     }
-    for key, value in facts.items():
+    overrides = report.get("overrides") or {}
+    if overrides:
+        facts["overrides"] = json.dumps(overrides, sort_keys=True)
+    for key, value in {**facts, **(properties or {})}.items():
         if value is not None:
-            ET.SubElement(properties, "property", name=key, value=_junit_text(value))
-    _junit_kpis(properties, report.get("kpis") or {})
+            ET.SubElement(props, "property", name=key, value=_junit_text(value))
+    _junit_kpis(props, report.get("kpis") or {})
     failures = errors = skipped = 0
     for assertion in report.get("assertions") or []:
         status = str(assertion.get("status") or "pending")
@@ -530,17 +537,43 @@ def render_junit(report: dict[str, Any]) -> str:
         ET.SubElement(
             run_case, "error", message=_junit_text(report.get("reason") or status), type=status
         ).text = f"{report['verdict']}: exit code {report['exit_code']}"
-    tests = len(suite.findall("testcase"))
-    for element in (suites, suite):
-        element.set("tests", str(tests))
-        element.set("failures", str(failures))
-        element.set("errors", str(errors))
-        element.set("skipped", str(skipped))
-        element.set("time", _junit_time(report.get("duration_s")))
-    ET.indent(suites)
-    return (
-        '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(suites, encoding="unicode") + "\n"
-    )
+    suite.set("tests", str(len(suite.findall("testcase"))))
+    suite.set("failures", str(failures))
+    suite.set("errors", str(errors))
+    suite.set("skipped", str(skipped))
+    suite.set("time", _junit_time(report.get("duration_s")))
+    return suite
+
+
+def junit_document(suites: list[ET.Element], *, name: str = "fieldproof") -> str:
+    """A ``testsuites`` document around the suites, its counts the sum of theirs."""
+    root = ET.Element("testsuites", name=name)
+    totals = dict.fromkeys(("tests", "failures", "errors", "skipped"), 0)
+    time_s = 0.0
+    for suite in suites:
+        root.append(suite)
+        for key in totals:
+            totals[key] += int(suite.get(key) or 0)
+        time_s += float(suite.get("time") or 0.0)
+    for key, value in totals.items():
+        root.set(key, str(value))
+    root.set("time", _junit_time(time_s))
+    ET.indent(root)
+    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
+
+
+def render_junit(report: dict[str, Any]) -> str:
+    """The report as a JUnit XML document.
+
+    One ``testsuite`` named after the scenario, with the run's facts as properties and three
+    kinds of ``testcase``: ``<scenario>.assertions`` (one per assertion: a ``failure`` when it
+    failed, ``skipped`` when it was skipped or still pending), ``<scenario>.timeline`` (one per
+    entry: a ``failure`` unless its status is ``ok``) and ``<scenario>`` / ``run`` for the run
+    itself (a ``failure`` when the run failed, an ``error`` when it timed out, errored or was
+    interrupted). The counts on the suite are what a test reporter sums; a matrix (task
+    P2-T06) puts one such suite per case in a single document (:func:`junit_document`).
+    """
+    return junit_document([junit_suite(report)])
 
 
 def write_reports(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
@@ -552,5 +585,6 @@ def write_reports(record: dict[str, Any], run_dir: Path) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / REPORT_JSON).write_text(json.dumps(report, indent=2) + "\n")
     (run_dir / REPORT_MD).write_text(render_markdown(report))
+    (run_dir / REPORT_HTML).write_text(render_html(report))
     (run_dir / REPORT_JUNIT).write_text(render_junit(report))
     return report

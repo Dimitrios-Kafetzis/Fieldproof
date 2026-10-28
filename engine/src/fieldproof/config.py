@@ -58,6 +58,12 @@ class Runs(Strict):
     directory: str = Field(
         default="runs", description="Run directories, relative to the workspace."
     )
+    database: str = Field(
+        default="fieldproof.sqlite",
+        description="The run database (SQLite, task P2-T06), relative to the runs directory in "
+        "effect (`directory`, `--runs-dir` or a scenario's `outputs.directory`); empty "
+        "disables it.",
+    )
 
 
 class Docker(Strict):

@@ -136,8 +136,9 @@ from fieldproof.network import (
     PASSED as LINK_PASSED,
 )
 from fieldproof.observer import ACK_TOPIC, FileTail
-from fieldproof.report import REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
+from fieldproof.report import REPORT_HTML, REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
 from fieldproof.resources import Monitored, ResourceMonitor
+from fieldproof.rundb import DatabaseError, RunDatabase
 from fieldproof.scenario import (
     SEED_MAX,
     Pose,
@@ -523,6 +524,8 @@ class Plan:
     """The radio links (`network`), or None: one shared network, no shaping."""
     seed: int = 0
     """The seed of the run's random numbers (`gz sim --seed`, `FIELDPROOF_SEED`)."""
+    database: Path | None = None
+    """The run database the run records itself in at its end (task P2-T06), or None."""
 
     @property
     def discovery_mode(self) -> str:
@@ -694,7 +697,14 @@ def plan(  # noqa: PLR0915
     else:
         base = config.resolve(config.runs.directory)
     labels = {RUN_LABEL: identity, DOMAIN_LABEL: str(domain)}
-    env = {"ROS_DOMAIN_ID": str(domain), "GZ_PARTITION": GZ_PARTITION, "FIELDPROOF_SEED": str(seed)}
+    # The Gazebo transport partition is the run's own (task P2-T06): two runs sharing the Docker
+    # network (a matrix's parallel cases) never see each other's world topics.
+    env = {
+        "ROS_DOMAIN_ID": str(domain),
+        "GZ_PARTITION": f"{GZ_PARTITION}-{short}",
+        "FIELDPROOF_SEED": str(seed),
+    }
+    database = base / config.runs.database if config.runs.database else None
     # What every ROS container of the run gets on top: with a discovery server, where it is and
     # super-client mode, so graph queries (the readiness probe, the observer, `ros2 topic list`)
     # see the whole graph as they do with multicast.
@@ -833,6 +843,7 @@ def plan(  # noqa: PLR0915
         discovery=server,
         links=links,
         seed=seed,
+        database=database,
     )
 
 
@@ -1290,8 +1301,11 @@ class RunLog:
         console: Console | None = None,
         clock: Callable[[], float] = time.monotonic,
         verbose: bool = True,
+        component: str = "run",
     ) -> None:
         self.run_id = run_id
+        self.component = component
+        """Who writes the log (`run`, `matrix`), in every record (04-engineering-standards.md)."""
         self.console = console
         self.clock = clock
         self.verbose = verbose
@@ -1310,6 +1324,7 @@ class RunLog:
             "ts": utc_now(),
             "t": round(self.clock() - self.started, 3),
             "run_id": self.run_id,
+            "component": self.component,
             "level": level,
             "event": event,
             "message": message,
@@ -1372,6 +1387,8 @@ class RunRecord:
     time: dict[str, Any] = field(default_factory=dict)
     seed: int | None = None
     """The seed of the run's random numbers (the scenario's, the command line's, or drawn)."""
+    overrides: dict[str, Any] = field(default_factory=dict)
+    """The overrides applied to the scenario file (`--set`, a matrix case), by path."""
     clock: dict[str, Any] | None = None
     """The clock of the run (task P2-T04): mode, target and measured real-time factor, drift,
     the real-time-locked verdict, the lockstep's steps and holds."""
@@ -1553,6 +1570,7 @@ class Run:
             kpi_collectors=[r.to_dict() for r in self.evaluator.kpi_results],
             time=plan.scenario.time.model_dump(),
             seed=plan.seed,
+            overrides=dict(plan.scenario.overrides),
             stack={
                 "network": plan.network,
                 "render": plan.render,
@@ -1595,8 +1613,7 @@ class Run:
         """Run every phase; tear down whatever happens; return the record."""
         scenario = self.plan.scenario
         self.plan.run_dir.mkdir(parents=True, exist_ok=True)
-        if scenario.path is not None:
-            (self.plan.run_dir / SCENARIO_COPY).write_text(scenario.path.read_text())
+        self._copy_scenario()
         self._write()
         self.log.event(
             "run.start",
@@ -1649,6 +1666,14 @@ class Run:
             )
             self.log.close()
         return self.record
+
+    def _copy_scenario(self) -> None:
+        """`scenario.yaml` in the run directory: the document as validated (overrides applied)."""
+        scenario = self.plan.scenario
+        if scenario.text:
+            (self.plan.run_dir / SCENARIO_COPY).write_text(scenario.text)
+        elif scenario.path is not None:
+            (self.plan.run_dir / SCENARIO_COPY).write_text(scenario.path.read_text())
 
     def _phase(self, phase: Phase) -> None:
         now = self.clock()
@@ -2974,9 +2999,21 @@ class Run:
             )
         self.log.event(
             "report.written",
-            f"{REPORT_MD}, {REPORT_JSON}, {REPORT_JUNIT}",
+            f"{REPORT_MD}, {REPORT_JSON}, {REPORT_HTML}, {REPORT_JUNIT}",
             verdict=report["verdict"],
         )
+        if self.plan.database is not None:
+            try:
+                with RunDatabase(self.plan.database) as database:
+                    database.record_run(report)
+            except DatabaseError as error:
+                self.log.event("database.error", str(error), level="warning")
+            else:
+                self.log.event(
+                    "database.recorded",
+                    f"{self.plan.run_id} in {self.plan.database}",
+                    database=str(self.plan.database),
+                )
 
 
 def leftovers(backend: Backend, run_id: str | None = None) -> list[str]:
