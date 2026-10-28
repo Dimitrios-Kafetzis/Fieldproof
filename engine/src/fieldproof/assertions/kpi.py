@@ -31,12 +31,14 @@ from fieldproof.assertions.core import (
     compile_or_refuse,
     rounded,
 )
+from fieldproof.assertions.localisation import LocalisationTracker
 from fieldproof.assertions.spatial import DistanceTracker, PathTracker, Subject
 from fieldproof.assertions.system import ResourceTracker
 from fieldproof.assertions.timing import LatencyTracker, MissionClock
-from fieldproof.dsl import Duration, Placement, ScenarioError
+from fieldproof.dsl import Duration, Placement, ScenarioError, Strict
 from fieldproof.expression import ExpressionError, compile_condition
 from fieldproof.manifest import Name
+from fieldproof.world import Pose
 
 
 # ------------------------------------------------------------------------------- the specs
@@ -135,11 +137,53 @@ class ValueKpi(KpiBase):
         return self
 
 
+class LocalisationEstimate(Strict):
+    """The stack's pose estimate: a topic carrying a pose."""
+
+    topic: str = Field(description="A pose topic of the vehicle (`pose`, `amcl_pose`, `odom`).")
+    message_type: str | None = Field(default=None, description="Message type (absent: discovered).")
+
+
+class LocalisationKpi(KpiBase):
+    """The vehicle's pose estimate against the ground truth (task P2-T07): the error statistics."""
+
+    type: Literal["localisation"]
+    vehicle: Name = Field(description="The vehicle whose estimate and ground truth are read.")
+    estimate: LocalisationEstimate = Field(description="The estimate topic.")
+    align: Literal["first", "spawn"] = Field(
+        default="first",
+        description="The estimate's frame placed at the first matched estimate, or at the spawn.",
+    )
+    max_age_s: float = Field(
+        default=0.5, gt=0.0, description="How far an estimate's stamp may be from the ground truth."
+    )
+    after_s: Duration = Field(default=0.0, description="Start of the window.")
+    within_s: Duration | None = Field(default=None, description="End of the window.")
+
+
 Kpi = Annotated[
-    Union[PathKpi, MissionTimeKpi, DistanceKpi, RateKpi, LatencyKpi, ResourcesKpi, ValueKpi],  # noqa: UP007
+    Union[  # noqa: UP007
+        PathKpi,
+        MissionTimeKpi,
+        DistanceKpi,
+        RateKpi,
+        LatencyKpi,
+        ResourcesKpi,
+        ValueKpi,
+        LocalisationKpi,
+    ],
     Field(discriminator="type"),
 ]
-KPI_TYPES = ("path", "mission_time", "distance", "rate", "latency", "resources", "value")
+KPI_TYPES = (
+    "path",
+    "mission_time",
+    "distance",
+    "rate",
+    "latency",
+    "resources",
+    "value",
+    "localisation",
+)
 
 
 # ------------------------------------------------------------------------- the collectors
@@ -413,6 +457,46 @@ KpiSpec = type[KpiBase]
 CollectorClass = type[Collector]
 
 
+class LocalisationCollector(Collector):
+    """`localisation`."""
+
+    def __init__(self, planned: PlannedAssertion) -> None:
+        super().__init__(planned)
+        spec: LocalisationKpi = planned.assertion  # type: ignore[assignment]
+        spawn = planned.resolved.get("spawn")
+        self.tracker = LocalisationTracker(
+            planned.model or spec.vehicle,
+            topic=planned.topic,
+            align=spec.align,
+            spawn=spawn if isinstance(spawn, Pose) else None,
+            max_age_s=spec.max_age_s,
+            after_s=spec.after_s,
+            within_s=spec.within_s,
+        )
+
+    def metrics(self) -> dict[str, Metric]:
+        """The localisation tracker's."""
+        return self.tracker.metrics()
+
+    def on_sample(self, sample: Sample, t: float) -> None:
+        """See :meth:`Checker.on_sample`."""
+        self.tracker.on_sample(sample, t)
+
+    def on_finish(self, t: float) -> None:
+        """See :meth:`Checker.on_finish`."""
+        self.tracker.finish()
+        tracker = self.tracker
+        self.settle(
+            t,
+            f"{tracker.samples} estimate(s) judged against {tracker.truth_samples} ground-truth "
+            "pose(s)",
+            alignment=tracker.alignment(),
+            worst=tracker.worst,
+            samples=tracker.samples,
+            unmatched=tracker.unmatched,
+        )
+
+
 class KpiType:
     """How a collector type is planned and built."""
 
@@ -592,6 +676,48 @@ class ValueType(KpiType):
         return PlannedAssertion(spec, topic=topic, watch=(watch,))
 
 
+class LocalisationType(KpiType):
+    """`localisation`."""
+
+    type = "localisation"
+    Spec = LocalisationKpi
+    summary = "The vehicle's pose estimate against the ground truth: the error statistics."
+    metrics: ClassVar[dict[str, str]] = {
+        "max_error_m": "the largest position error (m)",
+        "mean_error_m": "the mean position error (m)",
+        "p95_error_m": "the 95th percentile of the position error (m)",
+        "rms_error_m": "the root mean square of the position error (m)",
+        "final_error_m": "the last position error (m)",
+        "max_yaw_error_rad": "the largest heading error (rad)",
+        "samples": "estimates judged",
+        "unmatched": "estimates without a ground-truth pose close enough",
+    }
+    collector = LocalisationCollector
+
+    def plan(self, spec: LocalisationKpi, context: PlanContext) -> PlannedAssertion:
+        """The vehicle's model and spawn, the estimate topic."""
+        vehicle = context.vehicle(spec.vehicle)
+        topic = context.topic(spec.vehicle, spec.estimate.topic, "estimate.topic")
+        if spec.align == "spawn" and not getattr(vehicle, "has_spawn", True):
+            raise ScenarioError(
+                f"{context.where}.align: spawn needs the vehicle's spawn pose, which "
+                f"{spec.vehicle} has none of (give it one, or align: first)"
+            )
+        return PlannedAssertion(
+            spec,
+            topic=topic,
+            model=vehicle.name,
+            resolved={"spawn": vehicle.spawn},
+            watch=(
+                Watch("model", {"model": vehicle.name}),
+                Watch(
+                    "estimate",
+                    {"model": vehicle.name, "topic": topic, "type": spec.estimate.message_type},
+                ),
+            ),
+        )
+
+
 KPIS: dict[str, KpiType] = {
     t.type: t()
     for t in (
@@ -602,6 +728,7 @@ KPIS: dict[str, KpiType] = {
         LatencyType,
         ResourcesType,
         ValueType,
+        LocalisationType,
     )
 }
 

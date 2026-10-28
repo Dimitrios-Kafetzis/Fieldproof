@@ -1338,6 +1338,33 @@
       "title": "DistanceKpi",
       "type": "object"
     },
+    "Estimate": {
+      "additionalProperties": false,
+      "description": "The stack's pose estimate: a topic carrying a pose.",
+      "properties": {
+        "topic": {
+          "description": "A `geometry_msgs/msg/PoseStamped`, `PoseWithCovarianceStamped` or `nav_msgs/msg/Odometry` topic of the vehicle (`pose`, `amcl_pose`, `odom`).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its message type (absent: discovered from the graph).",
+          "title": "Message Type"
+        }
+      },
+      "required": ["topic"],
+      "title": "Estimate",
+      "type": "object"
+    },
     "Eventually": {
       "additionalProperties": false,
       "description": "The condition holds at some evaluation in the window (for `for_s`, when given).",
@@ -1960,6 +1987,33 @@
       },
       "required": ["vehicle", "action"],
       "title": "GpsOffset",
+      "type": "object"
+    },
+    "GroundTruth": {
+      "additionalProperties": false,
+      "description": "Where the vehicle's true pose is in the log.\n\nA `geometry_msgs/msg/PoseStamped`, a `geometry_msgs/msg/PoseWithCovarianceStamped` or a\n`nav_msgs/msg/Odometry` topic (a mocap, an RTK-INS, a survey), in the world frame of the\nscenario: the placements of the assertions and the timeline refer to it.",
+      "properties": {
+        "topic": {
+          "description": "The pose topic of the log.",
+          "title": "Topic",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its message type (absent: the log's; one of the pose types either way).",
+          "title": "Type"
+        }
+      },
+      "required": ["topic"],
+      "title": "GroundTruth",
       "type": "object"
     },
     "ImuBias": {
@@ -2954,6 +3008,267 @@
       },
       "required": ["vehicle", "action", "profile"],
       "title": "LinkSet",
+      "type": "object"
+    },
+    "LocalisationError": {
+      "additionalProperties": false,
+      "description": "The vehicle's pose estimate stays close to the ground truth.\n\nThe estimate's frame (the stack's map, or its odometry frame) is aligned to the world\nonce: `align: first` at the first estimate matched to a ground-truth pose (the stack\nstarted there), `align: spawn` at the vehicle's spawn pose. Each estimate is compared to\nthe ground truth interpolated to its stamp (an estimate without a ground-truth pose within\n`max_age_s` of it is not judged). Fails at the first error over `max_m` (or heading error\nover `max_yaw_rad`) inside the window; at the end, fails when fewer than `min_samples`\nestimates were judged or the mean or the 95th percentile is over its limit; passes\notherwise.",
+      "properties": {
+        "name": {
+          "description": "Assertion name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "localisation_error",
+          "title": "Type",
+          "type": "string"
+        },
+        "on_fail": {
+          "default": "continue",
+          "description": "What a failure does to the run: `continue` (the timeline completes, the evidence of the whole run is kept) or `abort` (the timeline is cancelled at once).",
+          "enum": ["continue", "abort"],
+          "title": "On Fail",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose estimate and ground truth are read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "estimate": {
+          "$ref": "#/$defs/Estimate",
+          "description": "The estimate topic."
+        },
+        "max_m": {
+          "description": "The position error never to exceed, in metres.",
+          "exclusiveMinimum": 0,
+          "title": "Max M",
+          "type": "number"
+        },
+        "mean_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The mean position error not to exceed, judged at the end.",
+          "title": "Mean M"
+        },
+        "p95_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The 95th percentile of the position error, judged at the end.",
+          "title": "P95 M"
+        },
+        "max_yaw_rad": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The heading error never to exceed (absent: not judged).",
+          "title": "Max Yaw Rad"
+        },
+        "align": {
+          "default": "first",
+          "description": "How the estimate's frame is placed in the world: at the first matched estimate, or at the vehicle's spawn pose.",
+          "enum": ["first", "spawn"],
+          "title": "Align",
+          "type": "string"
+        },
+        "max_age_s": {
+          "default": 0.5,
+          "description": "How far an estimate's stamp may be from the nearest ground-truth pose.",
+          "exclusiveMinimum": 0,
+          "title": "Max Age S",
+          "type": "number"
+        },
+        "min_samples": {
+          "default": 1,
+          "description": "Estimates that must have been judged by the end.",
+          "exclusiveMinimum": 0,
+          "title": "Min Samples",
+          "type": "integer"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Grace period after the timeline starts.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window (absent: the end of the timeline).",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle", "estimate", "max_m"],
+      "title": "LocalisationError",
+      "type": "object"
+    },
+    "LocalisationEstimate": {
+      "additionalProperties": false,
+      "description": "The stack's pose estimate: a topic carrying a pose.",
+      "properties": {
+        "topic": {
+          "description": "A pose topic of the vehicle (`pose`, `amcl_pose`, `odom`).",
+          "title": "Topic",
+          "type": "string"
+        },
+        "message_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Message type (absent: discovered).",
+          "title": "Message Type"
+        }
+      },
+      "required": ["topic"],
+      "title": "LocalisationEstimate",
+      "type": "object"
+    },
+    "LocalisationKpi": {
+      "additionalProperties": false,
+      "description": "The vehicle's pose estimate against the ground truth (task P2-T07): the error statistics.",
+      "properties": {
+        "name": {
+          "description": "KPI name: lower case, digits and underscores.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "localisation",
+          "title": "Type",
+          "type": "string"
+        },
+        "vehicle": {
+          "description": "The vehicle whose estimate and ground truth are read.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Vehicle",
+          "type": "string"
+        },
+        "estimate": {
+          "$ref": "#/$defs/LocalisationEstimate",
+          "description": "The estimate topic."
+        },
+        "align": {
+          "default": "first",
+          "description": "The estimate's frame placed at the first matched estimate, or at the spawn.",
+          "enum": ["first", "spawn"],
+          "title": "Align",
+          "type": "string"
+        },
+        "max_age_s": {
+          "default": 0.5,
+          "description": "How far an estimate's stamp may be from the ground truth.",
+          "exclusiveMinimum": 0.0,
+          "title": "Max Age S",
+          "type": "number"
+        },
+        "after_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Start of the window.",
+          "title": "After S"
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End of the window.",
+          "title": "Within S"
+        }
+      },
+      "required": ["name", "type", "vehicle", "estimate"],
+      "title": "LocalisationKpi",
       "type": "object"
     },
     "MessageLatency": {
@@ -4698,6 +5013,162 @@
       },
       "required": ["action", "model"],
       "title": "RemoveObject",
+      "type": "object"
+    },
+    "ReplaySource": {
+      "additionalProperties": false,
+      "description": "A field log as the source of the run (task P2-T07, docs/reference/replay.md).\n\nNo simulator runs: the player publishes `/clock` from the log's timestamps, `lead_in_s`\nahead of the log's first message so the stacks come up on a moving clock, and plays the\nmapped topics at `rate` times real time from `start_s` into the log for `duration_s` (or\nto its end). The timeline starts once every vehicle is ready, somewhere into the log;\nthe run ends when the log has been played (and the timeline's entries are done).",
+      "properties": {
+        "kind": {
+          "const": "replay",
+          "title": "Kind",
+          "type": "string"
+        },
+        "log": {
+          "description": "The field log: an MCAP file or a rosbag2 directory, relative to the scenario.",
+          "title": "Log",
+          "type": "string"
+        },
+        "rate": {
+          "default": 1.0,
+          "description": "Playback pace: log seconds per wall-clock second.",
+          "exclusiveMinimum": 0,
+          "title": "Rate",
+          "type": "number"
+        },
+        "start_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Skip this far into the log.",
+          "title": "Start S"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Play this much of the log (absent: to its end).",
+          "title": "Duration S"
+        },
+        "lead_in_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 20.0,
+          "description": "Log seconds the clock runs ahead of the log's first message, for the stacks to come up on a moving clock before the data starts.",
+          "title": "Lead In S"
+        },
+        "vehicles": {
+          "description": "What the log feeds each vehicle, by vehicle name.",
+          "minProperties": 1,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/ReplayVehicle"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "minLength": 1
+          },
+          "title": "Vehicles",
+          "type": "object"
+        }
+      },
+      "required": ["kind", "log", "vehicles"],
+      "title": "ReplaySource",
+      "type": "object"
+    },
+    "ReplayTf": {
+      "additionalProperties": false,
+      "description": "The log's TF topic and which of its transforms reach the vehicle.\n\nA field log carries the vehicle's whole TF tree, its own localisation (`map -> odom`)\nincluded; played back as it is, that output would compete with the stack under test. The\n`frames` filter lets only the listed transforms through (the wheel odometry, typically),\nso the stack computes the rest itself.",
+      "properties": {
+        "topic": {
+          "default": "/tf",
+          "description": "The TF topic of the log.",
+          "title": "Topic",
+          "type": "string"
+        },
+        "frames": {
+          "description": "Transforms to let through, each `parent -> child` (empty: every one).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Frames",
+          "type": "array"
+        }
+      },
+      "title": "ReplayTf",
+      "type": "object"
+    },
+    "ReplayVehicle": {
+      "additionalProperties": false,
+      "description": "What the log feeds one vehicle of the scenario.",
+      "properties": {
+        "topics": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Log topic to vehicle topic (relative to the vehicle's namespace, or absolute with a leading /): what the swapped drivers would publish.",
+          "title": "Topics",
+          "type": "object"
+        },
+        "tf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayTf"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The log's TF topic, filtered to the transforms the stack needs."
+        },
+        "ground_truth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroundTruth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle's true pose in the log (the assertions' ground truth)."
+        }
+      },
+      "title": "ReplayVehicle",
       "type": "object"
     },
     "ResourceUsage": {
@@ -7420,7 +7891,16 @@
           "type": "string"
         },
         "spawn": {
-          "$ref": "#/$defs/Placement"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the vehicle spawns, in the world (a frame of the world file, or coordinates); its map frame starts there. Required with the simulator; optional in a replay (where it says where the vehicle was in the ground truth's frame when the log started, for goals in the world and `align: spawn`)."
         },
         "image": {
           "anyOf": [
@@ -7467,7 +7947,7 @@
           "type": "array"
         }
       },
-      "required": ["name", "manifest", "spawn"],
+      "required": ["name", "manifest"],
       "title": "Vehicle",
       "type": "object"
     },
@@ -7744,7 +8224,28 @@
       "$ref": "#/$defs/Metadata"
     },
     "world": {
-      "$ref": "#/$defs/World"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/World"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The world the simulator loads (required with the simulator; in a replay, optional: its named frames then serve the placements, nothing is simulated)."
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReplaySource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Where the run's inputs come from: absent, the simulator; `kind: replay`, a field log played into the vehicles (replay.md)."
     },
     "vehicles": {
       "items": {
@@ -7908,6 +8409,7 @@
             "example.visits_waypoints": "#/$defs/VisitsWaypoints",
             "geofence": "#/$defs/Geofence",
             "lifecycle_state": "#/$defs/LifecycleState",
+            "localisation_error": "#/$defs/LocalisationError",
             "message_latency": "#/$defs/MessageLatency",
             "min_distance": "#/$defs/MinDistance",
             "mission_time": "#/$defs/MissionTime",
@@ -7973,6 +8475,9 @@
             "$ref": "#/$defs/Eventually"
           },
           {
+            "$ref": "#/$defs/LocalisationError"
+          },
+          {
             "$ref": "#/$defs/VisitsWaypoints"
           }
         ]
@@ -7987,6 +8492,7 @@
           "mapping": {
             "distance": "#/$defs/DistanceKpi",
             "latency": "#/$defs/LatencyKpi",
+            "localisation": "#/$defs/LocalisationKpi",
             "mission_time": "#/$defs/MissionTimeKpi",
             "path": "#/$defs/PathKpi",
             "rate": "#/$defs/RateKpi",
@@ -8016,6 +8522,9 @@
           },
           {
             "$ref": "#/$defs/ValueKpi"
+          },
+          {
+            "$ref": "#/$defs/LocalisationKpi"
           }
         ]
       },
@@ -8033,7 +8542,7 @@
       }
     }
   },
-  "required": ["apiVersion", "kind", "metadata", "world", "vehicles"],
+  "required": ["apiVersion", "kind", "metadata", "vehicles"],
   "title": "Fieldproof scenario v0",
   "type": "object"
 }

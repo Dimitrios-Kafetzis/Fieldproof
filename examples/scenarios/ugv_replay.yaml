@@ -1,0 +1,125 @@
+# The field log replay source (task P2-T07, docs/reference/replay.md): the example vehicle
+# ugv_nav2 runs against the sensor data of a recorded drive instead of the simulator. No
+# simulator and no bridge start: a player container publishes /clock from the log's timestamps
+# (20 s ahead of the log's first message, so the stack comes up on a moving clock) and plays
+# the mapped topics into the vehicle's namespace; the vehicle's actuators are open-loop (what
+# Nav2 commands is recorded and judged, nothing moves for it). The log is the synthetic one of
+# `make replay-log` (examples/logs/README.md), the stand-in for a real field log: a hall with
+# crates, a driven rectangle, drifting wheel odometry, exact ground truth.
+#
+# The ground truth comes from the log's /ground_truth/pose instead of Gazebo, so the pose
+# assertions (reach_pose, geofence, path_efficiency, ...) keep working; the localisation_error
+# assertion judges SLAM Toolbox's `pose` against it, aligned at the first estimate (the map
+# frame starts wherever the stack started into the log). The wheel odometry's own drift is
+# measured, not judged, by the `localisation` KPI collector. The lead-in is short on purpose:
+# Nav2's costmaps block their activation until the odometry transform exists, which only the
+# played log provides, and an activation that waits much longer than 10 s is abandoned and
+# retried by the bringup's watchdog minutes later. The data must therefore start about when
+# the stack launches (the log's first 10 s are at rest anyway); what the stack misses of the
+# log a `replay.missed` warning says.
+#
+#   make replay-log
+#   fieldproof validate examples/scenarios/ugv_replay.yaml
+#   fieldproof run examples/scenarios/ugv_replay.yaml
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: ugv_replay
+  description: The example UGV localises on a replayed field log; SLAM's pose against the ground truth
+  tags: [replay, localisation, ugv]
+# No world: the log's ground-truth frame is the world the placements refer to. (A world file
+# may still be named for its frames; nothing is simulated either way.)
+source:
+  kind: replay
+  log: ../logs/ugv_dock_drive.mcap # an MCAP file or a rosbag2 directory, relative to this file
+  rate: 1.0 # log seconds per wall-clock second (and the clock's pace)
+  lead_in_s: 20s # the clock runs this long before the log's first message (the stack's launch)
+  vehicles:
+    ugv1:
+      topics: # log topic -> vehicle topic (under its namespace; here the root)
+        /scan: scan
+        /odom: odom
+        /tf_static: tf_static # played transient local, whatever the log says
+      tf:
+        topic: /tf
+        frames: [odom -> base_link] # only the wheel odometry; the log's map -> odom stays out
+      ground_truth:
+        topic: /ground_truth/pose # geometry_msgs/msg/PoseStamped, in the world frame
+vehicles:
+  - name: ugv1
+    manifest: ../vehicles/ugv_nav2/robot.yaml
+    # No spawn: the stack's map frame is aligned to the ground truth at its first estimate.
+time:
+  mode: sim
+  timeout_s: 10m # wall-clock budget once the vehicle is ready; the log is 120 s
+assertions:
+  # SLAM Toolbox's pose (map frame) against the log's ground truth: never more than 0.5 m off,
+  # the 95th percentile under 0.3 m, at least five estimates judged (SLAM publishes one per
+  # processed scan while the vehicle moves: a dozen over the loop on a workstation). SLAM corrects the wheel
+  # odometry's drift (about 0.4 m over the loop) from the scans of the walls and crates.
+  - name: localised
+    type: localisation_error
+    vehicle: ugv1
+    estimate: { topic: pose }
+    max_m: 0.5
+    p95_m: 0.3
+    min_samples: 5
+    align: first
+  # The replayed lidar reaches the stack at its recorded rate (10 Hz, measured in log time).
+  # The floor is low because the log ends before the timeline does: the last 5 s window the
+  # observer reports, a second or two after the scans stop, still holds 6 to 8 Hz of them.
+  - name: lidar_streams
+    type: topic_rate
+    topic: scan
+    vehicle: ugv1
+    min_hz: 5.0
+    window_s: 5s
+    after_s: 5s
+  # SLAM Toolbox stays active throughout the replay.
+  - name: slam_active
+    type: lifecycle_state
+    vehicle: ugv1
+    node: slam_toolbox
+    state: active
+    mode: always
+  # The replayed odometry arrives fresh against the player's clock: the message's stamp is at
+  # most a quarter of a second behind the clock when the observer receives it.
+  - name: odom_fresh
+    type: message_latency
+    topic: odom
+    vehicle: ugv1
+    max_ms: 250
+    after_s: 2s
+  # The stack fits its budget while localising (the manifest's limit is 2 GiB, two cores).
+  - name: stack_fits
+    type: resource_usage
+    vehicle: ugv1
+    max_memory_mb: 1800
+    max_cpu_pct: 250
+    window_s: 10s
+kpis:
+  # Nothing commands the actuators during this replay (the stack has no goal, so no cmd_vel is
+  # ever published): the collector counts zero samples; a stack that commanded would show here.
+  - { name: commanded, type: value, topic: cmd_vel, vehicle: ugv1, field: linear.x, count_if: value != 0 }
+  # The wheel odometry against the ground truth: how far the odometry frame drifts (measured,
+  # not judged; the number a stack's localisation has to beat).
+  - name: odom_drift
+    type: localisation
+    vehicle: ugv1
+    estimate: { topic: odom }
+  - { name: slam, type: localisation, vehicle: ugv1, estimate: { topic: pose } }
+  - { name: scan_age, type: latency, topic: scan, vehicle: ugv1 }
+  - { name: stack, type: resources, vehicle: ugv1 }
+outputs:
+  logs: true
+  record: true # recording/*.mcap: the replayed inputs, the stack's outputs, the side channels
+  topics:
+    - /clock
+    - /tf
+    - /tf_static
+    - /odom
+    - /scan
+    - /pose
+    - /map
+    - /cmd_vel
+    - /rosout

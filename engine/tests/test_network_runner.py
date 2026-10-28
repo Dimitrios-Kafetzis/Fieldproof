@@ -219,6 +219,7 @@ def test_link_loss_topology(resolved: Plan) -> None:  # noqa: PLR0915
     assert vehicle.bridge.command[:4] == ("bash", "-c", GZ_IP_WRAPPER, "fieldproof-bridge-gz-ip")
     assert vehicle.bridge.command[4] == BRIDGE_COMMAND
     assert "bundle_out:=/tmp/fieldproof-bridge" in vehicle.bridge.command
+    assert resolved.sim is not None
     assert vehicle.bridge.env["FIELDPROOF_SIM_HOST"] == resolved.sim.hostname
     assert 'ip -o -4 route get "$sim"' in GZ_IP_WRAPPER
     assert GZ_IP_WRAPPER.endswith('exec "$@"')

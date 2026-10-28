@@ -34,6 +34,8 @@ classifiers = [
 dependencies = [
   "docker==7.2.0",
   "fieldproof-bridge",
+  "mcap==1.6.0",
+  "mcap-ros2-support==0.6.0",
   "pydantic==2.14.1",
   "pyyaml==6.0.3",
   "rich==15.0.0",
@@ -97,6 +99,7 @@ lifecycle_state = "fieldproof.assertions.system:LifecycleStateType"
 always = "fieldproof.assertions.temporal:AlwaysType"
 never = "fieldproof.assertions.temporal:NeverType"
 eventually = "fieldproof.assertions.temporal:EventuallyType"
+localisation_error = "fieldproof.assertions.localisation:LocalisationErrorType"
 
 [tool.uv.sources]
 fieldproof-bridge = { path = "../bridge/fieldproof_bridge", editable = true }
@@ -110,7 +113,6 @@ fieldproof-example-assertions = { path = "../examples/plugins/example_assertions
 dev = [
   "fieldproof-example-events",
   "fieldproof-example-assertions",
-  "mcap==1.6.0",
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
   "types-docker==7.2.0.20261006",

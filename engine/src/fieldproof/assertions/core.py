@@ -101,10 +101,14 @@ BUILTIN_MODULES = (
     "fieldproof.assertions.timing",
     "fieldproof.assertions.system",
     "fieldproof.assertions.temporal",
+    "fieldproof.assertions.localisation",
 )
 BUILTIN = "built-in"
 # The kinds of observation an assertion asks the observer for (`observe.json`).
-WATCH_KINDS = ("rate", "value", "contact", "latency", "lifecycle", "model")
+WATCH_KINDS = ("rate", "value", "contact", "latency", "lifecycle", "model", "estimate")
+SIM = "sim"
+REPLAY = "replay"
+"""The sources of a run: the simulator, or a field log replayed (task P2-T07)."""
 
 Metric = tuple[Any, str]
 """A measured value and its unit (`(4.2, "m")`, `(3, "")` for a count)."""
@@ -193,7 +197,8 @@ class Watch:
 
     `kind` is `rate` (`topic`, `window_s`, `type`), `value` (`topic`, `field`, `type`),
     `contact` (`topic`, `model`), `latency` (`topic`, `window_s`, `type`), `lifecycle`
-    (`node`) or `model` (a Gazebo `model` whose ground-truth pose is streamed).
+    (`node`), `model` (a Gazebo `model` whose ground-truth pose is streamed) or `estimate`
+    (a pose `topic` of a `model`, streamed as the stack's own estimate; task P2-T07).
     """
 
     kind: str
@@ -387,6 +392,9 @@ class PlanContext:
     """The assertion being planned, for error messages (`assertions[2] (reached_goal)`)."""
     time_mode: str = "sim"
     """The scenario's `time.mode` (`sim`, `realtime`, `lockstep`; task P2-T04)."""
+    source: str = SIM
+    """Where the run's inputs come from: `sim` (the simulator) or `replay` (a field log,
+    task P2-T07), which has no simulator, no contact sensors and no world events."""
 
     def vehicle(self, name: str | None, what: str = "vehicle") -> VehicleHandle:
         """The vehicle called `name`, or a :class:`ScenarioError` naming `where.what`."""
@@ -963,18 +971,22 @@ def observe_plan(
     conditions: Sequence[Any] = (),
     watches: Sequence[Watch] = (),
     types: Registry | None = None,
+    ground_truth: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """What the observer must watch and record (`observe.json`).
 
     From the planned assertions, the timeline's `when` conditions (task P2-T03: their topic
     fields are watched too) and any other `watches` (the KPI collectors'). `run_dir` is the
-    run directory as the recorder container sees it.
+    run directory as the recorder container sees it. `ground_truth` names, per model, the
+    ROS pose topic its ground truth comes from instead of the simulator (a replay, task
+    P2-T07: `model`, `topic`, `type`).
     """
     rates: list[dict[str, Any]] = []
     values: list[dict[str, Any]] = []
     contacts: list[dict[str, Any]] = []
     latencies: list[dict[str, Any]] = []
     lifecycles: list[dict[str, Any]] = []
+    estimates: list[dict[str, Any]] = []
     tracked = list(models)
     for condition in conditions:
         when = condition.when
@@ -988,6 +1000,7 @@ def observe_plan(
         "contact": contacts,
         "latency": latencies,
         "lifecycle": lifecycles,
+        "estimate": estimates,
     }
     for watch in [*watches_of(planned, types), *watches]:
         if watch.kind == "model":
@@ -1007,6 +1020,8 @@ def observe_plan(
         "values": values,
         "latencies": latencies,
         "lifecycles": lifecycles,
+        "estimates": estimates,
+        "ground_truth": [dict(g) for g in ground_truth],
         "record": {
             "enabled": record,
             "topics": recorded,

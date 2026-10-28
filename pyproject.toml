@@ -78,8 +78,8 @@ namespace_packages = false
 [[tool.mypy.overrides]]
 module = ["rclpy.*", "launch.*", "launch_ros.*", "launch_testing.*", "launch_testing_ros.*",
           "ament_index_python.*", "std_msgs.*", "geometry_msgs.*", "sensor_msgs.*", "nav_msgs.*",
-          "tf2_msgs.*", "tf2_ros.*", "mcap.*", "xacro", "gz.*", "yaml", "rosgraph_msgs.*",
-          "lifecycle_msgs.*", "nav2_common.*", "nav2_msgs.*", "rcl_interfaces.*",
+          "tf2_msgs.*", "tf2_ros.*", "mcap.*", "mcap_ros2.*", "xacro", "gz.*", "yaml", "rosgraph_msgs.*",
+          "lifecycle_msgs.*", "rosbag2_interfaces.*", "nav2_common.*", "nav2_msgs.*", "rcl_interfaces.*",
           "rosidl_runtime_py.*", "setuptools", "setuptools.*"]  # setuptools: ament_python setup.py
 ignore_missing_imports = true
 # The adapter nodes subclass rclpy's Node, which is Any to mypy since rclpy ships no types.

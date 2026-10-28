@@ -4,9 +4,9 @@ Task P1-T06 turned a run into a test with evidence; task P2-T05 made the asserti
 library. A scenario's `assertions` are evaluated while the timeline runs, its `kpis` are
 measured alongside, every topic the scenario asks for is recorded to MCAP, the engine's events,
 verdicts, metrics, resource samples and KPIs travel on `/fieldproof/*` topics so the recording
-holds the whole run, and the run ends with a report in JSON, Markdown and JUnit. The sixteen
-assertion types below (the five primitives of v0 and the eleven of v1) are plugins of one
-API, and a scenario may use types of its own.
+holds the whole run, and the run ends with a report in JSON, Markdown and JUnit. The seventeen
+assertion types below (the five primitives of v0, the eleven of v1 and the localisation
+assertion of task P2-T07) are plugins of one API, and a scenario may use types of its own.
 
 ```bash
 uv run --project engine fieldproof run examples/scenarios/ugv_nav_to_goal.yaml      # PASS, exit 0
@@ -28,7 +28,9 @@ scenario:
 - it subscribes to the ROS topics the assertions and KPIs name (discovering the message type
   from the graph unless `message_type` is given) and to the Gazebo ground truth:
   `/world/<name>/pose/info` for the vehicles' poses (and any other model a `min_distance`
-  names) and each vehicle's contact sensor for `no_collision`;
+  names) and each vehicle's contact sensor for `no_collision`; in a replay run
+  ([replay.md](replay.md)) the ground truth is a pose topic of the log instead, and the
+  stack's own pose estimates (`localisation_error`) are streamed as `estimate` samples;
 - it appends one JSON line per observation to `samples.jsonl`: `pose` at 10 Hz per model,
   `rate` once a second per topic over a sliding window, `value` per message of a watched
   field, `contact` per contact message, `latency` once a second per stamped topic (the age of
@@ -398,6 +400,44 @@ snapshot of the values, `held_since_t_s`. Metrics: `evaluations`, `satisfied_at_
   within_s: 36s
 ```
 
+### `localisation_error`
+
+The vehicle's own pose estimate stays close to the ground truth (task P2-T07,
+[replay.md](replay.md#the-localisation_error-assertion)): SLAM Toolbox's `pose`, AMCL's
+`amcl_pose`, a fused `odometry/filtered` or the raw `odom`, against the simulator's ground truth
+or the log's in a replay.
+
+| Key | Meaning |
+| --- | --- |
+| `vehicle` | the vehicle whose estimate and ground truth are read |
+| `estimate` | `topic` (relative to the vehicle's namespace; a `PoseStamped`, `PoseWithCovarianceStamped` or `Odometry`), optional `message_type` |
+| `max_m` | the position error never to exceed, in metres |
+| `mean_m`, `p95_m` | the mean and the 95th percentile not to exceed, judged at the end (optional) |
+| `max_yaw_rad` | the heading error never to exceed (optional) |
+| `align` | `first` (the default): the estimate's frame is placed in the world at the first estimate matched to a ground-truth pose; `spawn`: at the vehicle's spawn pose |
+| `max_age_s` | how far an estimate's stamp may be from the nearest ground-truth pose (0.5 s); the ground truth is interpolated to the stamp |
+| `min_samples` | estimates that must have been judged by the end (1) |
+| `after_s`, `within_s` | the window |
+
+Fails at the first error over `max_m` (or heading error over `max_yaw_rad`) inside the window;
+at the end (or when the window closes), fails when fewer than `min_samples` estimates were
+judged or the mean or the 95th percentile is over its limit, passes otherwise. Evidence:
+`worst` and `final` (each with the estimate and the truth in the world, the errors, the
+times), `alignment` (the frame's origin in the world), `samples`, `unmatched` (estimates
+without a ground-truth pose close enough), `truth_samples`, the `violation`. Metrics:
+`max_error_m`, `mean_error_m`, `p95_error_m`, `rms_error_m`, `final_error_m`,
+`max_yaw_error_rad`, `samples`, `unmatched`.
+
+```yaml
+- name: localised
+  type: localisation_error
+  vehicle: ugv1
+  estimate: { topic: pose }
+  max_m: 0.5
+  p95_m: 0.3
+  min_samples: 5
+```
+
 ### Conditions
 
 A condition is a Python expression limited to what a test needs: comparisons (`<`, `<=`, `==`,
@@ -423,6 +463,7 @@ a unique `name` and a `type`; `fieldproof assertions` lists them under the asser
 | `latency` | `topic`, `vehicle`, `window_s`, `after_s`, `message_type` | `p95_ms`, `max_ms`, `mean_ms`, `messages` |
 | `resources` | `vehicle`, `container`, `after_s` | `peak_cpu_pct`, `mean_cpu_pct`, `peak_memory_mb`, `mean_memory_mb`, `samples` |
 | `value` | `topic`, `vehicle`, `field`, optional `count_if` (a condition over `value`), `after_s`, `within_s`, `message_type` | `samples`, `min`, `max`, `mean`, `last`, `count` (how often `count_if` held) |
+| `localisation` | `vehicle`, `estimate` (`topic`, `message_type`), `align`, `max_age_s`, `after_s`, `within_s` (task P2-T07, [replay.md](replay.md)) | `max_error_m`, `mean_error_m`, `p95_error_m`, `rms_error_m`, `final_error_m`, `max_yaw_error_rad`, `samples`, `unmatched` |
 
 A collector ends the timeline `measured`, or `missing` when it had nothing to measure; neither
 fails the run. Every assertion's checker measures as well (the metrics listed above), so the
@@ -686,7 +727,7 @@ their events and fixes. Each is run by its integration test.
   the assertions that need it at the end of the timeline.
 - `no_collision` needs a contact sensor on the model; the reference vehicles have one, a real
   vehicle's description needs the same `<sensor type="contact">` on its chassis collision
-  (or `topic` pointing at an existing one).
+  (or `topic` pointing at an existing one). A replay run has none ([replay.md](replay.md)).
 - Distances (`min_distance`, `geofence`) are between model origins and to the boundary from
   the origin, not from the chassis' footprint; allow for the vehicle's size.
 - Message ages are measured against the bridged `/clock` the observer receives, with its own

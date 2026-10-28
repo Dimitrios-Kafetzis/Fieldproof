@@ -116,7 +116,7 @@ IMAGE_TEST_FLAGS ?= --quick
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
 	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
 	test-vehicles test-integration test-determinism tidy docs docs-serve docs-links branch-protection clean pins assets images \
-	manifest-schema scenario-schema vehicle-image run demo up down shell prune
+	manifest-schema scenario-schema vehicle-image replay-log run demo up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -241,6 +241,13 @@ manifest-schema: ## Export the vehicle manifest JSON Schema (engine/schemas/robo
 scenario-schema: ## Export the scenario JSON Schema (engine/schemas/scenario.schema.json) from the engine's models
 	$(UV) sync --locked --project engine
 	$(FIELDPROOF) schema > engine/schemas/scenario.schema.json
+
+# The synthetic field log of the reference UGV (task P2-T07), the stand-in for a real one until
+# the maintainer supplies one: examples/scenarios/ugv_replay.yaml replays it (ignored by git,
+# like every recording; deterministic for its seed, so every checkout writes the same file).
+replay-log: ## Write the synthetic UGV field log examples/logs/ugv_dock_drive.mcap (REPLAY_LOG_FLAGS=--seconds 120 --seed 7)
+	$(UV) sync --locked --project engine
+	$(FIELDPROOF) log synth examples/logs/ugv_dock_drive.mcap --force $(REPLAY_LOG_FLAGS)
 
 # Needs the images, the vehicle image and the assets like test-integration; writes runs/<run_id>.
 run: assets ## Run a scenario end to end with the Docker backend (SCENARIO=examples/scenarios/ugv_nav_to_goal.yaml, RUN_FLAGS=)

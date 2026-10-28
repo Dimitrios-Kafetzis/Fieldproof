@@ -252,6 +252,7 @@ def test_discovery_server_plan(fleet: Scenario, config: Config, tmp_path: Path) 
     assert "11811" in server.command
     assert "ROS_DISCOVERY_SERVER" not in server.env
     assert [s.role for s in resolved.containers()][:2] == ["discovery", "sim"]
+    assert resolved.sim is not None
     assert "ROS_DISCOVERY_SERVER" not in resolved.sim.env, "the simulator speaks no DDS"
     expected = "fieldproof-1-discovery:11811"
     for spec in (

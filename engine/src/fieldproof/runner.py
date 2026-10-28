@@ -75,7 +75,7 @@ from typing import IO, Any
 import yaml
 from rich.console import Console
 
-from fieldproof import __version__, ground, lockstep, observer
+from fieldproof import __version__, ground, lockstep, observer, player
 from fieldproof.assertions import (
     ASSERTIONS_FILE,
     FAILED,
@@ -136,6 +136,12 @@ from fieldproof.network import (
     PASSED as LINK_PASSED,
 )
 from fieldproof.observer import ACK_TOPIC, FileTail
+from fieldproof.replay import (
+    REPLAY_FILE,
+    STATUS_FILE,
+    ReplayPlan,
+    plan_replay,
+)
 from fieldproof.report import REPORT_HTML, REPORT_JSON, REPORT_JUNIT, REPORT_MD, write_reports
 from fieldproof.resources import Monitored, ResourceMonitor
 from fieldproof.rundb import DatabaseError, RunDatabase
@@ -212,6 +218,14 @@ DEFAULT_SEED = 0
 LOCKSTEP_FILE = Path(lockstep.__file__).resolve()
 LOCKSTEP_IN_CONTAINER = "/opt/fieldproof/lockstep.py"
 HOLDER_COMMAND = ("sleep", "infinity")
+# The replay player (task P2-T07), mounted like the observer into a container of the bridge
+# image with the field log and the run directory; it publishes the clock and plays the log.
+PLAYER_FILE = Path(player.__file__).resolve()
+PLAYER_IN_CONTAINER = "/opt/fieldproof/player.py"
+SOURCE_SIM = "sim"
+SOURCE_REPLAY = "replay"
+NO_WORLD = WorldInfo(Path(), "", {})
+"""The world of a replay run without a world file: no frames, nothing simulated."""
 # A bridge behind a link sits on two networks, and gz-transport advertises the address of
 # whichever interface comes first, which Docker does not keep stable: when it is the onboard one,
 # the simulator cannot reach the bridge's publishers (`cmd_vel` never arrives). The bridge
@@ -245,6 +259,7 @@ class Phase(StrEnum):
     CREATED = "created"
     PREPARING = "preparing"
     SIM = "sim"
+    REPLAY = "replay"
     SPAWN = "spawn"
     BRIDGES = "bridges"
     RECORDER = "recorder"
@@ -355,6 +370,9 @@ class PlannedVehicle:
     """Whether this vehicle's bridge is the one bridging `/clock` (the first vehicle's is)."""
     agent: ContainerSpec | None = None
     """The vehicle's lockstep clock agent (task P2-T04; lockstep mode only)."""
+    has_spawn: bool = True
+    """Whether the scenario gave the vehicle a spawn pose (a replay may not, task P2-T07; the
+    origin stands in, and what needs the pose refuses the vehicle)."""
     bundle_dir: str = BUNDLE_DIR_IN_BRIDGE
     """Where the bridge container writes its bundle (`contract.yaml` for the contract check)."""
     _bundle: Bundle | None = field(default=None, repr=False, compare=False)
@@ -506,7 +524,8 @@ class Plan:
     network: str
     render: str
     domain_id: int
-    sim: ContainerSpec
+    sim: ContainerSpec | None
+    """The simulator container (None in a replay run, task P2-T07)."""
     recorder: ContainerSpec
     vehicles: tuple[PlannedVehicle, ...]
     actions: tuple[PlannedAction, ...]
@@ -526,17 +545,35 @@ class Plan:
     """The seed of the run's random numbers (`gz sim --seed`, `FIELDPROOF_SEED`)."""
     database: Path | None = None
     """The run database the run records itself in at its end (task P2-T06), or None."""
+    replay: ReplayPlan | None = None
+    """The field log replayed (`source: replay`, task P2-T07), or None for the simulator."""
+    player: ContainerSpec | None = None
+    """The replay player container (with `replay`)."""
 
     @property
     def discovery_mode(self) -> str:
         """`server` or `multicast`."""
         return "server" if self.discovery is not None else "multicast"
 
+    @property
+    def source(self) -> str:
+        """`sim` or `replay`."""
+        return SOURCE_REPLAY if self.replay is not None else SOURCE_SIM
+
+    @property
+    def pace(self) -> float:
+        """The pace without a target: the world's own factor, or a replay's playback rate."""
+        return self.replay.source.rate if self.replay is not None else self.world.rtf
+
     def containers(self) -> list[ContainerSpec]:
         """The long-running containers in start order (the teardown reverses it)."""
         specs = [self.discovery] if self.discovery is not None else []
-        specs.append(self.sim)
-        specs += [v.bridge for v in self.vehicles]
+        if self.sim is not None:
+            specs.append(self.sim)
+        if self.player is not None:
+            specs.append(self.player)
+        if self.replay is None:
+            specs += [v.bridge for v in self.vehicles]
         specs.append(self.recorder)
         if self.links is not None:
             specs += [self.links.holders[v.name] for v in self.vehicles]
@@ -594,19 +631,22 @@ class Plan:
             "ros_domain_id": self.domain_id,
             "domain_source": self.domain_source,
             "discovery": self.discovery_mode,
+            "source": self.replay.to_dict() if self.replay is not None else {"kind": SOURCE_SIM},
             "world": {
                 "name": self.world.name,
                 "file": str(self.world.file),
                 "step_s": self.world.step_s,
                 "rtf": self.world.rtf,
-            },
+            }
+            if self.world.name
+            else None,
             "time": self.scenario.time.model_dump(),
             "seed": self.seed,
             "vehicles": [
                 {
                     **v.describe(),
                     "manifest": str(v.manifest.path),
-                    "spawn": asdict(v.spawn),
+                    "spawn": asdict(v.spawn) if v.has_spawn else None,
                     "ready_timeout_s": v.ready_timeout_s,
                     "clock": v.clock,
                     "spawn_job": spec(v.spawn_job),
@@ -649,7 +689,7 @@ def detect_render(preference: str, render_dir: Path = RENDER_DIR) -> tuple[str, 
     return "gpu", (str(nodes[0].stat().st_gid),)
 
 
-def plan(  # noqa: PLR0915
+def plan(  # noqa: PLR0912, PLR0915
     scenario: Scenario,
     config: Config,
     *,
@@ -671,12 +711,19 @@ def plan(  # noqa: PLR0915
     cases' runs in the workspace's database).
     """
     worlds_dir = config.resolve(config.stack.worlds)
-    world_file = worlds_dir / scenario.world.file
-    if not world_file.is_file():
-        raise ScenarioError(f"world.file: {scenario.world.file!r} is not a file in {worlds_dir}")
-    world = read_world(world_file)
+    replaying = scenario.source is not None
+    if scenario.world is not None:
+        world_file = worlds_dir / scenario.world.file
+        if not world_file.is_file():
+            raise ScenarioError(
+                f"world.file: {scenario.world.file!r} is not a file in {worlds_dir}"
+            )
+        world = read_world(world_file)
+    else:
+        world = NO_WORLD  # a replay without a world file (the schema requires one otherwise)
     time_section = scenario.time
-    _check_step(time_section, world)
+    if not replaying:
+        _check_step(time_section, world)
     seed = _plan_seed(scenario, seed)
     render_mode, groups = detect_render(render or config.docker.render)
     net = network or config.docker.network
@@ -721,44 +768,59 @@ def plan(  # noqa: PLR0915
                 "ROS_SUPER_CLIENT": "TRUE",
             }
         )
-    sim = ContainerSpec(
-        name=f"fieldproof-{short}-sim",
-        image=config.image("sim"),
-        role="sim",
-        command=(
-            "gz",
-            "sim",
-            "-s",
-            "-r",
-            "--headless-rendering",
-            "--seed",
-            str(seed),
-            world_file.name,
-        ),
-        env={
-            **env,
-            "LIBGL_ALWAYS_SOFTWARE": "0" if render_mode == "gpu" else "1",
-            "GZ_SIM_RESOURCE_PATH": ":".join(SIM_MOUNTS.values()),
-        },
-        labels={**labels, ROLE_LABEL: "sim"},
-        network=net,
-        hostname=f"fieldproof-{short}-sim",
-        mounts=tuple(
-            Mount(config.resolve(getattr(config.stack, key)), target)
-            for key, target in SIM_MOUNTS.items()
-        ),
-        devices=("/dev/dri",) if render_mode == "gpu" else (),
-        group_add=groups,
-    )
+    sim: ContainerSpec | None = None
+    if not replaying:
+        sim = ContainerSpec(
+            name=f"fieldproof-{short}-sim",
+            image=config.image("sim"),
+            role="sim",
+            command=(
+                "gz",
+                "sim",
+                "-s",
+                "-r",
+                "--headless-rendering",
+                "--seed",
+                str(seed),
+                world.file.name,
+            ),
+            env={
+                **env,
+                "LIBGL_ALWAYS_SOFTWARE": "0" if render_mode == "gpu" else "1",
+                "GZ_SIM_RESOURCE_PATH": ":".join(SIM_MOUNTS.values()),
+            },
+            labels={**labels, ROLE_LABEL: "sim"},
+            network=net,
+            hostname=f"fieldproof-{short}-sim",
+            mounts=tuple(
+                Mount(config.resolve(getattr(config.stack, key)), target)
+                for key, target in SIM_MOUNTS.items()
+            ),
+            devices=("/dev/dri",) if render_mode == "gpu" else (),
+            group_add=groups,
+        )
+    source = SOURCE_REPLAY if replaying else SOURCE_SIM
     vehicles = tuple(
         _plan_vehicle(scenario, config, world, v, short, net, ros_env, labels, clock=index == 0)
         for index, v in enumerate(scenario.vehicles)
     )
     by_name = {v.name: v for v in vehicles}
-    actions = _plan_actions(scenario, world, by_name, time_section.mode)
-    assertions, kpis = _plan_assertions(scenario, world, by_name, actions, time_section.mode)
+    actions = _plan_actions(scenario, world, by_name, time_section.mode, source)
+    assertions, kpis = _plan_assertions(
+        scenario, world, by_name, actions, time_section.mode, source
+    )
     run_dir = base / identity
     video = _plan_video(scenario, world, short)
+    replay: ReplayPlan | None = None
+    player_spec: ContainerSpec | None = None
+    if scenario.source is not None:
+        replay = plan_replay(
+            scenario.source,
+            scenario.directory,
+            {v.name: v.topic for v in vehicles},
+            tf_static_topics={v.name: v.topic("tf_static") for v in vehicles},
+        )
+        player_spec = _plan_player(replay, config, short, net, ros_env, labels, run_dir)
     links = None
     if scenario.network is not None:
         if server is not None:
@@ -767,25 +829,30 @@ def plan(  # noqa: PLR0915
                 "on one side of every link); run with discovery multicast"
             )
         links = _plan_links(scenario, config, vehicles, short, run_dir, ros_env, labels)
-        vehicles = tuple(_behind_link(v, links, str(sim.hostname)) for v in vehicles)
+        sim_host = str(sim.hostname) if sim is not None else ""
+        vehicles = tuple(_behind_link(v, links, sim_host) for v in vehicles)
     observe = observe_plan(
         assertions,
-        world=world.name,
+        world=world.name if replay is None else "",
         models=[v.name for v in vehicles],
         record=scenario.outputs.record,
         topics=scenario.outputs.topics,
         run_dir=RUN_DIR_IN_CONTAINER,
         conditions=[a.watch for a in actions if a.watch is not None],
         watches=[w for k in kpis for w in kpi_watches(k)],
+        ground_truth=replay.ground_truth if replay is not None else (),
     )
     # The clock (task P2-T04): what the observer's clock manager needs in every mode (the
     # world's statistics, the target pace for the drift) and, in lockstep, the vehicles to
-    # wait for and the command file.
+    # wait for and the command file. In a replay (task P2-T07) the clock is the player's, at
+    # the playback rate, and there is no world to follow.
     target_rtf = time_section.target_rtf
+    pace = replay.source.rate if replay is not None else world.rtf
     observe["clock"] = {
-        "world": world.name,
+        "world": world.name if replay is None else "",
+        "source": "log" if replay is not None else SOURCE_SIM,
         "mode": time_section.mode,
-        "target_rtf": world.rtf if target_rtf is None else target_rtf,
+        "target_rtf": pace if target_rtf is None else target_rtf,
         "step_s": time_section.step_s,
         "vehicles": [v.name for v in vehicles] if time_section.mode == "lockstep" else [],
         "ack_timeout_s": time_section.ack_timeout_s,
@@ -807,6 +874,7 @@ def plan(  # noqa: PLR0915
             OBSERVER_IN_CONTAINER,
             "--config",
             f"{RUN_DIR_IN_CONTAINER}/{OBSERVE_FILE}",
+            *(("--no-gazebo",) if replay is not None else ()),
         ),
         # Runs as the engine's user so what it writes into the run directory belongs to the
         # user who started the run; HOME, the ROS log directory and the working directory point
@@ -847,6 +915,43 @@ def plan(  # noqa: PLR0915
         links=links,
         seed=seed,
         database=database,
+        replay=replay,
+        player=player_spec,
+    )
+
+
+def _plan_player(  # noqa: PLR0917
+    replay: ReplayPlan,
+    config: Config,
+    short: str,
+    network: str,
+    env: dict[str, str],
+    labels: dict[str, str],
+    run_dir: Path,
+) -> ContainerSpec:
+    """The replay player: the bridge image with the player script, the log and the run dir."""
+    return ContainerSpec(
+        name=f"fieldproof-{short}-player",
+        image=config.image("bridge"),
+        role="player",
+        command=(
+            "python3",
+            PLAYER_IN_CONTAINER,
+            "--config",
+            f"{RUN_DIR_IN_CONTAINER}/{REPLAY_FILE}",
+        ),
+        # As the engine's user, like the recorder: its status file lands in the run directory.
+        env={**env, "HOME": "/tmp", "ROS_LOG_DIR": "/tmp/ros-log"},  # noqa: S108  (in-container)
+        working_dir=RUN_DIR_IN_CONTAINER,
+        labels={**labels, ROLE_LABEL: "player"},
+        network=network,
+        hostname=f"fieldproof-{short}-player",
+        mounts=(
+            Mount(PLAYER_FILE, PLAYER_IN_CONTAINER),
+            Mount(replay.log, replay.log_in_container),
+            Mount(run_dir, RUN_DIR_IN_CONTAINER, read_only=False),
+        ),
+        user=f"{os.getuid()}:{os.getgid()}",
     )
 
 
@@ -919,6 +1024,7 @@ def _plan_actions(
     world: WorldInfo,
     by_name: dict[str, PlannedVehicle],
     time_mode: str = "sim",
+    source: str = SOURCE_SIM,
 ) -> list[PlannedAction]:
     """The timeline in order of `at`, each entry resolved by its event, its `when` resolved."""
     events = registry()
@@ -930,6 +1036,7 @@ def _plan_actions(
             links=scenario.network is not None,
             where=f"timeline[{index}]",
             time_mode=time_mode,
+            source=source,
         )
         resolved = dict(events[entry.action_name].event.plan(entry, context))
         watch = _plan_when(entry, f"timeline[{index}].when", world, by_name)
@@ -1110,12 +1217,13 @@ def _behind_link(vehicle: PlannedVehicle, links: PlannedLinks, sim_host: str) ->
     )
 
 
-def _plan_assertions(
+def _plan_assertions(  # noqa: PLR0917
     scenario: Scenario,
     world: WorldInfo,
     by_name: dict[str, PlannedVehicle],
     actions: Sequence[PlannedAction],
     time_mode: str,
+    source: str = SOURCE_SIM,
 ) -> tuple[tuple[PlannedAssertion, ...], tuple[PlannedAssertion, ...]]:
     """Resolve every assertion and KPI collector through its type's `plan` hook."""
     labels = tuple(a.name for a in actions)
@@ -1123,7 +1231,13 @@ def _plan_assertions(
 
     def context(where: str) -> AssertionContext:
         return AssertionContext(
-            world, by_name, actions=labels, assertions=names, where=where, time_mode=time_mode
+            world,
+            by_name,
+            actions=labels,
+            assertions=names,
+            where=where,
+            time_mode=time_mode,
+            source=source,
         )
 
     assertions = tuple(
@@ -1167,7 +1281,13 @@ def _plan_vehicle(  # noqa: PLR0917
         raise ScenarioError(f"{where}.manifest: {manifest_path} has no runtime or description")
     if description.launch is None:
         raise ScenarioError(f"{where}.manifest: description.launch names no spawn launch file")
-    spawn = place(vehicle.spawn, world, f"{where}.spawn")
+    # A replay may leave the spawn out (the schema requires it with the simulator): the origin
+    # stands in, and what needs the pose (a goal in the world) refuses the vehicle.
+    spawn = (
+        place(vehicle.spawn, world, f"{where}.spawn")
+        if vehicle.spawn is not None
+        else Pose(0.0, 0.0, 0.0, 0.0)
+    )
     launch_file = manifest.directory / description.launch
     launch: tuple[str, ...]
     if launch_file.is_file():
@@ -1289,6 +1409,7 @@ def _plan_vehicle(  # noqa: PLR0917
         depends_on=tuple(vehicle.depends_on),
         dds_profile=dds_profile,
         clock=clock,
+        has_spawn=vehicle.spawn is not None,
     )
 
 
@@ -1405,6 +1526,9 @@ class RunRecord:
     """The clock of the run (task P2-T04): mode, target and measured real-time factor, drift,
     the real-time-locked verdict, the lockstep's steps and holds."""
     stack: dict[str, Any] = field(default_factory=dict)
+    source: dict[str, Any] = field(default_factory=lambda: {"kind": SOURCE_SIM})
+    """Where the inputs came from (task P2-T07): the simulator, or the replayed log (its path,
+    rate, the span played, when the playback started and ended on the timeline)."""
 
     def to_dict(self) -> dict[str, Any]:
         """The record as data."""
@@ -1480,12 +1604,12 @@ class RunContext:
             f"timeout {limit_s} gz service -s {shlex.quote(service)} --reqtype {request_type} "
             f"--reptype {reply_type} --timeout {int(timeout_s * 1000)} --req {shlex.quote(request)}"
         )
-        return self._run.backend.exec(self._run.plan.sim.name, ("bash", "-lc", command))
+        return self._run.backend.exec(self._run.sim_name(), ("bash", "-lc", command))
 
     def gz_topic(self, topic: str, *, timeout_s: float = 10.0) -> ExecResult:
         limit_s = max(int(timeout_s) + 5, PROBE_LIMIT_S)
         command = f"timeout {limit_s} gz topic -e -n 1 -t {shlex.quote(topic)}"
-        return self._run.backend.exec(self._run.plan.sim.name, ("bash", "-lc", command))
+        return self._run.backend.exec(self._run.sim_name(), ("bash", "-lc", command))
 
     def log(self, event: str, message: str = "", *, level: str = "info", **fields: Any) -> None:
         self._run.log.event(event, message, level=level, **fields)
@@ -1520,7 +1644,7 @@ class RunContext:
 class Run:
     """One execution of a plan against a backend."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0915
         self,
         plan: Plan,
         backend: Backend,
@@ -1557,7 +1681,7 @@ class Run:
         self.evaluator = Evaluator(
             plan.assertions, [collector_of(k) for k in plan.kpis], sim_base=time_section.sim_base
         )
-        self.clock_monitor = ClockMonitor(time_section, plan.world.rtf)
+        self.clock_monitor = ClockMonitor(time_section, plan.pace)
         """The real-time factor and the drift of the run against its `time` section."""
         self.lockstep = (
             LockstepControl(plan.run_dir, [v.name for v in plan.vehicles], time_section.step_s)
@@ -1589,12 +1713,20 @@ class Run:
                 "ros_domain_id": plan.domain_id,
                 "domain_source": plan.domain_source,
                 "discovery": plan.discovery_mode,
-                "world": plan.world.name,
+                "world": plan.world.name or None,
                 "world_step_s": plan.world.step_s,
                 "images": sorted({s.image for s in plan.containers()}),
             },
+            source=plan.replay.to_dict() if plan.replay is not None else {"kind": SOURCE_SIM},
         )
         self._phase_started: float | None = None
+        self._replay_status = FileTail(plan.run_dir / STATUS_FILE)
+        """The replay player's status lines (task P2-T07)."""
+        self._replay_walls: dict[str, float] = {}
+        """When the player reported `playing` and `done`, on the wall clock."""
+        self._missed_warned = False
+        self.playback: str | None = None
+        """The replay's state as the player last reported it (`ready`, `playing`, `done`)."""
         self.monitor = LinkMonitor(plan.links.links) if plan.links is not None else None
         """The links' profiles and measurements (radio links only)."""
         self._addresses: dict[str, str] = {}
@@ -1621,7 +1753,7 @@ class Run:
         """Containers an event paused: the teardown resumes them before stopping them."""
 
     # ------------------------------------------------------------------------- the machine
-    def execute(self) -> RunRecord:
+    def execute(self) -> RunRecord:  # noqa: PLR0915
         """Run every phase; tear down whatever happens; return the record."""
         scenario = self.plan.scenario
         self.plan.run_dir.mkdir(parents=True, exist_ok=True)
@@ -1635,13 +1767,20 @@ class Run:
         try:
             self._phase(Phase.PREPARING)
             self.prepare()
-            self._phase(Phase.SIM)
-            self.start_discovery()
-            self.start_sim()
-            self._phase(Phase.SPAWN)
-            self._parallel("spawn", [(v.name, v, self.spawn) for v in self.plan.vehicles])
-            self._phase(Phase.BRIDGES)
-            self._parallel("bridge", [(v.name, v, self.start_bridge) for v in self.plan.vehicles])
+            if self.plan.replay is not None:
+                self._phase(Phase.REPLAY)
+                self.start_discovery()
+                self.start_player()
+            else:
+                self._phase(Phase.SIM)
+                self.start_discovery()
+                self.start_sim()
+                self._phase(Phase.SPAWN)
+                self._parallel("spawn", [(v.name, v, self.spawn) for v in self.plan.vehicles])
+                self._phase(Phase.BRIDGES)
+                self._parallel(
+                    "bridge", [(v.name, v, self.start_bridge) for v in self.plan.vehicles]
+                )
             self._phase(Phase.RECORDER)
             self.start_recorder()
             self.start_links()
@@ -1793,6 +1932,19 @@ class Run:
             raise RunError(f"the observer {OBSERVER_FILE} is missing from the engine")
         if self.lockstep is not None and not LOCKSTEP_FILE.is_file():
             raise RunError(f"the clock agent {LOCKSTEP_FILE} is missing from the engine")
+        replay = self.plan.replay
+        if replay is not None:
+            if not PLAYER_FILE.is_file():
+                raise RunError(f"the replay player {PLAYER_FILE} is missing from the engine")
+            self.log.event(
+                "source.replay",
+                f"replaying {replay.log} ({replay.info.storage}, {replay.info.duration_s:.1f} s, "
+                f"{len(replay.play_topics)} topic(s)) at {replay.source.rate:g}x from "
+                f"{replay.source.start_s:g} s for {replay.played_duration_s:.1f} s, the clock "
+                f"{replay.source.lead_in_s:g} s ahead of the first message; no simulator, "
+                "actuators open-loop",
+                **replay.to_dict(),
+            )
         time_section = scenario.time
         self.log.event(
             "clock.mode",
@@ -1800,6 +1952,8 @@ class Run:
             + (
                 f", target real-time factor {time_section.target_rtf:g}"
                 if time_section.target_rtf is not None
+                else f", the log's pace ({self.plan.pace:g}x)"
+                if replay is not None
                 else ", the world's own real-time factor"
             )
             + (
@@ -1818,7 +1972,7 @@ class Run:
         )
         images = sorted(
             {s.image for s in self.plan.containers()}
-            | {v.spawn_job.image for v in self.plan.vehicles}
+            | ({v.spawn_job.image for v in self.plan.vehicles} if replay is None else set())
         )
         missing = [image for image in images if not self.backend.image_exists(image)]
         if missing:
@@ -1826,7 +1980,8 @@ class Run:
                 "image(s) not built: " + ", ".join(missing) + " (make images, make vehicle-image)"
             )
         self.log.event("images.ok", ", ".join(images))
-        self.check_assets()
+        if replay is None:
+            self.check_assets()
         self.check_budget()
         self.backend.ensure_network(self.plan.network)
         links = self.plan.links
@@ -1927,9 +2082,130 @@ class Run:
                     + " (make assets)"
                 )
 
+    def sim_name(self) -> str:
+        """The simulator container's name, or a :class:`RunError` in a replay run."""
+        if self.plan.sim is None:
+            raise RunError("a replay run has no simulator (source: replay)")
+        return self.plan.sim.name
+
+    def start_player(self) -> None:
+        """Start the replay player on the log and wait until it is ready (task P2-T07).
+
+        The player's `ready` says the log is open, the playback paused at its start and the
+        clock running towards it; the vehicles then start on a moving clock. `playing` and
+        `done` arrive later, on the status file the running phase tails.
+        """
+        replay, spec = self.plan.replay, self.plan.player
+        if replay is None or spec is None:
+            return
+        run_dir = self.plan.run_dir
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / REPLAY_FILE).write_text(
+            json.dumps(replay.player_config(RUN_DIR_IN_CONTAINER), indent=2) + "\n"
+        )
+        (run_dir / STATUS_FILE).touch()
+        self.backend.start(spec)
+        self._started(spec)
+
+        def ready() -> bool:
+            self._running(spec)
+            self._poll_replay()
+            return self.playback is not None
+
+        self.wait_for(ready, self.plan.config.timeouts.replay_s, "the replay player to be ready")
+        self.log.event(
+            "replay.ready",
+            f"the log is open and paused at its start ({replay.t0_ns / 1e9:.3f} s); the "
+            f"clock runs from {replay.source.lead_in_s:g} s before it at {replay.source.rate:g}x",
+            t0_s=round(replay.t0_ns / 1e9, 3),
+            lead_in_s=replay.source.lead_in_s,
+            rate=replay.source.rate,
+        )
+
+    def _poll_replay(self) -> None:
+        """The player's new status lines: `playing` and `done` into the record, an error raised."""
+        if self.plan.replay is None:
+            return
+        for line in self._replay_status.lines():
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            event = str(data.get("event", ""))
+            fields = {k: v for k, v in data.items() if k not in ("event", "wall")}
+            if event == "ready":
+                self.playback = "ready"
+            elif event == "playing":
+                self.playback = "playing"
+                self._replay_walls["playing"] = float(data.get("wall") or self.wall())
+                self._stamp_replay()
+                self._warn_missed_log()
+                self.log.event(
+                    "replay.playing",
+                    f"the playback started at log time {data.get('sim')} s"
+                    + (f", {data['late_s']:g} s late" if data.get("late_s") else ""),
+                    **fields,
+                )
+            elif event == "done":
+                self.playback = "done"
+                self._replay_walls["done"] = float(data.get("wall") or self.wall())
+                self._stamp_replay()
+                self.record.source["played_s"] = data.get("played_s")
+                self.log.event(
+                    "replay.done",
+                    f"the log is played ({data.get('played_s')} s); the clock runs on",
+                    **fields,
+                )
+            elif event == "error":
+                raise RunError(f"the replay player failed: {data.get('message')}")
+            elif event == "progress":
+                self.log.event(
+                    "replay.progress", f"{data.get('played_s')} s played", level="debug", **fields
+                )
+
+    def _stamp_replay(self) -> None:
+        """The playback's start and end as seconds on the timeline (negative: before it).
+
+        From the player's own wall-clock stamps, once the timeline's start is known.
+        """
+        start = self.evaluator.start_wall
+        if start is None:
+            return
+        for key, wall in self._replay_walls.items():
+            self.record.source[f"{key}_t_s"] = round(wall - start, 3)
+
+    def _warn_missed_log(self) -> None:
+        """A playback that started before the timeline: the stacks missed that much of the log."""
+        replay, playing = self.plan.replay, self._replay_walls.get("playing")
+        start = self.evaluator.start_wall
+        if replay is None or playing is None or start is None or start <= playing:
+            return
+        if self._missed_warned:
+            return
+        self._missed_warned = True
+        missed = (start - playing) * replay.source.rate
+        self.log.event(
+            "replay.missed",
+            f"the playback started {missed:.1f} s of the log before every vehicle was ready "
+            f"(lead-in {replay.source.lead_in_s:g} s): the stacks missed that much of the "
+            "log; raise source.lead_in_s if they need its beginning",
+            level="warning",
+            missed_s=round(missed, 3),
+            lead_in_s=replay.source.lead_in_s,
+        )
+
+    @property
+    def playback_done(self) -> bool:
+        """Whether the replayed log has been played to its end (always true without one)."""
+        return self.plan.replay is None or self.playback == "done"
+
     def start_sim(self) -> None:
         """Start the simulator and wait until the world's services answer."""
         sim, world, timeouts = self.plan.sim, self.plan.world, self.plan.config.timeouts
+        if sim is None:
+            return
         self.backend.start(sim)
         self._started(sim)
 
@@ -2146,8 +2422,12 @@ class Run:
         monitored = []
         for vehicle in self.plan.vehicles:
             monitored.append(Monitored(vehicle.container_name, "vehicle", vehicle.name))
-            monitored.append(Monitored(vehicle.bridge_name, "bridge", vehicle.name))
-        monitored.append(Monitored(self.plan.sim.name, "sim"))
+            if self.plan.replay is None:
+                monitored.append(Monitored(vehicle.bridge_name, "bridge", vehicle.name))
+        if self.plan.sim is not None:
+            monitored.append(Monitored(self.plan.sim.name, "sim"))
+        if self.plan.player is not None:
+            monitored.append(Monitored(self.plan.player.name, "player"))
         monitored.append(Monitored(self.plan.recorder.name, "recorder"))
         self.resource_monitor.start(monitored)
         self.log.event(
@@ -2221,6 +2501,7 @@ class Run:
         """One poll of the running phase: the stream, the deadlines, the containers."""
         samples = self._poll_samples()
         self._poll_network()
+        self._poll_replay()
         self._resolve(self.evaluator.tick(self.wall()))
         if self.clock() - self._last_alive_check >= POLL_S:
             self._last_alive_check = self.clock()
@@ -2516,11 +2797,14 @@ class Run:
             self.evaluator.start(self.wall())
         if self.monitor is not None and self.evaluator.start_wall is not None:
             self.monitor.start_timeline(self.evaluator.start_wall)
+        self._stamp_replay()
+        self._warn_missed_log()
         self.log.event(
             "timeline.start",
             f"{len(self.plan.actions)} action(s), {len(self.plan.assertions)} assertion(s), "
             f"budget {budget:g} s"
-            + (" wall clock; the timeline counts simulation time" if self.lockstep else ""),
+            + (" wall clock; the timeline counts simulation time" if self.lockstep else "")
+            + ("; the timeline ends once the log is played" if self.plan.replay else ""),
             budget_s=budget,
             time_base="sim" if self.lockstep else "wall",
         )
@@ -2535,6 +2819,7 @@ class Run:
         self.log.event("timeline.done", f"after {self.clock() - started:.1f} s")
         self.resource_monitor.stop()  # the assertions and the KPIs judge the timeline
         self._observe()
+        self._stamp_replay()
         self._resolve(self.evaluator.finish(self.wall()))
         self._write_kpis()
         self.record.clock = self.clock_summary()
@@ -2781,7 +3066,7 @@ class Run:
                     raise RunTimeoutError(f"budget of {budget:g} s passed during {name}")
                 raise RunFailedError(f"{name}: {record.detail}")
             now = self._timeline_t(started)
-            if not running and schedule.idle(now):
+            if not running and schedule.idle(now) and self.playback_done:
                 self._settle()
                 self._write()
                 break
@@ -2820,7 +3105,7 @@ class Run:
     # ------------------------------------------------------------------------------ the video
     def _video_service(self, video: PlannedVideo, request: str) -> ExecResult:
         return self.backend.exec(
-            self.plan.sim.name,
+            self.sim_name(),
             (
                 "bash",
                 "-lc",
@@ -2876,7 +3161,7 @@ class Run:
             self.record.video["status"] = "encoding"
             deadline = self.clock() + VIDEO_SETTLE_S
             check = ("bash", "-lc", f"test -s {shlex.quote(video.in_sim)}")
-            while not self.backend.exec(self.plan.sim.name, check).ok:
+            while not self.backend.exec(self.sim_name(), check).ok:
                 if self.clock() >= deadline:
                     self._video_failed(
                         f"{video.in_sim} not written {VIDEO_SETTLE_S:g} s after the stop"
@@ -2884,7 +3169,7 @@ class Run:
                     return
                 self.sleep(EVAL_POLL_S)
             destination = self.plan.run_dir / video.file
-            size = self.backend.copy_from(self.plan.sim.name, video.in_sim, destination)
+            size = self.backend.copy_from(self.sim_name(), video.in_sim, destination)
         except BackendError as error:
             self._video_failed(f"cannot save the recording: {error}")
             return
@@ -3033,6 +3318,6 @@ def leftovers(backend: Backend, run_id: str | None = None) -> list[str]:
     if run_id is not None:
         return backend.find(RUN_LABEL, run_id)
     names: list[str] = []
-    for role in ("sim", "bridge", "recorder", "vehicle", "spawn"):
+    for role in ("sim", "player", "bridge", "recorder", "vehicle", "spawn"):
         names += backend.find(ROLE_LABEL, role)
     return names

@@ -21,6 +21,10 @@ and starts it on ``observe.json`` (:func:`fieldproof.assertions.observe_plan`). 
   radio links), ``/fieldproof/resources`` (the engine's resource monitor, one sample per
   container and second) and ``/fieldproof/kpis`` (the KPIs at the end of the timeline), all as
   ``std_msgs/msg/String`` carrying JSON, so the recording holds the whole run;
+- reads the ground truth from a ROS pose topic instead (a replayed field log, task P2-T07:
+  ``ground_truth`` in the configuration names the topic per model) and a stack's own pose
+  estimate (``estimates``) as ``estimate`` samples, both stamped with the message's header,
+  for the ``localisation_error`` assertion;
 - manages the clock (task P2-T04, :class:`ClockManager`): it follows the world's statistics
   (paused, the simulator's own real-time factor), reports the drift between simulation time and
   the wall clock in the metrics and, in lockstep mode, steps the world through its
@@ -227,6 +231,41 @@ class LatencyWindow:
             "min_ms": round(values[0], 2),
             "p95_ms": round(values[index], 2),
         }
+
+
+def pose_of(message: Any) -> tuple[float, float, float, float] | None:
+    """`(x, y, z, yaw)` of a pose-carrying message, or None if it carries none.
+
+    `geometry_msgs/msg/PoseStamped` (`pose`), `PoseWithCovarianceStamped` and
+    `nav_msgs/msg/Odometry` (`pose.pose`), a `TransformStamped` (`transform`).
+    """
+    pose = getattr(message, "pose", None)
+    if pose is not None and hasattr(pose, "pose"):
+        pose = pose.pose
+    if pose is None:
+        transform = getattr(message, "transform", None)
+        if transform is None:
+            return None
+        position, orientation = transform.translation, transform.rotation
+    else:
+        position = getattr(pose, "position", None)
+        orientation = getattr(pose, "orientation", None)
+    if position is None or orientation is None:
+        return None
+    try:
+        return (
+            float(position.x),
+            float(position.y),
+            float(position.z),
+            quaternion_yaw(
+                float(orientation.x),
+                float(orientation.y),
+                float(orientation.z),
+                float(orientation.w),
+            ),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return None
 
 
 def quaternion_yaw(x: float, y: float, z: float, w: float) -> float:
@@ -679,7 +718,10 @@ class ClockManager:
         """Where the world-control requests run (None: inline). The real observer gives a
         worker thread, so a slow or lost reply never stalls the spin that delivers the
         acknowledgements and the commands; the acknowledgements confirm a step, not the reply."""
-        self.world = str(config.get("world", ""))
+        self.world = str(config.get("world") or "")
+        self.source = str(config.get("source") or "sim")
+        """`sim` (the world's statistics give the pace) or `log` (a replayed field log, task
+        P2-T07: the clock is the player's, nothing is ever paused)."""
         self.mode = str(config.get("mode", "sim"))
         self.target_rtf = float(config.get("target_rtf") or 1.0)
         self.step_s = float(config.get("step_s") or 0.1)
@@ -893,6 +935,8 @@ class ClockManager:
             "paused": self.paused,
             "gz_rtf": self.gz_rtf,
         }
+        if self.source != "sim":
+            state["source"] = self.source
         if self.lockstep:
             state["lockstep"] = {
                 "origin": self.origin,
@@ -957,6 +1001,14 @@ class Observer:
         self.models = list(config.get("models", []))
         self.last_pose: dict[str, float] = {}
         self.poses: dict[str, dict[str, float]] = {}
+        self.pose_topics: dict[str, tuple[str, str]] = {}
+        """Per ROS pose topic, the sample kind it feeds (`pose`: a ground truth from a
+        replayed log, task P2-T07; `estimate`: a stack's own estimate) and the model."""
+        for entry in config.get("ground_truth", []):
+            self.pose_topics[str(entry["topic"])] = ("pose", str(entry["model"]))
+        for entry in config.get("estimates", []):
+            self.pose_topics[str(entry["topic"])] = ("estimate", str(entry["model"]))
+        self._pose_errors: set[str] = set()
         self.last_contact: dict[str, float] = {}
         self.contact_models = {c["topic"]: c.get("model") for c in config.get("contacts", [])}
         self.last_metrics: tuple[float, float] | None = None
@@ -1019,6 +1071,10 @@ class Observer:
                 self.pending[entry["topic"]] = entry.get("type")
         for node in self.lifecycles:
             self.pending.setdefault(f"{node}/transition_event", TRANSITION_EVENT_TYPE)
+        for key in ("ground_truth", "estimates"):
+            for entry in self.config.get(key, []):
+                if self.pending.get(entry["topic"]) is None:
+                    self.pending[entry["topic"]] = entry.get("type")
 
     def _subscribe_gazebo(self) -> None:
         """The ground truth: the models' poses and the contact sensors."""
@@ -1095,6 +1151,9 @@ class Observer:
             if node in self.lifecycles:
                 goal = getattr(message, "goal_state", None)
                 self.on_lifecycle(node, str(getattr(goal, "label", "")) or UNRESPONSIVE)
+        if topic in self.pose_topics:
+            kind, model = self.pose_topics[topic]
+            self.on_pose_message(kind, model, topic, message)
         fields = self.values.get(topic)
         if not fields:
             return
@@ -1150,6 +1209,34 @@ class Observer:
                 continue
             self.last_pose[name] = now
             self.sink.emit("pose", sim, model=name, **self.poses[name])
+
+    def on_pose_message(self, kind: str, model: str, topic: str, message: Any) -> None:
+        """A ROS pose of a model (a replayed ground truth, or a stack's estimate), at `pose_hz`.
+
+        The pose is read from a `PoseStamped`, a `PoseWithCovarianceStamped` or an
+        `Odometry`; the sample's simulation time is the header stamp, so an estimate can be
+        matched to the ground truth of the same moment.
+        """
+        pose = pose_of(message)
+        if pose is None:
+            if topic not in self._pose_errors:
+                self._pose_errors.add(topic)
+                self.sink.emit(kind, None, model=model, topic=topic, error="no pose in the message")
+            return
+        now = self.clock()
+        x, y, z, yaw = pose
+        data = {"x": round(x, 4), "y": round(y, 4), "z": round(z, 4), "yaw": round(yaw, 4)}
+        if kind == "pose":
+            self.poses[model] = data
+        key = f"{kind}:{model}"
+        if now - self.last_pose.get(key, -math.inf) < 1.0 / self.pose_hz:
+            return
+        self.last_pose[key] = now
+        stamp = stamp_seconds(getattr(message, "header", None))
+        if kind == "estimate":
+            self.sink.emit(kind, stamp, model=model, topic=topic, **data)
+        else:
+            self.sink.emit(kind, stamp, model=model, **data)
 
     def on_contacts(self, topic: str, message: Any) -> None:
         """A `Contacts` message of a vehicle's contact sensor."""

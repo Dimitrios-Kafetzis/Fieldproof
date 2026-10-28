@@ -32,7 +32,10 @@ the event injection framework: the timeline DSL (`fieldproof.dsl`), the schedule
 ([events.md](../docs/reference/events.md)), P2-T06 the run matrix (`fieldproof.matrix`,
 `fieldproof matrix`), the scenario overrides (`fieldproof.overrides`, `fieldproof run --set`),
 the run database (`fieldproof.rundb`, `fieldproof runs list|show|diff|index`) and the HTML
-reports (`fieldproof.html`, [matrix.md](../docs/reference/matrix.md)). The remaining Phase 2
-tasks of the [backlog](../docs/plan/03-task-backlog.md) follow. Lint and type-check settings
+reports (`fieldproof.html`, [matrix.md](../docs/reference/matrix.md)), P2-T07 the field log
+replay source (`fieldproof.replay`, the player `fieldproof.player`, the synthetic log
+`fieldproof.synthlog`, `fieldproof log info|synth`) and the localisation assertion
+(`fieldproof.assertions.localisation`, [replay.md](../docs/reference/replay.md)). The remaining
+Phase 2 tasks of the [backlog](../docs/plan/03-task-backlog.md) follow. Lint and type-check settings
 (ruff, mypy strict) come from the repository root `pyproject.toml`; the hooks run through
 `make lint`.

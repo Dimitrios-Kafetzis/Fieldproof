@@ -68,7 +68,8 @@ class SimEvent(Event):
     """An event on the world's control service."""
 
     def plan(self, entry: Any, context: PlanContext) -> dict[str, Any]:  # noqa: ARG002
-        """The service of the world; refused in lockstep mode."""
+        """The service of the world; refused in lockstep mode and in a replay."""
+        context.require_simulator(self.action)
         if context.time_mode == "lockstep":
             raise ScenarioError(
                 f"{context.where}: {self.action} does not combine with time.mode lockstep, "

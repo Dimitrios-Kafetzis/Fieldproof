@@ -178,6 +178,7 @@ def test_assertions_command() -> None:
         "latency",
         "resources",
         "value",
+        "localisation",
     }
     assert "efficiency" in kpis["path"]["metrics"]
 
