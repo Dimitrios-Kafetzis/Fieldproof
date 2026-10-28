@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sys
 import threading
 import time
@@ -59,6 +60,12 @@ STUB = Path(__file__).resolve().parent / "fake_run.py"
 COMMAND = (sys.executable, str(STUB))
 GIB = 1024**3
 runner = CliRunner()
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def plain(text: str) -> str:
+    """The output without ANSI codes (CI sets FORCE_COLOR) and with its whitespace folded."""
+    return " ".join(ANSI.sub("", text).split())
 
 
 def matrix_text(**fields: Any) -> str:
@@ -746,7 +753,7 @@ def test_matrix_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
         ],
     )
     assert result.exit_code == 0, result.output
-    text = " ".join(result.output.split())
+    text = plain(result.output)
     assert "PASS sweep (" in text
     assert "2 of 2 case(s) passed, 1 flaky; 3 attempt(s)" in text
     assert "c02" in text
@@ -774,7 +781,7 @@ def test_matrix_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
         ],
     )
     assert result.exit_code == 1, result.output
-    assert "FAIL sweep" in " ".join(result.output.split())
+    assert "FAIL sweep" in plain(result.output)
     assert "::error title=Case c02 of sweep FAIL::" in result.output
     result = runner.invoke(
         app,
@@ -789,7 +796,7 @@ def test_matrix_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
         ],
     )
     assert result.exit_code == 1, result.output
-    assert "(fail_on_flaky)" in result.output
+    assert "(fail_on_flaky)" in plain(result.output)
     result = runner.invoke(app, ["matrix", str(matrix_file), "--only", "nothing"])
     assert result.exit_code == 2
     assert "no case matches" in result.output
