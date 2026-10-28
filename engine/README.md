@@ -29,7 +29,10 @@ budgets, the parallel start and concurrent actions in `fieldproof.runner`
 the event injection framework: the timeline DSL (`fieldproof.dsl`), the scheduler
 (`fieldproof.schedule`), the event plugin API, registry and built-in events
 (`fieldproof.events`, `fieldproof events`) and the example plugin under `examples/plugins`
-([events.md](../docs/reference/events.md)). The clock manager arrives with the remaining
-Phase 2 tasks of the [backlog](../docs/plan/03-task-backlog.md). Lint and type-check settings
+([events.md](../docs/reference/events.md)), P2-T06 the run matrix (`fieldproof.matrix`,
+`fieldproof matrix`), the scenario overrides (`fieldproof.overrides`, `fieldproof run --set`),
+the run database (`fieldproof.rundb`, `fieldproof runs list|show|diff|index`) and the HTML
+reports (`fieldproof.html`, [matrix.md](../docs/reference/matrix.md)). The remaining Phase 2
+tasks of the [backlog](../docs/plan/03-task-backlog.md) follow. Lint and type-check settings
 (ruff, mypy strict) come from the repository root `pyproject.toml`; the hooks run through
 `make lint`.

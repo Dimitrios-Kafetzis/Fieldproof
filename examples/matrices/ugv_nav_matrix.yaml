@@ -1,0 +1,26 @@
+# The first Fieldproof run matrix (task P2-T06): the UGV navigation example
+# (../scenarios/ugv_nav_to_goal.yaml) over six seeds and two CPU budgets of the vehicle
+# container, twelve runs in one `fieldproof matrix` with a single JUnit document, a Markdown
+# and an HTML report, every run recorded in the workspace's run database. The seeds vary the
+# simulator's sensor noise, the budgets ask whether the stack still passes with its quota
+# halved against the manifest's two cores. Reference: docs/reference/matrix.md.
+#
+#   fieldproof matrix examples/matrices/ugv_nav_matrix.yaml              # make matrix
+#   fieldproof matrix examples/matrices/ugv_nav_matrix.yaml --dry-run    # the cases and the schedule
+#   fieldproof runs list                                                  # the runs recorded
+#   fieldproof runs diff <run a> <run b>                                  # KPI deltas between two
+apiVersion: fieldproof.dev/v0alpha1
+kind: Matrix
+metadata:
+  name: ugv_nav_matrix
+  description: The UGV navigation example over six seeds and two vehicle CPU budgets
+  tags: [smoke, nav, ugv, matrix]
+scenario: ../scenarios/ugv_nav_to_goal.yaml
+seeds: [1, 2, 3, 4, 5, 6]
+parameters:
+  # Each path is a value of the scenario document (docs/reference/matrix.md#parameters); the
+  # cases are the Cartesian product of the parameters, each run with every seed: 2 x 6 = 12.
+  vehicles[ugv1].resources.cpus: [1, 2]
+retries: 1 # a failed case runs once more; green on the retry means flaky, flagged
+parallel: auto # as many cases at once as the host's cores and memory fit (one on a CI runner)
+fail_on_flaky: false

@@ -584,14 +584,17 @@ The side channels are `std_msgs/msg/String` messages carrying JSON:
 
 ## Reports
 
-At the end of every run, whatever its status, the runner writes `report.json`, `report.md` and
-`junit.xml` into the run directory from the record: the verdict and exit code, the scenario,
-world and vehicles, start, end and durations (wall clock, the timeline, the simulation time it
-covered), every assertion with its reason and evidence (the excerpts of the failed ones under
-the table), the KPIs (the collectors and the flat map), the timeline, the phases and the
-artefacts (the MCAP recording first, with its size). `fieldproof report RUN [--format
-md|json|junit] [--write]` renders the same from a run directory, its `run.json` or a run id
-under the workspace's runs directory; `--write` rewrites the three files.
+At the end of every run, whatever its status, the runner writes `report.json`, `report.md`,
+`report.html` and `junit.xml` into the run directory from the record: the verdict and exit
+code, the scenario, world and vehicles, start, end and durations (wall clock, the timeline,
+the simulation time it covered), every assertion with its reason and evidence (the excerpts
+of the failed ones under the table), the KPIs (the collectors and the flat map), the timeline,
+the phases and the artefacts (the MCAP recording first, with its size). `fieldproof report RUN [--format
+md|html|json|junit] [--write]` renders the same from a run directory, its `run.json` or a run
+id under the workspace's runs directory; `--write` rewrites the four files. The HTML page
+(task P2-T06) is self-contained, with the same sections and the failed assertions' excerpts
+folded under the table ([matrix.md](matrix.md#html-reports)); the run then records itself in
+the run database ([matrix.md](matrix.md#the-run-database)).
 
 The JUnit document (task P1-T07) is the report for CI: one `testsuite` named after the scenario
 with the run's facts as properties (`run_id`, `verdict`, `status`, `exit_code`, `reason`, the
@@ -603,7 +606,9 @@ its `time` the verdict's `t_s`: a `failure` with the reason and the evidence whe
 `<scenario>`, name `run`: a `failure` when the run failed, an `error` when it timed out, errored
 or was interrupted). The suite's `tests`, `failures`, `errors` and `skipped` counts are what a
 test reporter sums; the Scenario tests workflow uploads the document with the run
-([ci.md](../setup/ci.md#scenario-tests)). HTML arrives with the run database of P2-T06.
+([ci.md](../setup/ci.md#scenario-tests)). The run's `overrides` (`--set`), when any, are one
+more property; a run matrix puts one such suite per case into a single document
+([matrix.md](matrix.md#the-matrix-directory)).
 
 ## The run directory
 
@@ -617,7 +622,7 @@ In addition to the files of task P1-T05 ([scenarios.md](scenarios.md#the-run-dir
 | `assertions.jsonl` | the verdicts in the order they resolved |
 | `kpis.jsonl` | the collectors' results and the KPI map, written at the end of the timeline |
 | `recording/` | the MCAP recording and rosbag2's `metadata.yaml`, when `outputs.record` is on |
-| `report.json`, `report.md`, `junit.xml` | the report, as data, as Markdown and as a JUnit document |
+| `report.json`, `report.md`, `report.html`, `junit.xml` | the report, as data, as Markdown, as an HTML page and as a JUnit document |
 | `video/<camera>.mp4` | the video of the run from the world's camera, when `outputs.video` is set ([scenarios.md](scenarios.md#video)) |
 | `logs/recorder.log` | the observer's and `ros2 bag record`'s output |
 
