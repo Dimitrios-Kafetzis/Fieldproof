@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -31,6 +32,7 @@ SCENARIO = REPO / "examples/scenarios/ugv_nav_fails_on_time.yaml"
 FIELDPROOF = [sys.executable, "-m", "fieldproof"]
 MATRIX_TIMEOUT_S = 2400.0
 ENV = {**os.environ, "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID", "0")}
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def fieldproof(*args: str, timeout: float = 120.0) -> subprocess.CompletedProcess[str]:
@@ -72,7 +74,7 @@ def test_matrix_of_two_failing_cases(tmp_path: Path) -> None:  # noqa: PLR0915
         "software",
         timeout=MATRIX_TIMEOUT_S,
     )
-    output = completed.stdout + completed.stderr
+    output = ANSI.sub("", completed.stdout + completed.stderr)  # CI sets FORCE_COLOR
     assert completed.returncode == 1, output
     assert "FAIL fails_on_time_matrix" in output, output
     assert "0 of 2 case(s) passed, 2 failed; 2 attempt(s)" in output, output
