@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -38,6 +39,7 @@ REPO = Path(__file__).resolve().parents[2]
 SCENARIO = REPO / "examples/scenarios/ugv_replay.yaml"
 LOG = REPO / "examples/logs/ugv_dock_drive.mcap"
 RUN_LABEL = "io.fieldproof.run"
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 FIELDPROOF = [sys.executable, "-m", "fieldproof"]
 RUN_TIMEOUT_S = 1200.0
 ENV = {**os.environ, "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID", "0")}
@@ -251,7 +253,7 @@ def test_01_replay_scenario_passes(synthetic_log: Path, tmp_path: Path) -> None:
     assert "played by" in report
     assert "`localised` | `localisation_error` |" in report
     assert "Source: replay of" in (run_dir / "report.html").read_text()
-    assert "PASS ugv_replay" in completed.stdout
+    assert "PASS ugv_replay" in ANSI.sub("", completed.stdout)  # Rich colours it on a runner
 
 
 @pytest.mark.integration
