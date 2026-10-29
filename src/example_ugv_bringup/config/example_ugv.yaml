@@ -1,0 +1,16 @@
+# Parameters of the example UGV's navigator, read by bringup.launch.py unchanged from the field
+# (robot.yaml lists this file under runtime.params). The wildcard matches the node under any
+# fleet namespace (/ugv1/waypoint_navigator).
+/**/waypoint_navigator:
+  ros__parameters:
+    max_linear_mps: 0.5 # the yard speed limit
+    max_angular_radps: 1.0
+    yaw_gain: 1.5 # angular command per radian of heading error
+    slow_angle_rad: 0.5 # turn in place beyond this heading error
+    goal_tolerance_m: 0.2
+    approach_distance_m: 0.5 # slow down within this distance of the goal
+    stop_distance_m: 0.7 # hold when the front sector sees something closer (0.35 m of chassis)
+    clear_distance_m: 0.9 # resume once the front sector is clear beyond this
+    front_sector_rad: 0.5 # half-width of the front sector watched for obstacles
+    control_rate_hz: 20.0
+    odom_timeout_s: 10.0 # a goal without odometry by then is aborted

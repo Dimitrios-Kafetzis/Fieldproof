@@ -1,0 +1,16 @@
+# Fieldproof workspace of the example vehicle repository (docs/reference/scenarios.md#the-workspace).
+# This repository is the workspace: runs land under `runs/`, scenarios and manifests resolve
+# against it. The simulator's worlds, models, Fuel assets and reference vehicles come from the
+# Fieldproof checkout the engine runs from (`uv run --project <checkout>/engine fieldproof`,
+# what the Makefile does); `[stack] root = "../Fieldproof"` or FIELDPROOF_STACK names another.
+[runs]
+directory = "runs"
+
+[docker]
+# The published stack images. A team pins the release of its checkout (`image_tag =
+# "v0.20.0"`); this example follows Fieldproof's `main`, since it is tested against it on
+# every push. FIELDPROOF_IMAGE_TAG overrides the tag (`local` for images built in the checkout
+# with `make images`).
+image_tag = "main"
+render = "auto" # gpu when the host has a /dev/dri render node, software otherwise
+ros_domain_id = "auto" # a domain per run, so runs on one host never share one

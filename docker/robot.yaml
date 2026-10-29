@@ -1,0 +1,245 @@
+# Resolved vehicle manifest of example_ugv, written by fieldproof vehicle
+# dockerfile from robot.yaml (extends resolved; description paths
+# are the source checkout's).
+apiVersion: fieldproof.dev/v0alpha1
+kind: Robot
+metadata:
+  name: example_ugv
+  description: A yard UGV with its own waypoint navigator on wheel odometry (example repository)
+  domain: ground
+  licence: Apache-2.0
+description:
+  xacro: ../../robots/fieldproof_robots/models/ugv_ref/urdf/ugv_ref.urdf.xacro
+  urdf: ../../robots/fieldproof_robots/models/ugv_ref/ugv_ref.urdf
+  sdf: ../../robots/fieldproof_robots/models/ugv_ref/model.sdf
+  model_uri: model://ugv_ref
+  launch: spawn_ugv_ref.launch.py
+  meshes: ../../robots/fieldproof_robots/models/ugv_ref/meshes
+  xacro_args:
+    namespace: ''
+    frame_prefix: ''
+    gps: true
+    lidar_rate: 10
+    imu_rate: 100
+    camera_rate: 15
+    gps_rate: 5
+    camera_width: 640
+    camera_height: 480
+frames:
+  base: base_link
+  footprint: base_footprint
+  odom: odom
+dimensions:
+  length_m: 0.7
+  width_m: 0.44
+  height_m: 0.235
+  ground_clearance_m: 0.07
+  mass_kg: 21.6
+drive:
+  type: differential
+  wheel_radius_m: 0.11
+  wheel_separation_m: 0.48
+  joints:
+  - wheel_left_joint
+  - wheel_right_joint
+  limits:
+    max_linear_velocity_mps: 1.5
+    max_angular_velocity_radps: 3.0
+    max_linear_acceleration_mps2: 2.0
+    max_angular_acceleration_radps2: 4.0
+  command:
+    gz_topic: cmd_vel
+    gz_type: gz.msgs.Twist
+    ros_topic: cmd_vel
+    ros_type: geometry_msgs/msg/Twist
+  odometry:
+    gz_topic: odom
+    gz_type: gz.msgs.Odometry
+    ros_topic: odom
+    ros_type: nav_msgs/msg/Odometry
+    rate_hz: 50
+    frame_id: odom
+    child_frame_id: base_link
+  joint_states:
+    gz_topic: joint_states
+    gz_type: gz.msgs.Model
+    ros_topic: joint_states
+    ros_type: sensor_msgs/msg/JointState
+    gz_rate: physics
+    rate_hz: 50
+  tf:
+    gz_topic: tf
+    gz_type: gz.msgs.Pose_V
+    ros_topic: tf
+    ros_type: tf2_msgs/msg/TFMessage
+    rate_hz: 50
+    qos:
+      depth: 100
+power:
+  battery:
+    ros_topic: battery/state
+    ros_type: sensor_msgs/msg/BatteryState
+    rate_hz: 1
+    full_voltage_v: 29.4
+    empty_voltage_v: 21.0
+    capacity_ah: 20
+sensors:
+- name: lidar
+  type: gpu_lidar
+  frame_id: lidar_link
+  rate_hz: 10
+  gz_topic: scan
+  noise:
+    range_stddev_m: 0.01
+  outputs:
+  - gz_topic: scan
+    gz_type: gz.msgs.LaserScan
+    ros_topic: scan
+    ros_type: sensor_msgs/msg/LaserScan
+    ros_frame_id: lidar_link
+- name: imu
+  type: imu
+  frame_id: imu_link
+  rate_hz: 100
+  gz_topic: imu
+  noise:
+    gyro_stddev_radps: 0.009
+    gyro_bias_stddev_radps: 0.00075
+    accel_stddev_mps2: 0.021
+    accel_bias_stddev_mps2: 0.005
+  outputs:
+  - gz_topic: imu
+    gz_type: gz.msgs.IMU
+    ros_topic: imu/data
+    ros_type: sensor_msgs/msg/Imu
+    ros_frame_id: imu_link
+- name: camera
+  type: rgbd_camera
+  frame_id: camera_link
+  rate_hz: 15
+  gz_topic: camera
+  resolution:
+  - 640
+  - 480
+  horizontal_fov_rad: 1.204
+  noise:
+    pixel_stddev: 0.007
+  outputs:
+  - gz_topic: camera/image
+    gz_type: gz.msgs.Image
+    ros_topic: camera/image
+    ros_type: sensor_msgs/msg/Image
+    ros_frame_id: camera_optical_link
+    qos:
+      reliability: reliable
+      depth: 5
+  - gz_topic: camera/camera_info
+    gz_type: gz.msgs.CameraInfo
+    ros_topic: camera/camera_info
+    ros_type: sensor_msgs/msg/CameraInfo
+    ros_frame_id: camera_optical_link
+    qos:
+      reliability: reliable
+      depth: 5
+  - gz_topic: camera/depth_image
+    gz_type: gz.msgs.Image
+    ros_topic: camera/depth/image
+    ros_type: sensor_msgs/msg/Image
+    ros_frame_id: camera_optical_link
+    qos:
+      reliability: reliable
+      depth: 5
+  - gz_topic: camera/points
+    gz_type: gz.msgs.PointCloudPacked
+    ros_topic: camera/points
+    ros_type: sensor_msgs/msg/PointCloud2
+    ros_frame_id: camera_link
+    qos:
+      reliability: reliable
+      depth: 5
+- name: gps
+  type: navsat
+  frame_id: gps_link
+  rate_hz: 5
+  gz_topic: gps/fix
+  optional: true
+  noise:
+    horizontal_stddev_m: 1.0
+    vertical_stddev_m: 2.0
+    velocity_stddev_mps: 0.1
+  outputs:
+  - gz_topic: gps/fix
+    gz_type: gz.msgs.NavSat
+    ros_topic: gps/fix
+    ros_type: sensor_msgs/msg/NavSatFix
+    ros_frame_id: gps_link
+    gz_header_frame_id: false
+runtime:
+  tier: T1
+  image: fieldproof-vehicle-example-ugv:local
+  build:
+    sources:
+    - src
+  entrypoint:
+    launch:
+      package: example_ugv_bringup
+      file: bringup.launch.py
+      args:
+        use_sim_time: true
+        drivers: false
+      namespace_arg: namespace
+  params:
+  - src/example_ugv_bringup/config/example_ugv.yaml
+  drivers:
+  - name: base
+    package: controller_manager
+    executable: ros2_control_node
+    provides:
+    - cmd_vel
+    - odom
+    - joint_states
+    - tf
+    note: ros2_control with diff_drive_controller and joint_state_broadcaster
+  - name: description
+    package: robot_state_publisher
+    executable: robot_state_publisher
+    provides:
+    - tf_static
+    - robot_description
+    note: the bridge publishes the same description from the model's xacro
+  - name: lidar
+    package: rplidar_ros
+    executable: rplidar_composition
+    provides:
+    - scan
+  - name: imu
+    package: microstrain_inertial_driver
+    executable: microstrain_inertial_driver_node
+    provides:
+    - imu/data
+  - name: camera
+    package: realsense2_camera
+    executable: rs_launch.py
+    provides:
+    - camera/image
+    - camera/camera_info
+    - camera/depth/image
+    - camera/points
+  - name: gnss
+    package: nmea_navsat_driver
+    executable: nmea_serial_driver
+    provides:
+    - gps/fix
+  ready:
+    timeout_s: 120
+    conditions:
+    - node: waypoint_navigator
+    - action: navigate_to_pose
+      type: nav2_msgs/action/NavigateToPose
+    - tf: map
+      child: base_link
+    - topic: mission/state
+      type: std_msgs/msg/String
+  resources:
+    cpus: 1.0
+    memory: 1g
