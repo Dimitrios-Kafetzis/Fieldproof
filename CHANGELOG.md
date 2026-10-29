@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.19.0...v0.20.0) (2026-10-29)
+
+
+### Features
+
+* **engine:** vehicle onboarding SDK, example vehicle repository and the M2 demo ([#101](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/101)) ([7ab52fa](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/7ab52fa42127e3f9179c0082ae430be64c4c96f4))
+
 ## [0.19.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.18.0...v0.19.0) (2026-10-28)
 
 
