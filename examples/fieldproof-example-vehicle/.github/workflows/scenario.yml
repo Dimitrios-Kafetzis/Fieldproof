@@ -1,0 +1,86 @@
+# The example vehicle's own CI: the scenario against the published Fieldproof images on a
+# GitHub-hosted runner, the way the onboarding guide says a team's repository proves itself
+# (docs/reference/onboarding.md#your-own-ci). The Fieldproof checkout sits next to this
+# repository (FIELDPROOF_ROOT=../Fieldproof, the Makefile's default), at the ref below; the
+# stack images follow fieldproof.toml (FIELDPROOF_IMAGE_TAG overrides them).
+name: Scenario
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fieldproof-ref:
+        description: Fieldproof ref to run against (a release tag, main or a commit)
+        type: string
+        required: false
+        default: main
+      scenario:
+        description: Scenario file to run
+        type: string
+        required: false
+        default: scenarios/dock_to_yard.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scenario-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.13.1"
+  FORCE_COLOR: "1"
+  # Pin the release fieldproof.toml names (`v0.20.0`); `main` follows Fieldproof's development.
+  FIELDPROOF_REF: ${{ inputs.fieldproof-ref || 'main' }}
+  SCENARIO: ${{ inputs.scenario || 'scenarios/dock_to_yard.yaml' }}
+
+jobs:
+  scenario:
+    name: Scenario (published Fieldproof images, software rendering)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: fieldproof-example-vehicle
+      - name: Check out Fieldproof next to this repository (${{ env.FIELDPROOF_REF }})
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Dimitrios-Kafetzis/Fieldproof
+          ref: ${{ env.FIELDPROOF_REF }}
+          path: Fieldproof
+      - name: Free disk space for the images
+        run: Fieldproof/tools/ci/free-disk.sh
+      - name: Cache the Fuel archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Fieldproof/assets/fuel/archives
+          key: fuel-${{ hashFiles('Fieldproof/assets/fuel.lock') }}
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: Fieldproof/engine/uv.lock
+      - name: Pull the published stack images at the tag of fieldproof.toml
+        working-directory: fieldproof-example-vehicle
+        run: |
+          tag="${FIELDPROOF_IMAGE_TAG:-$(sed -n 's/^image_tag = "\(.*\)"/\1/p' fieldproof.toml)}"
+          for image in base-ros2 sim bridge; do
+            docker pull --quiet "ghcr.io/dimitrios-kafetzis/fieldproof-${image}:${tag}"
+          done
+      - name: Fetch the Fuel models, validate, build the vehicle image
+        working-directory: fieldproof-example-vehicle
+        run: make assets validate image
+      - name: Run the scenario (software rendering)
+        working-directory: fieldproof-example-vehicle
+        run: make run SCENARIO="$SCENARIO" RUN_FLAGS="--render software"
+      - name: Upload the run (reports, logs, the MCAP recording)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scenario-run-${{ github.run_number }}-${{ github.run_attempt }}
+          path: fieldproof-example-vehicle/runs
+          if-no-files-found: warn
+          retention-days: 14

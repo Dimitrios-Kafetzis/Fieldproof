@@ -1,0 +1,88 @@
+# Vehicle manifest of the example vehicle `example_ugv` (task P2-T08): the repository of a
+# fictional field team, onboarded on Fieldproof by following docs/reference/onboarding.md and
+# nothing else. The model (frames, drive, sensors, topics, rates, QoS) is the stack's reference
+# UGV, inherited through `extends: fieldproof:ugv_ref`, which the engine and the bridge resolve
+# from the Fieldproof checkout the engine runs from, wherever this repository is cloned. This
+# file adds the `runtime` section: the image built from `src/`, the field launch, the
+# driver-swap map, readiness and the budget. Schema: docs/reference/manifest.md.
+#
+#   fieldproof manifest validate robot.yaml     # make validate
+#   fieldproof vehicle build robot.yaml         # make image
+#   fieldproof run scenarios/dock_to_yard.yaml  # make run
+apiVersion: fieldproof.dev/v0alpha1
+kind: Robot
+extends: fieldproof:ugv_ref
+metadata:
+  name: example_ugv
+  description: A yard UGV with its own waypoint navigator on wheel odometry (example repository)
+runtime:
+  tier: T1 # SIL: the stack rebuilt for x86 (ADR-0007)
+  image: fieldproof-vehicle-example-ugv:local
+  build:
+    # The vehicle codebase: the bringup package next to this file. A team whose code lives in
+    # other repositories lists them under `repos` at pinned commits instead, or next to it.
+    sources: [src]
+    # Everything else (nav2_msgs for the action interface, tf2) comes from rosdep against the
+    # pinned ros/rosdistro commit, installed from the base image's apt snapshots. The base
+    # image follows fieldproof.toml's image tag.
+  entrypoint:
+    # The field bringup launch, unchanged; the simulation only sets the clock and leaves the
+    # hardware drivers out (the bridge provides their topics). Every other argument keeps its
+    # field default. In a fleet the orchestrator appends `namespace:=<vehicle namespace>`.
+    launch:
+      package: example_ugv_bringup
+      file: bringup.launch.py
+      args:
+        use_sim_time: true
+        drivers: false
+      namespace_arg: namespace
+  params:
+    # Read by the launch exactly as in the field (installed with the package).
+    - src/example_ugv_bringup/config/example_ugv.yaml
+  drivers:
+    # The driver-swap map: what `drivers.launch.py` starts on the real vehicle and the topics
+    # of the model's interface the bridge provides instead (docs/reference/bridge.md).
+    - name: base
+      package: controller_manager
+      executable: ros2_control_node
+      provides: [cmd_vel, odom, joint_states, tf]
+      note: ros2_control with diff_drive_controller and joint_state_broadcaster
+    - name: description
+      package: robot_state_publisher
+      executable: robot_state_publisher
+      provides: [tf_static, robot_description]
+      note: the bridge publishes the same description from the model's xacro
+    - name: lidar
+      package: rplidar_ros
+      executable: rplidar_composition
+      provides: [scan]
+    - name: imu
+      package: microstrain_inertial_driver
+      executable: microstrain_inertial_driver_node
+      provides: [imu/data]
+    - name: camera
+      package: realsense2_camera
+      executable: rs_launch.py
+      provides: [camera/image, camera/camera_info, camera/depth/image, camera/points]
+    - name: gnss
+      package: nmea_navsat_driver
+      executable: nmea_serial_driver
+      provides: [gps/fix]
+  ready:
+    # The navigator up and offering its action, its `map -> odom` transform on top of the
+    # bridge's `odom -> base_link` (so a goal in `map` can be followed), its state published.
+    # Names are relative, so they resolve under the vehicle's namespace in a fleet.
+    timeout_s: 120
+    conditions:
+      - node: waypoint_navigator
+      - action: navigate_to_pose
+        type: nav2_msgs/action/NavigateToPose
+      - tf: map
+        child: base_link
+      - topic: mission/state
+        type: std_msgs/msg/String
+  resources:
+    # cgroup limits of the container (`--cpus`, `--memory`); the scenarios check the stack
+    # fits them. A scenario may override any of them per vehicle.
+    cpus: 1.0
+    memory: 1g

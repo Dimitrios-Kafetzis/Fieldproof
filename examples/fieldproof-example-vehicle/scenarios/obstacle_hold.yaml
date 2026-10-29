@@ -1,0 +1,106 @@
+# The example vehicle's second scenario (task P2-T08): the same drive, with a crate dropped on
+# the straight line once the vehicle is moving. The navigator does not replan: it holds
+# position while its lidar sees the crate in the front sector and resumes when the crate is
+# moved out of the lane eight seconds later, so the scenario proves the documented behaviour
+# (hold, keep clear, resume, arrive) with a `sequence` over the events and the commands and a
+# `min_distance` to the crate.
+#
+#   fieldproof run scenarios/obstacle_hold.yaml     # make run SCENARIO=scenarios/obstacle_hold.yaml
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: obstacle_hold
+  description: The example UGV holds position behind a crate dropped in its path and resumes
+  tags: [nav, events, example]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../robot.yaml
+    spawn:
+      frame: spawn_dock
+time:
+  mode: sim
+  timeout_s: 10m
+timeline:
+  - at: 0s
+    name: drive_ahead
+    vehicle: ugv1
+    action: navigate_to_pose
+    goal: { x: 10.0, y: -1.0, yaw: -1.5708 } # 4 m ahead, through the door, into the yard
+    timeout_s: 6m
+  - name: spawn_crate
+    when: # the first ground-truth sample half a metre from the spawn: the vehicle is moving
+      vehicle: ugv1
+      metric: distance_to
+      target: { frame: spawn_dock }
+      condition: value > 0.5
+    within_s: 3m # skipped (and the sequence fails) if the vehicle never moves
+    action: spawn_object
+    model: crate
+    shape: box
+    size: [0.6, 0.6, 0.5]
+    pose: { x: 10.0, y: 0.8 } # on the straight line, 2.2 m ahead of the spawn, before the door
+    static: true
+  - name: clear_crate
+    after: spawn_crate
+    at: 8s
+    action: teleport # moved 3 m aside, out of the lane and the front sector (a removed model
+    model: crate # would stop reporting its pose and `keeps_distance` would keep its last one)
+    pose: { x: 13.0, y: 0.8 }
+assertions:
+  - name: reached_goal
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: 10.0, y: -1.0 }
+    tolerance_m: 0.5
+  - name: arrived_in_time
+    type: within_time
+    action: drive_ahead
+    max_s: 4m
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+  # The navigator stops before the crate: the distance between the two models' origins never
+  # drops below 0.8 m (the lidar holds 0.7 m from the crate's face, which is 0.3 m from its
+  # origin; the chassis front is 0.35 m ahead of base_link, so 0.8 m leaves it 0.15 m clear).
+  - name: keeps_distance
+    type: min_distance
+    vehicle: ugv1
+    to: { model: crate }
+    min_m: 0.8
+  # The story in order: the goal is sent, the vehicle drives, the crate appears, the vehicle
+  # holds (zero velocity commanded), the crate is moved aside, the vehicle drives on, the goal
+  # is reached.
+  - name: hold_and_resume
+    type: sequence
+    vehicle: ugv1
+    steps:
+      - { action: drive_ahead, event: started }
+      - { topic: cmd_vel, field: linear.x, condition: value > 0.1 }
+      - { action: spawn_crate, event: started }
+      - { topic: cmd_vel, field: linear.x, condition: value < 0.01 }
+      - { action: clear_crate, event: started }
+      - { topic: cmd_vel, field: linear.x, condition: value > 0.1 }
+      - { assertion: reached_goal }
+  - name: stack_fits
+    type: resource_usage
+    vehicle: ugv1
+    max_memory_mb: 900
+    max_cpu_pct: 150
+    window_s: 10s
+kpis:
+  - { name: drive, type: path, vehicle: ugv1, action: drive_ahead, target: { x: 10.0, y: -1.0 } }
+  - { name: mission, type: mission_time }
+outputs:
+  logs: true
+  record: true
+  topics:
+    - /clock
+    - /tf
+    - /tf_static
+    - /odom
+    - /cmd_vel
+    - /scan
+    - /mission/state
+    - /rosout

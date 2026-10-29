@@ -60,8 +60,12 @@ repos:
       - id: mypy
         # Strict settings live in pyproject.toml. The engine's dependencies are listed here at the
         # versions of engine/uv.lock so the hook type-checks against what runs
-        # (tests/layout/test_layout.sh checks they agree).
+        # (tests/layout/test_layout.sh checks they agree). The example vehicle repository
+        # (task P2-T08) repeats module names of the bridge and the example vehicle (`setup`,
+        # `bringup.launch`, `drivers.launch`), and mypy checks one module per name; its
+        # navigator is checked, its package metadata and launch files are not.
         args: []
+        exclude: ^examples/fieldproof-example-vehicle/src/example_ugv_bringup/(setup\.py|launch/.*)$
         additional_dependencies:
           - docker==7.2.0
           - mcap==1.6.0

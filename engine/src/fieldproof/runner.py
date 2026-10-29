@@ -1718,6 +1718,8 @@ class Run:
             seed=plan.seed,
             overrides=dict(plan.scenario.overrides),
             stack={
+                "workspace": str(plan.config.root),
+                "stack_root": str(plan.config.stack_root),
                 "network": plan.network,
                 "render": plan.render,
                 "ros_domain_id": plan.domain_id,

@@ -37,6 +37,7 @@ IMAGES_PATTERNS=(
   '^tools/assets/'
   '^tests/worlds/'
   '^examples/vehicles/'
+  '^examples/fieldproof-example-vehicle/'
   '^engine/src/fieldproof/(manifest|vehicle|vehicle_cli|vehicle_ready)\.py$'
   '^engine/src/fieldproof/(scenario|scenario_cli|runner|backend|docker_backend|config)\.py$'
   '^examples/scenarios/'

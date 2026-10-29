@@ -15,10 +15,12 @@ scenario engine, and observed through a browser-based 3D cockpit. Every scenario
 test with pass/fail assertions, so field testing becomes verification of what already passed.
 
 > Status: milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2
-> (the scenario engine) is under way with fleets of vehicles (P2-T01), radio links between
-> the vehicles and a ground station (P2-T02) and the event injection framework (P2-T03: the
-> timeline DSL, the event plugins, the engine-side events, the world events on a Gazebo plugin
-> and the sensor and vehicle faults on the bridge's injectors). See
+> (the scenario engine) is complete up to its demo: fleets of vehicles (P2-T01), radio links
+> between the vehicles and a ground station (P2-T02), the event injection framework (P2-T03),
+> the two clock modes and determinism (P2-T04), the assertion library (P2-T05), run matrices
+> and the run database (P2-T06), field log replay (P2-T07) and the vehicle onboarding SDK
+> (P2-T08: `fieldproof vehicle init`, an external repository as a workspace, the worked
+> example `fieldproof-example-vehicle`, `examples/demo_m2.sh`). See
 > [docs/plan/STATUS.md](docs/plan/STATUS.md).
 
 ## See it run
@@ -62,7 +64,12 @@ workflow ([docs/setup/ci.md](docs/setup/ci.md#scenario-tests)).
 ([docs/setup/containers.md](docs/setup/containers.md)), `FIELDPROOF_RENDER=software` forces
 software rendering on a host without a GPU render node, and `--help` lists the rest. Then read
 [docs/reference/scenarios.md](docs/reference/scenarios.md) to write a scenario of your own and
-[docs/reference/manifest.md](docs/reference/manifest.md) to bring your own vehicle. On a
+[docs/reference/onboarding.md](docs/reference/onboarding.md) to bring your own vehicle: a
+repository of your own next to the checkout, scaffolded by `fieldproof vehicle init`, with its
+manifest ([docs/reference/manifest.md](docs/reference/manifest.md)), its scenarios and its own
+CI, the way [fieldproof-example-vehicle](examples/fieldproof-example-vehicle/) does.
+`make demo-m2` runs the whole of milestone M2 in turn (the fleet, a dropped radio link, events
+and faults, the two clocks, a run matrix, a replayed field log, the onboarded repository). On a
 workstation, `make run SCENARIO=examples/scenarios/ugv_fleet.yaml` runs three of the example
 UGVs at once, each in its own container, namespace and budget
 ([docs/reference/scenarios.md#fleets](docs/reference/scenarios.md#fleets)), and

@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>example_ugv_bringup</name>
+  <version>0.1.0</version>
+  <description>Bringup of the example UGV: the field launch, the waypoint navigator and its parameters</description>
+  <maintainer email="dimitrioskafetzis@gmail.com">Dimitris Kafetzis</maintainer>
+  <license>Apache-2.0</license>
+  <url type="repository">https://github.com/Dimitrios-Kafetzis/fieldproof-example-vehicle</url>
+
+  <!-- The stack, as on the vehicle: the navigator (rclpy) and the action interface it offers
+       (nav2_msgs, the messages only: no Nav2 server runs here). -->
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+
+  <!-- Hardware drivers: only when the package is built for the vehicle (EXAMPLE_UGV_TARGET=field).
+       In Fieldproof the bridge provides their topics (robot.yaml, runtime.drivers), so a
+       simulation build neither installs nor starts them. -->
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">controller_manager</exec_depend>
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">diff_drive_controller</exec_depend>
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">joint_state_broadcaster</exec_depend>
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">microstrain_inertial_driver</exec_depend>
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">nmea_navsat_driver</exec_depend>
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">realsense2_camera</exec_depend>
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">robot_state_publisher</exec_depend>
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">rplidar_ros</exec_depend>
+  <exec_depend condition="$EXAMPLE_UGV_TARGET == field">xacro</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

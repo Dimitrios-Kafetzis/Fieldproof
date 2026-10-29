@@ -392,6 +392,10 @@ def write_context(
     for name, text in files.items():
         path = directory / name
         path.write_text(text)
+        # The scripts are executable in the image (COPY --chmod) and in a committed context
+        # (a repository's hooks expect a shebang to go with the bit).
+        if name in ("entrypoint.sh", READY_SOURCE):
+            path.chmod(0o755)
         written.append(path)
     return Context(directory, written)
 
