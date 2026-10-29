@@ -21,6 +21,10 @@ user_agent = "fieldproof-docs-link-check (lychee)"
 exclude = [
   "^https://dimitrios-kafetzis\\.github\\.io/Fieldproof/",
   "^https://github\\.com/Dimitrios-Kafetzis/Fieldproof/(edit|blob|raw)/main/",
+  # The example vehicle repository of task P2-T08 (its copy is examples/fieldproof-example-vehicle):
+  # the maintainer publishes it after the task merges (docs/plan/STATUS.md, open question 9);
+  # drop this line once it exists.
+  "^https://github\\.com/Dimitrios-Kafetzis/fieldproof-example-vehicle",
   "^https?://(127\\.0\\.0\\.1|localhost)",
   "^mailto:",
 ]
