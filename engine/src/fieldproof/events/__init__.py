@@ -14,7 +14,8 @@ its :class:`ActionRecord`.
 Events are found through Python entry points of the group ``fieldproof.events``: the engine
 registers its built-ins (:mod:`fieldproof.events.navigation`, :mod:`fieldproof.events.link`,
 :mod:`fieldproof.events.container`, :mod:`fieldproof.events.param`,
-:mod:`fieldproof.events.world`, :mod:`fieldproof.events.faults`) and any distribution
+:mod:`fieldproof.events.world`, :mod:`fieldproof.events.faults`, :mod:`fieldproof.events.sim`,
+:mod:`fieldproof.events.wait`) and any distribution
 installed next to the engine adds its own (``examples/plugins`` shows one). The built-ins are
 also loaded directly, so an engine checkout works without its metadata. :func:`registry` is
 what the scenario schema builds its timeline union from and what the runner dispatches with;
@@ -60,6 +61,7 @@ BUILTIN_MODULES = (
     "fieldproof.events.world",
     "fieldproof.events.faults",
     "fieldproof.events.sim",
+    "fieldproof.events.wait",
 )
 BUILTIN = "built-in"
 SIM = "sim"

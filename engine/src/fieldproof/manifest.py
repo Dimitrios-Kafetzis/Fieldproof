@@ -8,7 +8,8 @@ the entrypoint launch (and which of its arguments take the vehicle's namespace a
 in a fleet), the parameter files, the driver-swap map, the readiness conditions, the DDS profile
 and the resource budget (ADR-0004; ADR-0007 for the fidelity tier).
 
-A manifest may ``extends`` another one: the vehicle manifest of a stack inherits the model
+A manifest may ``extends`` another one (a relative path, or ``fieldproof:<model>`` for a
+reference model of the stack, task P2-T08): the vehicle manifest of a stack inherits the model
 sections of the reference vehicle it runs on and adds ``runtime``. :func:`load_manifest` resolves
 the chain (through the bridge's reader, so both read the same merged document) and validates the
 result with :class:`RobotManifest`. :func:`json_schema` exports the schema for editors and the
@@ -43,8 +44,11 @@ SCHEMA_ID = "https://dimitrios-kafetzis.github.io/Fieldproof/schemas/robot.schem
 BRIDGE_TOPICS = frozenset(
     {"tf_static", "/tf_static", "robot_description", "/robot_description", "/clock"}
 )
-# The base image vehicle images build on by default (docs/setup/containers.md).
+# The base image vehicle images build on when neither the manifest (`runtime.build.base`) nor
+# the workspace (its image prefix and tag, which `fieldproof vehicle build` applies) names one
+# (docs/setup/containers.md).
 DEFAULT_BASE_IMAGE = "ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2:local"
+BASE_IMAGE_NAME = "base-ros2"
 DEFAULT_ROS_DISTRO = "jazzy"
 # ros/rosdistro commit the generated Dockerfile resolves rosdep keys against (2026-10-03, the last
 # commit before the ROS apt snapshot of docker/base-ros2/Dockerfile).
@@ -272,7 +276,11 @@ class Repo(Strict):
 class Build(Strict):
     """How the image is built from the vehicle's sources (`fieldproof vehicle build`)."""
 
-    base: str = Field(DEFAULT_BASE_IMAGE, description="Base image of both stages.")
+    base: str | None = Field(
+        None,
+        description="Base image of both stages (default: the workspace's `base-ros2` image at "
+        "its image prefix and tag, `FIELDPROOF_IMAGE_TAG` included).",
+    )
     ros_distro: str = Field(DEFAULT_ROS_DISTRO, description="ROS 2 distribution of the base.")
     rosdistro_commit: Sha = Field(
         DEFAULT_ROSDISTRO_COMMIT, description="ros/rosdistro commit rosdep resolves keys against."
@@ -578,7 +586,8 @@ class RobotManifest(Strict):
     kind: Literal["Robot"]
     extends: str | None = Field(
         None,
-        description="Manifest this one inherits from (relative path); resolved before validation.",
+        description="Manifest this one inherits from: a relative path, or `fieldproof:<model>` "
+        "for a reference model of the stack (`fieldproof:ugv_ref`); resolved before validation.",
     )
     metadata: Metadata
     description: Description | None = None
@@ -590,11 +599,17 @@ class RobotManifest(Strict):
     runtime: Runtime | None = None
 
     _path: Path | None = PrivateAttr(default=None)
+    _robots: Path | None = PrivateAttr(default=None)
 
     @property
     def path(self) -> Path | None:
         """Where the manifest was loaded from."""
         return self._path
+
+    @property
+    def robots(self) -> Path | None:
+        """The reference models' directory the manifest's `extends` resolved against, if any."""
+        return self._robots
 
     @property
     def directory(self) -> Path:
@@ -684,15 +699,20 @@ def validate_data(data: dict[str, Any], path: Path | None = None) -> RobotManife
     return manifest
 
 
-def load_manifest(path: Path | str, *, complete: bool = True) -> RobotManifest:
+def load_manifest(
+    path: Path | str, *, complete: bool = True, robots: Path | str | None = None
+) -> RobotManifest:
     """Read, resolve `extends` and validate the manifest at `path`.
 
     With `complete` (the default) the model sections must be present: a manifest meant only to
-    be extended may skip them when validated with `complete=False`.
+    be extended may skip them when validated with `complete=False`. `robots` is the reference
+    models' directory an `extends: fieldproof:<model>` resolves against (the workspace's
+    stack; `FIELDPROOF_ROBOTS` without it).
     """
     file = Path(path).resolve()
-    data = read_manifest_data(file)
+    data = read_manifest_data(file, robots=robots)
     manifest = validate_data(data, file)
+    manifest._robots = Path(robots).resolve() if robots is not None else None
     if complete:
         try:
             manifest.complete()

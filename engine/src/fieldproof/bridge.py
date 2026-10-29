@@ -15,6 +15,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from fieldproof.config import ConfigError, load_config
 from fieldproof_bridge.generator import GeneratorError, default_out_dir, generate
 from fieldproof_bridge.manifest import ManifestError
 
@@ -53,9 +54,14 @@ def gen(  # noqa: PLR0917  (Typer reads the options from the signature)
         ),
     ] = None,
 ) -> None:
-    """Generate the bridge bundle of MANIFEST into a directory."""
+    """Generate the bridge bundle of MANIFEST into a directory.
+
+    An `extends: fieldproof:<model>` of the manifest resolves against the reference models of
+    the workspace's stack (the nearest fieldproof.toml above the manifest).
+    """
     try:
-        out_dir = out if out is not None else default_out_dir(manifest)
+        robots = load_config(start=manifest.parent).stack_path("robots")
+        out_dir = out if out is not None else default_out_dir(manifest, robots)
         written = generate(
             manifest,
             out_dir,
@@ -64,8 +70,9 @@ def gen(  # noqa: PLR0917  (Typer reads the options from the signature)
             clock=clock,
             robot_state_publisher=robot_state_publisher,
             without=tuple(without or ()),
+            robots=robots,
         )
-    except (ManifestError, GeneratorError) as error:
+    except (ManifestError, GeneratorError, ConfigError) as error:
         errors.print(f"[red]error:[/red] {error}", highlight=False)
         raise typer.Exit(code=2) from error
     for path in written:

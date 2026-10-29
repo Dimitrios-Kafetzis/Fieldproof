@@ -116,3 +116,39 @@ def test_config_errors(tmp_path: Path, text: str, message: str) -> None:
 def test_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="No such file"):
         read_config(tmp_path / "none.toml")
+
+
+# ------------------------------------------------------------ the stack root (task P2-T08)
+def test_stack_root_is_the_checkout_for_the_repository() -> None:
+    config = read_config(REPO / "fieldproof.toml")
+    assert config.stack_root == REPO
+    assert not config.external
+    assert config.stack_path("robots") == REPO / "robots/fieldproof_robots/models"
+    assert config.stack_path("fuel_lock") == REPO / "assets/fuel.lock"
+
+
+def test_stack_root_of_an_external_workspace(tmp_path: Path) -> None:
+    """A workspace without the stack runs on the checkout the engine runs from."""
+    (tmp_path / "fieldproof.toml").write_text('[runs]\ndirectory = "out"\n')
+    config = load_config(start=tmp_path, env=NO_ENV)
+    assert config.root == tmp_path.resolve()
+    assert config.stack_root == REPO
+    assert config.external
+    assert config.stack_path("worlds") == REPO / "sim/fieldproof_worlds/worlds"
+    # `[stack] root` names a checkout explicitly; FIELDPROOF_STACK overrides it.
+    other = tmp_path / "checkouts" / "Fieldproof"
+    other.mkdir(parents=True)
+    (tmp_path / "fieldproof.toml").write_text('[stack]\nroot = "checkouts/Fieldproof"\n')
+    config = load_config(start=tmp_path, env=NO_ENV)
+    assert config.stack_root == other.resolve()
+    assert config.stack_path("models") == other / "sim/fieldproof_worlds/models"
+    config = load_config(start=tmp_path, env={"FIELDPROOF_STACK": str(REPO)})
+    assert config.stack_root == REPO
+    assert load_config(start=tmp_path, env={"FIELDPROOF_STACK": "  "}).stack_root == other
+    # A workspace that holds the stack is its own root.
+    nested = tmp_path / "ws"
+    (nested / "sim/fieldproof_worlds/worlds").mkdir(parents=True)
+    (nested / "fieldproof.toml").write_text("")
+    config = load_config(start=nested, env=NO_ENV)
+    assert config.stack_root == nested.resolve()
+    assert not config.external

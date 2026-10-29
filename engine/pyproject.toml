@@ -78,6 +78,7 @@ set_wind = "fieldproof.events.world:SetWindEvent"
 "sim.pause" = "fieldproof.events.sim:SimPauseEvent"
 "sim.resume" = "fieldproof.events.sim:SimResumeEvent"
 "sim.step" = "fieldproof.events.sim:SimStepEvent"
+wait = "fieldproof.events.wait:WaitEvent"
 
 # The built-in assertion types (task P2-T05, docs/reference/assertions.md), registered the same
 # way: one entry point per type. A plugin adds its own under this group

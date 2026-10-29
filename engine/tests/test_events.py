@@ -36,6 +36,7 @@ from fieldproof.events.container import ContainerKill, ContainerPause, Container
 from fieldproof.events.link import LinkDrop, LinkRestore, LinkSet
 from fieldproof.events.navigation import NavigateToPose, goal_message, goal_status
 from fieldproof.events.param import ParamSet, value_text
+from fieldproof.events.wait import Wait
 from fieldproof.manifest import Name
 from fieldproof.world import Pose, WorldInfo
 from fieldproof_bridge.generator import Bundle
@@ -54,6 +55,7 @@ BUILTINS = {
     "container.resume",
     "container.kill",
     "param.set",
+    "wait",
 }
 
 
@@ -436,6 +438,29 @@ def test_link_events() -> None:
         rec,
     )
     assert (rec.status, rec.detail) == ("ok", "dropped")
+
+
+def test_wait_event() -> None:
+    """`wait` holds the worker for its duration, within the budget, until the run ends."""
+    known = registry()
+    context = Context(backend_with("ugv1"))
+    rec = record("settle")
+    known["wait"].event.apply(Wait(action="wait", duration_s=20), {"limit_s": 60.0}, context, rec)
+    assert (rec.status, rec.detail) == ("ok", "held for 20 s")
+    assert context.held == [20.0]
+    rec = record("long")
+    known["wait"].event.apply(Wait(action="wait", duration_s=20), {"limit_s": 5.0}, context, rec)
+    assert (rec.status, rec.detail) == ("timeout", "the budget ended the hold after 5 s")
+    context.stop_after_hold = True
+    rec = record("torn")
+    known["wait"].event.apply(Wait(action="wait", duration_s=20), {"limit_s": 60.0}, context, rec)
+    assert rec.status == "pending", "left as it was: the run settles what it tore down"
+    # The plan accepts an entry with or without a vehicle, if the vehicle exists.
+    event = known["wait"].event
+    assert event.plan(Wait(action="wait", duration_s=1), plan_context()) == {}
+    assert event.plan(Wait(action="wait", vehicle="ugv1", duration_s=1), plan_context()) == {}
+    with pytest.raises(ScenarioError):
+        event.plan(Wait(action="wait", vehicle="ugv9", duration_s=1), plan_context())
 
 
 def test_container_events() -> None:

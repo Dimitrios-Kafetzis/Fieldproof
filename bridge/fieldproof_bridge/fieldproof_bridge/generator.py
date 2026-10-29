@@ -651,9 +651,14 @@ def generate(
     clock: bool = True,
     robot_state_publisher: bool = True,
     without: tuple[str, ...] = (),
+    robots: Path | str | None = None,
 ) -> list[Path]:
-    """Load the manifest, plan the bundle and write it; return the files written."""
-    manifest = Manifest.load(manifest_path)
+    """Load the manifest, plan the bundle and write it; return the files written.
+
+    ``robots`` is the reference models' directory an ``extends: fieldproof:<model>`` of the
+    manifest resolves against (``FIELDPROOF_ROBOTS`` without it).
+    """
+    manifest = Manifest.load(manifest_path, robots=robots)
     bundle = plan(
         manifest,
         namespace=namespace,
@@ -665,9 +670,9 @@ def generate(
     return write_bundle(bundle, Path(out_dir).resolve())
 
 
-def default_out_dir(manifest_path: Path | str) -> Path:
+def default_out_dir(manifest_path: Path | str, robots: Path | str | None = None) -> Path:
     """``./<robot>_bridge`` next to the current directory, named after the manifest's robot."""
-    return Path.cwd() / f"{Manifest.load(manifest_path).name}_bridge"
+    return Path.cwd() / f"{Manifest.load(manifest_path, robots=robots).name}_bridge"
 
 
 def build_parser() -> argparse.ArgumentParser:

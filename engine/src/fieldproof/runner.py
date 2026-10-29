@@ -190,6 +190,11 @@ SIM_MOUNTS = {
     "fuel": "/fieldproof/fuel",
     "robots": "/fieldproof/robots",
 }
+# The reference models, mounted into a vehicle's spawn and bridge containers at the simulator's
+# path too, so a manifest's `extends: fieldproof:<model>` resolves inside them (task P2-T08:
+# a vehicle repository outside the Fieldproof checkout); the reader finds the directory by it.
+ROBOTS_IN_CONTAINER = SIM_MOUNTS["robots"]
+ROBOTS_ENV = "FIELDPROOF_ROBOTS"
 GZ_PARTITION = "fieldproof"
 BRIDGE_ENTRYPOINT = "/usr/local/bin/fieldproof-bridge-entrypoint"
 BRIDGE_COMMAND = "fieldproof-bridge"
@@ -626,6 +631,7 @@ class Plan:
                 "digest": self.scenario.digest,
             },
             "workspace": str(self.config.root),
+            "stack_root": str(self.config.stack_root),
             "network": self.network,
             "render": self.render,
             "ros_domain_id": self.domain_id,
@@ -710,7 +716,7 @@ def plan(  # noqa: PLR0912, PLR0915
     `database` names the run database instead of the runs directory's (a matrix keeps its
     cases' runs in the workspace's database).
     """
-    worlds_dir = config.resolve(config.stack.worlds)
+    worlds_dir = config.stack_path("worlds")
     replaying = scenario.source is not None
     if scenario.world is not None:
         world_file = worlds_dir / scenario.world.file
@@ -793,8 +799,7 @@ def plan(  # noqa: PLR0912, PLR0915
             network=net,
             hostname=f"fieldproof-{short}-sim",
             mounts=tuple(
-                Mount(config.resolve(getattr(config.stack, key)), target)
-                for key, target in SIM_MOUNTS.items()
+                Mount(config.stack_path(key), target) for key, target in SIM_MOUNTS.items()
             ),
             devices=("/dev/dri",) if render_mode == "gpu" else (),
             group_add=groups,
@@ -1264,8 +1269,9 @@ def _plan_vehicle(  # noqa: PLR0917
 ) -> PlannedVehicle:
     where = f"vehicles[{vehicle.name}]"
     manifest_path = (scenario.directory / vehicle.manifest).resolve()
+    robots_dir = config.stack_path("robots")
     try:
-        manifest = load_vehicle(manifest_path)
+        manifest = load_vehicle(manifest_path, robots=robots_dir)
     except ManifestError as error:
         raise ScenarioError(f"{where}.manifest: {error}") from error
     try:
@@ -1311,6 +1317,10 @@ def _plan_vehicle(  # noqa: PLR0917
     # ros2 launch rejects an empty value, and the launch files default to the root.
     namespace_args = (f"namespace:={namespace}",) if namespace else ()
     prefix_args = (f"frame_prefix:={prefix}",) if prefix else ()
+    # The workspace and the reference models, so the manifest and its `extends` chain resolve
+    # inside the containers as on the host (the models at the simulator's path).
+    stack_mounts = (Mount(config.root, WORKSPACE), Mount(robots_dir, ROBOTS_IN_CONTAINER))
+    stack_env = {ROBOTS_ENV: ROBOTS_IN_CONTAINER}
     spawn_job = ContainerSpec(
         name=f"fieldproof-{short}-spawn-{vehicle.name}",
         image=config.image("bridge"),
@@ -1330,10 +1340,10 @@ def _plan_vehicle(  # noqa: PLR0917
             "use_sim_time:=true",
             "robot_state_publisher:=false",
         ),
-        env=dict(env),
+        env={**env, **stack_env},
         labels={**labels, ROLE_LABEL: "spawn", VEHICLE_LABEL: vehicle.name},
         network=network,
-        mounts=(Mount(config.root, WORKSPACE),),
+        mounts=stack_mounts,
     )
     bridge = ContainerSpec(
         name=f"fieldproof-{short}-bridge-{vehicle.name}",
@@ -1347,11 +1357,11 @@ def _plan_vehicle(  # noqa: PLR0917
             *(() if clock else ("clock:=false",)),
             f"bundle_out:={BUNDLE_DIR_IN_BRIDGE}",
         ),
-        env={**env, "FIELDPROOF_MANIFEST": f"{WORKSPACE}/{in_workspace}"},
+        env={**env, **stack_env, "FIELDPROOF_MANIFEST": f"{WORKSPACE}/{in_workspace}"},
         labels={**labels, ROLE_LABEL: "bridge", VEHICLE_LABEL: vehicle.name},
         network=network,
         hostname=f"fieldproof-{short}-bridge-{vehicle.name}",
-        mounts=(Mount(config.root, WORKSPACE),),
+        mounts=stack_mounts,
     )
     resources = (runtime.resources or Resources()).merged(vehicle.resources)
     mounts: tuple[Mount, ...] = ()
@@ -2065,10 +2075,10 @@ class Run:
     def check_assets(self) -> None:
         """Every Fuel model the world uses is fetched (`make assets`), if there is a lock."""
         config = self.plan.config
-        lock_file = config.resolve(config.stack.fuel_lock)
+        lock_file = config.stack_path("fuel_lock")
         if lock_file.is_file():
             lock = yaml.safe_load(lock_file.read_text()) or {}
-            fuel_dir = config.resolve(config.stack.fuel)
+            fuel_dir = config.stack_path("fuel")
             missing_models = [
                 str(model.get("dir"))
                 for model in lock.get("models", [])
