@@ -239,7 +239,8 @@ assert len(checkouts) == 1 and checkouts[0]["with"]["path"] == "Fieldproof"
 onb_runs = "\n".join(str(s.get("run", "")) for s in onb["steps"])
 assert "docker pull" in onb_runs and "git clone" in onb_runs and "cp -r Fieldproof/examples/fieldproof-example-vehicle" in onb_runs
 assert "make assets validate image FIELDPROOF_ROOT=../Fieldproof" in onb_runs
-assert "make run FIELDPROOF_ROOT=../Fieldproof" in onb_runs and "--render software" in onb_runs
+assert "make run FIELDPROOF_ROOT=../Fieldproof SCENARIO=scenarios/dock_to_yard.yaml" in onb_runs, "the job names the scenario: the workflow's SCENARIO is in the environment"
+assert "--render software" in onb_runs
 assert all(s.get("working-directory") == "fieldproof-example-vehicle" for s in onb["steps"] if "make " in str(s.get("run", "")))
 onb_uploads = [s for s in onb["steps"] if "upload-artifact" in str(s.get("uses", ""))]
 assert len(onb_uploads) == 1 and onb_uploads[0]["with"]["path"] == "fieldproof-example-vehicle/runs"

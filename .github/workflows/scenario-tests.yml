@@ -232,9 +232,13 @@ jobs:
       - name: Fetch the Fuel models, validate the manifest and the scenarios, build the vehicle image
         working-directory: fieldproof-example-vehicle
         run: make assets validate image FIELDPROOF_ROOT=../Fieldproof
+      # SCENARIO names this workflow's scenario in the environment, which the example's Makefile
+      # would otherwise take over its own default (`SCENARIO ?=`).
       - name: Run the example's scenario through its Makefile (software rendering)
         working-directory: fieldproof-example-vehicle
-        run: make run FIELDPROOF_ROOT=../Fieldproof RUN_FLAGS="--run-id onboarding-dock --render software"
+        run: >-
+          make run FIELDPROOF_ROOT=../Fieldproof SCENARIO=scenarios/dock_to_yard.yaml
+          RUN_FLAGS="--run-id onboarding-dock --render software"
       - name: Upload the run (reports, logs, the MCAP recording)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
