@@ -1,0 +1,117 @@
+# The first scenario of the example vehicle (task P2-T08): `example_ugv`, running its own
+# waypoint navigator on wheel odometry, spawns at the depot's loading dock and drives 4 m
+# ahead through the roller door into the yard, the way the M1 scenario drives the Nav2 stack.
+# Schema: docs/reference/scenarios.md (`fieldproof schema`); assertions: docs/reference/assertions.md.
+#
+#   fieldproof validate scenarios/dock_to_yard.yaml
+#   fieldproof run scenarios/dock_to_yard.yaml     # make run
+apiVersion: fieldproof.dev/v0alpha1
+kind: Scenario
+metadata:
+  name: dock_to_yard
+  description: The example UGV drives from the depot's loading dock to a goal 4 m ahead
+  tags: [smoke, nav, example]
+world:
+  file: depot.sdf
+vehicles:
+  - name: ugv1
+    manifest: ../robot.yaml
+    spawn:
+      frame: spawn_dock # (10, 3), facing the roller door
+time:
+  mode: sim
+  timeout_s: 10m # wall-clock budget once the vehicle is ready
+timeline:
+  # The goal goes to the stack's own `navigate_to_pose` action server (the navigator speaks
+  # Nav2's interface), in the vehicle's map frame, which starts at its spawn pose.
+  - at: 0s
+    name: drive_ahead
+    vehicle: ugv1
+    action: navigate_to_pose
+    goal: { x: 10.0, y: -1.0, yaw: -1.5708 } # 4 m ahead of spawn_dock, in the world
+    timeout_s: 5m
+assertions:
+  # Ground truth from Gazebo: the model comes within half a metre of the goal (the assertion
+  # passes at the first sample inside the tolerance). The navigator stops within 0.2 m of the
+  # goal on its wheel odometry, which stays within a few centimetres of the truth over 4 m.
+  - name: reached_goal
+    type: reach_pose
+    vehicle: ugv1
+    target: { x: 10.0, y: -1.0 }
+    tolerance_m: 0.5
+  # The action reports its result within three minutes (wall clock; a CI runner with software
+  # rendering runs the simulation below real time).
+  - name: arrived_in_time
+    type: within_time
+    action: drive_ahead
+    max_s: 3m
+  # The lidar keeps publishing (simulation time; 10 Hz nominal, a few Hz with software
+  # rendering on a two-core runner).
+  - name: lidar_streams
+    type: topic_rate
+    topic: scan
+    vehicle: ugv1
+    min_hz: 2.0
+    window_s: 5s
+    after_s: 5s
+  # The chassis never touches the world (the model's ground-truth contact sensor).
+  - name: no_collision
+    type: no_collision
+    vehicle: ugv1
+  # The navigator never commands more than its configured speed (0.5 m/s, config/example_ugv.yaml).
+  - name: speed_limit
+    type: topic_value
+    topic: cmd_vel
+    vehicle: ugv1
+    field: linear.x
+    condition: value <= 0.55
+  # The drive stays in the dock's yard: a box around the dock and the goal.
+  - name: stays_in_yard
+    type: geofence
+    vehicle: ugv1
+    region: { box: { x_min: 5.0, x_max: 15.0, y_min: -5.0, y_max: 7.0 } }
+  # The odometry arrives fresh: the 95th percentile of its message age under a quarter of a
+  # second of simulation time.
+  - name: odom_fresh
+    type: message_latency
+    topic: odom
+    vehicle: ugv1
+    max_ms: 250
+    after_s: 2s
+  # The stack fits its budget (robot.yaml: one core, 1 GiB).
+  - name: stack_fits
+    type: resource_usage
+    vehicle: ugv1
+    max_memory_mb: 900
+    max_cpu_pct: 150
+    window_s: 10s
+  # The whole timeline completes within four minutes of wall clock.
+  - name: mission_in_time
+    type: mission_time
+    max_s: 4m
+  # Events in order: the goal is sent, the navigator commands a forward speed, the goal is
+  # reached.
+  - name: mission_order
+    type: sequence
+    vehicle: ugv1
+    steps:
+      - { action: drive_ahead, event: started }
+      - { topic: cmd_vel, field: linear.x, condition: value > 0 }
+      - { assertion: reached_goal }
+kpis: # measured, not judged: the run's KPIs in run.json, the report and /fieldproof/kpis
+  - { name: drive, type: path, vehicle: ugv1, action: drive_ahead, target: { x: 10.0, y: -1.0 } }
+  - { name: mission, type: mission_time }
+  - { name: scan_age, type: latency, topic: scan, vehicle: ugv1 }
+  - { name: stack, type: resources, vehicle: ugv1 }
+outputs:
+  logs: true
+  record: true # recording/*.mcap in the run directory (opens in Foxglove Studio)
+  topics: # the allow-list; the /fieldproof/* side channels are always recorded
+    - /clock
+    - /tf
+    - /tf_static
+    - /odom
+    - /cmd_vel
+    - /scan
+    - /mission/state
+    - /rosout

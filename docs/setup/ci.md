@@ -11,7 +11,7 @@ Makefile targets.
 | Workflow | File | Runs on | Does |
 | --- | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | every pull request, push to `main`, manual | `make lint` (all hooks, commit messages, secret scan), `make test-tooling`, `make test-ci`, `make test-layout`, `make test-docs`, `make test-engine`, `make test-cockpit` (plus the Vite build), `make test-host`, and when the change touches the images or the ROS workspaces: build `base-ros2`, `sim`, `dev` from the GHCR layer cache, run `make test-images`, `make test-ros`, `make tidy`, `make test-worlds`, `make test-vehicles` (the example vehicle image built on `base-ros2`) and `make test-integration` against them |
-| Scenario tests | `.github/workflows/scenario-tests.yml` | push to `main`, nightly, manual (an image tag and a scenario), pull requests that touch the workflow, `tools/ci/scenario-run.sh`, `examples/`, `engine/`, `fieldproof.toml` or the `Makefile` | pull the published `base-ros2`, `sim` and `bridge` images, build the example vehicle image on them, fetch the Fuel models, run the UGV scenario headless with software rendering under the flaky-run policy (one retry, flagged), upload the run (MCAP, reports, JUnit, logs) as artefacts; a second job (not on pull requests) runs the lockstep scenario twice and compares the runs (the determinism test of P2-T04); a third (not on pull requests) runs the example run matrix, twelve runs in one JUnit document (P2-T06); see [Scenario tests](#scenario-tests) |
+| Scenario tests | `.github/workflows/scenario-tests.yml` | push to `main`, nightly, manual (an image tag, a scenario, the example repository), pull requests that touch the workflow, `tools/ci/scenario-run.sh`, `examples/`, `engine/`, `fieldproof.toml` or the `Makefile` | pull the published `base-ros2`, `sim` and `bridge` images, build the example vehicle image on them, fetch the Fuel models, run the UGV scenario headless with software rendering under the flaky-run policy (one retry, flagged), upload the run (MCAP, reports, JUnit, logs) as artefacts; a second job (not on pull requests) runs the lockstep scenario twice and compares the runs (the determinism test of P2-T04); a third (not on pull requests) runs the example vehicle repository through its own Makefile next to the checkout (the onboarding of P2-T08); a fourth (not on pull requests) runs the example run matrix, twelve runs in one JUnit document (P2-T06); see [Scenario tests](#scenario-tests) |
 | PR title | `.github/workflows/pr-title.yml` | pull request opened, edited, synchronised | the title must be a Conventional Commit (`make lint-title`), see [Pull request titles](#pull-request-titles) |
 | Images | `.github/workflows/images.yml` | push to `main`, called by Release, manual | build and push `sha-<short>` tags, syft SBOM and Trivy scan per image, then tag `main` (or `vX.Y.Z`) |
 | Release | `.github/workflows/release.yml` | push to `main` | release-please keeps the release pull request current; when it merges, tags `vX.Y.Z`, creates the GitHub release and calls Images |
@@ -105,6 +105,20 @@ image job's integration tests (`tests/integration/test_radio_links.py`, after th
 `sch_netem` and `ifb` modules), against the images that job builds, since the published bridge
 image only carries `tc` from the release after the task; a manual dispatch here can name it once
 `main` has it.
+
+**Onboarding.** The workflow's `onboarding` job (task P2-T08, on `main`, nightly and on
+demand, not on pull requests) is the verification of the vehicle onboarding SDK: the example
+vehicle repository (`examples/fieldproof-example-vehicle`, the copy of
+[fieldproof-example-vehicle](https://github.com/Dimitrios-Kafetzis/fieldproof-example-vehicle);
+a manual run names the published repository and a ref through the `example-repo` and
+`example-ref` inputs) is put next to the checkout, the way a team clones it next to theirs,
+and driven through its own Makefile with the checkout as `FIELDPROOF_ROOT`: `make assets
+validate image` (its manifest extends the reference UGV by name, its image builds on the
+published base image) and `make run` of its scenario with software rendering, the run
+uploaded as `onboarding-run-<run number>-<attempt>`. Its manifest's `fieldproof:ugv_ref` needs
+the bridge image of the release after the task, hence not on pull requests; `ci.yml`'s image
+job runs `tests/integration/test_onboarding_repo.py` against the images it builds instead
+([onboarding.md](../reference/onboarding.md#the-worked-example)).
 
 **Flaky-run policy.** `tools/ci/scenario-run.sh` runs the scenario once and, when the attempt
 exits with anything but 0, 130 (interrupted) or 2 (usage error), prints a `::warning::`

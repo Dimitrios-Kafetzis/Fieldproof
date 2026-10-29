@@ -87,10 +87,17 @@
       "description": "How the image is built from the vehicle's sources (`fieldproof vehicle build`).",
       "properties": {
         "base": {
-          "default": "ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2:local",
-          "description": "Base image of both stages.",
-          "title": "Base",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Base image of both stages (default: the workspace's `base-ros2` image at its image prefix and tag, `FIELDPROOF_IMAGE_TAG` included).",
+          "title": "Base"
         },
         "ros_distro": {
           "default": "jazzy",
@@ -1487,7 +1494,7 @@
         }
       ],
       "default": null,
-      "description": "Manifest this one inherits from (relative path); resolved before validation.",
+      "description": "Manifest this one inherits from: a relative path, or `fieldproof:<model>` for a reference model of the stack (`fieldproof:ugv_ref`); resolved before validation.",
       "title": "Extends"
     },
     "metadata": {

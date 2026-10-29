@@ -44,6 +44,16 @@ on:
         type: string
         required: false
         default: examples/matrices/ugv_nav_matrix.yaml
+      example-repo:
+        description: Example vehicle repository to onboard (a clone URL; empty for the in-tree copy)
+        type: string
+        required: false
+        default: ""
+      example-ref:
+        description: Ref of the example vehicle repository
+        type: string
+        required: false
+        default: main
 
 permissions:
   contents: read
@@ -60,6 +70,8 @@ env:
   FIELDPROOF_IMAGE_TAG: ${{ inputs.image-tag || 'main' }}
   SCENARIO: ${{ inputs.scenario || 'examples/scenarios/ugv_nav_to_goal.yaml' }}
   MATRIX: ${{ inputs.matrix || 'examples/matrices/ugv_nav_matrix.yaml' }}
+  EXAMPLE_REPO: ${{ inputs.example-repo || '' }}
+  EXAMPLE_REF: ${{ inputs.example-ref || 'main' }}
 
 jobs:
   scenario:
@@ -165,6 +177,73 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - name: Nothing of the runs is left on the runner
+        if: always()
+        run: |
+          left="$(docker ps -a --filter label=io.fieldproof.run --format '{{.Names}}')"
+          if [ -n "$left" ]; then
+            echo "::error::containers left behind: $left"
+            exit 1
+          fi
+          echo "no container carries the io.fieldproof.run label"
+
+  # The onboarding of task P2-T08: the example vehicle repository (fieldproof-example-vehicle,
+  # the copy under examples/, or the published repository named by the `example-repo` input)
+  # put next to the checkout, the way a team clones it next to theirs, and driven through its
+  # own Makefile with the checkout as FIELDPROOF_ROOT: validate, build its image on the
+  # published base image, run its scenario with software rendering. Its manifest extends the
+  # reference UGV by name (`fieldproof:ugv_ref`), which the published bridge image resolves
+  # only from the release after the task, so the job runs on main, nightly and on demand, not
+  # on pull requests; ci.yml's image job runs tests/integration/test_onboarding_repo.py
+  # against the images it builds instead.
+  onboarding:
+    name: Onboarding (the example vehicle repository, published images)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: Fieldproof
+      - name: Free disk space for the images
+        run: Fieldproof/tools/ci/free-disk.sh
+      - name: Cache the Fuel archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Fieldproof/assets/fuel/archives
+          key: fuel-${{ hashFiles('Fieldproof/assets/fuel.lock') }}
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: Fieldproof/engine/uv.lock
+      - name: Pull the published stack images (base-ros2, sim, bridge at ${{ env.FIELDPROOF_IMAGE_TAG }})
+        run: |
+          for image in base-ros2 sim bridge; do
+            docker pull --quiet "ghcr.io/dimitrios-kafetzis/fieldproof-${image}:${FIELDPROOF_IMAGE_TAG}"
+          done
+      - name: Put the example vehicle repository next to the checkout
+        run: |
+          if [ -n "$EXAMPLE_REPO" ]; then
+            git clone --depth 1 --branch "$EXAMPLE_REF" "$EXAMPLE_REPO" fieldproof-example-vehicle
+          else
+            cp -r Fieldproof/examples/fieldproof-example-vehicle fieldproof-example-vehicle
+          fi
+          ls fieldproof-example-vehicle
+      - name: Fetch the Fuel models, validate the manifest and the scenarios, build the vehicle image
+        working-directory: fieldproof-example-vehicle
+        run: make assets validate image FIELDPROOF_ROOT=../Fieldproof
+      - name: Run the example's scenario through its Makefile (software rendering)
+        working-directory: fieldproof-example-vehicle
+        run: make run FIELDPROOF_ROOT=../Fieldproof RUN_FLAGS="--run-id onboarding-dock --render software"
+      - name: Upload the run (reports, logs, the MCAP recording)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: onboarding-run-${{ github.run_number }}-${{ github.run_attempt }}
+          path: fieldproof-example-vehicle/runs
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Nothing of the run is left on the runner
         if: always()
         run: |
           left="$(docker ps -a --filter label=io.fieldproof.run --format '{{.Names}}')"

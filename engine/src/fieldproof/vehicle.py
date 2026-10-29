@@ -39,6 +39,7 @@ import yaml
 from fieldproof import __version__, vehicle_ready
 from fieldproof.manifest import (
     DDS_PROFILE_IN_CONTAINER,
+    DEFAULT_BASE_IMAGE,
     Build,
     RobotManifest,
     Runtime,
@@ -135,8 +136,20 @@ def manifest_origin(manifest: RobotManifest) -> str:
         return str(manifest.path)
 
 
-def render_dockerfile(manifest: RobotManifest, manifest_label: str | None = None) -> str:
-    """The multi-stage Dockerfile of the manifest's ``runtime.build``."""
+def base_image_of(manifest: RobotManifest, base_image: str | None = None) -> str:
+    """The base image of the manifest's build: its own, else `base_image`, else the default."""
+    build = build_of(manifest)
+    return build.base or base_image or DEFAULT_BASE_IMAGE
+
+
+def render_dockerfile(
+    manifest: RobotManifest, manifest_label: str | None = None, *, base_image: str | None = None
+) -> str:
+    """The multi-stage Dockerfile of the manifest's ``runtime.build``.
+
+    `base_image` is the workspace's base image, the Dockerfile's default when the manifest
+    names none (`docker buildx build --build-arg BASE_IMAGE=...` overrides either).
+    """
     runtime = runtime_of(manifest)
     build = build_of(manifest)
     origin = manifest_label or manifest_origin(manifest)
@@ -158,7 +171,7 @@ def render_dockerfile(manifest: RobotManifest, manifest_label: str | None = None
         "# (merge-install). Stage `runtime`: the base image, the run-time dependencies rosdep",
         "# resolved, the install space, the entry point and the manifest, as the base image's",
         "# non-root user.",
-        f"ARG BASE_IMAGE={build.base}",
+        f"ARG BASE_IMAGE={base_image_of(manifest, base_image)}",
         "# hadolint ignore=DL3006",
         "FROM ${BASE_IMAGE} AS build",
         f"ARG ROSDISTRO_COMMIT={build.rosdistro_commit}",
@@ -305,7 +318,7 @@ def resolved_manifest_text(manifest: RobotManifest) -> str:
     """The merged manifest document (``extends`` resolved) the image carries."""
     if manifest.path is None:
         raise VehicleError("the manifest must be loaded from a file to be copied into the image")
-    data = read_manifest_data(manifest.path)
+    data = read_manifest_data(manifest.path, robots=manifest.robots)
     header = (
         f"# Resolved vehicle manifest of {manifest.name}, written by fieldproof vehicle\n"
         f"# dockerfile from {manifest_origin(manifest)} (extends resolved; description paths\n"
@@ -354,11 +367,17 @@ class Context:
         return self.directory / "Dockerfile"
 
 
-def write_context(manifest: RobotManifest, out_dir: Path | str) -> Context:
-    """Write the build context of ``manifest`` into ``out_dir`` and return what was written."""
+def write_context(
+    manifest: RobotManifest, out_dir: Path | str, *, base_image: str | None = None
+) -> Context:
+    """Write the build context of ``manifest`` into ``out_dir`` and return what was written.
+
+    `base_image` is the workspace's base image, the Dockerfile's default when the manifest
+    names none.
+    """
     check_sources(manifest)
     directory = Path(out_dir)
-    dockerfile = render_dockerfile(manifest)
+    dockerfile = render_dockerfile(manifest, base_image=base_image)
     directory.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     files: dict[str, str] = {
@@ -373,6 +392,10 @@ def write_context(manifest: RobotManifest, out_dir: Path | str) -> Context:
     for name, text in files.items():
         path = directory / name
         path.write_text(text)
+        # The scripts are executable in the image (COPY --chmod) and in a committed context
+        # (a repository's hooks expect a shebang to go with the bit).
+        if name in ("entrypoint.sh", READY_SOURCE):
+            path.chmod(0o755)
         written.append(path)
     return Context(directory, written)
 
@@ -527,9 +550,9 @@ def wait_command(
     return argv
 
 
-def load_vehicle(path: Path | str) -> RobotManifest:
-    """Load a manifest that has a runtime section."""
-    manifest = load_manifest(path)
+def load_vehicle(path: Path | str, *, robots: Path | str | None = None) -> RobotManifest:
+    """Load a manifest that has a runtime section (`robots` as for :func:`load_manifest`)."""
+    manifest = load_manifest(path, robots=robots)
     if manifest.runtime is None:
         raise ManifestError(f"{manifest.path}: the manifest has no runtime section")
     return manifest

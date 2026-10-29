@@ -226,6 +226,35 @@ def test_manifest_extends_inherits_the_model(tmp_path: Path) -> None:
     assert child_plan.description == parent_plan.description
 
 
+def test_manifest_extends_a_reference_model_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`extends: fieldproof:<model>` finds the reference model through the models' directory
+    given to the reader or named by FIELDPROOF_ROBOTS, as in the bridge container (P2-T08)."""
+    child = tmp_path / "robot.yaml"
+    child.write_text(
+        "apiVersion: fieldproof.dev/v0alpha1\nkind: Robot\nextends: fieldproof:ugv_ref\n"
+        "metadata: {name: bot}\n"
+    )
+    robots = UGV_MANIFEST.parents[1]
+    manifest = Manifest.load(child, robots=robots)
+    parent = Manifest.load(UGV_MANIFEST)
+    assert [i.ros_topic for i in manifest.interfaces] == [i.ros_topic for i in parent.interfaces]
+    assert manifest.xacro_path() == parent.xacro_path()
+    monkeypatch.delenv("FIELDPROOF_ROBOTS", raising=False)
+    with pytest.raises(ManifestError, match="needs the reference models' directory"):
+        Manifest.load(child)
+    monkeypatch.setenv("FIELDPROOF_ROBOTS", str(robots))
+    assert Manifest.load(child).xacro_path() == parent.xacro_path()
+    assert plan(Manifest.load(child)).description == plan(parent).description
+    child.write_text(
+        "apiVersion: fieldproof.dev/v0alpha1\nkind: Robot\nextends: fieldproof:nope\n"
+        "metadata: {name: bot}\n"
+    )
+    with pytest.raises(ManifestError, match="no reference model 'nope' under"):
+        Manifest.load(child)
+
+
 def test_manifest_extends_errors(tmp_path: Path) -> None:
     a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
     a.write_text("apiVersion: fieldproof.dev/v0alpha1\nkind: Robot\nextends: b.yaml\n")
@@ -236,7 +265,7 @@ def test_manifest_extends_errors(tmp_path: Path) -> None:
     with pytest.raises(ManifestError, match="no such file"):
         Manifest.load(a)
     a.write_text("apiVersion: fieldproof.dev/v0alpha1\nkind: Robot\nextends: [b.yaml]\n")
-    with pytest.raises(ManifestError, match="extends must be a relative path"):
+    with pytest.raises(ManifestError, match="extends must be a relative path or fieldproof:"):
         Manifest.load(a)
     a.write_text("- not a mapping\n")
     with pytest.raises(ManifestError, match="must be a mapping"):

@@ -1,0 +1,8 @@
+# Fieldproof runs (reports, logs, recordings)
+runs/
+*.mcap
+# ROS build trees
+build/
+install/
+log/
+__pycache__/

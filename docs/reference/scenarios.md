@@ -239,6 +239,9 @@ ros_domain_id = "auto"     # a number, or one derived from the run id (1..100) p
 discovery = "multicast"    # or "server": a Fast DDS discovery server container per run
 
 [stack]
+root = ""                  # the Fieldproof checkout the paths below resolve against (task P2-T08):
+                           # empty: the workspace when it holds the stack, else the checkout the
+                           # engine runs from; FIELDPROOF_STACK overrides it
 worlds = "sim/fieldproof_worlds/worlds"
 models = "sim/fieldproof_worlds/models"
 fuel = "assets/fuel/models"
@@ -257,11 +260,18 @@ replay_s = 120.0           # the replay player reporting ready (the log opened, 
 teardown_s = 10.0          # grace period of a container stop
 ```
 
+A workspace need not be a Fieldproof checkout (task P2-T08): a vehicle repository with a
+`fieldproof.toml`, a manifest and scenarios of its own is one, and its runs use the worlds,
+models, Fuel assets and reference vehicles of the checkout the engine runs from
+(`uv run --project <checkout>/engine fieldproof ...`), or of the checkout `[stack] root` or
+`FIELDPROOF_STACK` names. The run record (`run.json`, `stack`) carries both the workspace and
+the stack root; [onboarding.md](onboarding.md#how-it-fits-together) shows the layout.
+
 Precedence, highest first ([01-architecture.md](../plan/01-architecture.md#cross-cutting)): the
 scenario file (`outputs.directory`), the command line (`--runs-dir`, `--render`, `--domain-id`,
 `--network`, `--discovery`, `--config` for a file elsewhere), the environment variables the
 compose stack also reads (`FIELDPROOF_IMAGE_PREFIX`, `FIELDPROOF_IMAGE_TAG`, `FIELDPROOF_RENDER`,
-`ROS_DOMAIN_ID`, `FIELDPROOF_DISCOVERY`), `fieldproof.toml`, the defaults.
+`ROS_DOMAIN_ID`, `FIELDPROOF_DISCOVERY`, `FIELDPROOF_STACK`), `fieldproof.toml`, the defaults.
 `FIELDPROOF_IMAGE_TAG=main fieldproof run ...` therefore runs the published images, as
 `FIELDPROOF_IMAGE_TAG=main make up` does. Above all of them, `fieldproof run --set path=value`
 replaces a value of the scenario document itself before it is validated (`--set seed=3 --set

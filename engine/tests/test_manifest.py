@@ -16,7 +16,6 @@ from typer.testing import CliRunner
 from fieldproof.cli import app
 from fieldproof.manifest import (
     BRIDGE_TOPICS,
-    DEFAULT_BASE_IMAGE,
     DEFAULT_ROSDISTRO_COMMIT,
     Resources,
     RobotManifest,
@@ -110,7 +109,7 @@ def test_example_vehicle_extends_the_reference(nav2: RobotManifest, ugv: RobotMa
     assert runtime.tier == "T1"
     assert runtime.build is not None
     assert runtime.build.sources == ["src"]
-    assert runtime.build.base == DEFAULT_BASE_IMAGE
+    assert runtime.build.base is None, "the workspace's base image (task P2-T08)"
     assert runtime.build.rosdistro_commit == DEFAULT_ROSDISTRO_COMMIT
     assert runtime.entrypoint.argv() == [
         "ros2",

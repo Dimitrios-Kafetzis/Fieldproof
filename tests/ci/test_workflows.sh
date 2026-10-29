@@ -24,7 +24,10 @@
 #    failure fails, an interrupted run and a usage error are not retried, --retries 0 disables
 #    the retry, the final attempt's report files and the step outputs land where the workflow
 #    reads them; examples/demo_m1.sh prints its usage and, in a dry run, the commands of the
-#    quick start with the image tag asked for.
+#    quick start with the image tag asked for; the onboarding job (task P2-T08) puts the
+#    example vehicle repository next to the checkout and drives it through its own Makefile,
+#    not on pull requests; examples/demo_m2.sh prints its usage and, in a dry run, one
+#    `fieldproof` command per step of the milestone, honouring --only, --skip and --quick.
 #
 # Needs pre-commit, Docker and python3 on the host, as installed by tools/host-setup.sh.
 set -euo pipefail
@@ -36,7 +39,7 @@ trap 'rm -rf "$SCRATCH"' EXIT
 SHELLCHECK_IMAGE="koalaman/shellcheck:v0.10.0@sha256:2097951f02e735b613f4a34de20c40f937a6c8f18ecb170612c88c34517221fb"
 TRIVY_IMAGE="aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
 SCRIPTS=(tools/ci/changed-areas.sh tools/ci/bake-cache.sh tools/ci/free-disk.sh tools/ci/branch-protection.sh
-  tools/ci/scenario-run.sh examples/demo_m1.sh tests/ci/test_workflows.sh)
+  tools/ci/scenario-run.sh examples/demo_m1.sh examples/demo_m2.sh tests/ci/test_workflows.sh)
 WORKFLOWS=(.github/workflows/*.yml)
 
 PASSED=0
@@ -178,7 +181,7 @@ assert "schedule" in on and "workflow_dispatch" in on, on.keys()
 assert on["workflow_dispatch"]["inputs"]["image-tag"]["default"] == "main"
 assert ".github/workflows/scenario-tests.yml" in on["pull_request"]["paths"]
 assert "examples/**" in on["pull_request"]["paths"]
-assert list(doc["jobs"]) == ["scenario", "determinism", "matrix"], list(doc["jobs"])
+assert list(doc["jobs"]) == ["scenario", "determinism", "onboarding", "matrix"], list(doc["jobs"])
 assert on["workflow_dispatch"]["inputs"]["matrix"]["default"] == "examples/matrices/ugv_nav_matrix.yaml"
 job = doc["jobs"]["scenario"]
 assert job["runs-on"] == "ubuntu-24.04"
@@ -224,8 +227,29 @@ assert any(
     "io.fieldproof.run" in str(s.get("run", "")) and str(s.get("if", "")).strip() == "always()"
     for s in mat["steps"]
 ), "the matrix job checks nothing is left"
+# The onboarding job (task P2-T08): the example vehicle repository next to the checkout, driven
+# through its own Makefile against the published images, not on pull requests.
+onb = doc["jobs"]["onboarding"]
+assert onb["runs-on"] == "ubuntu-24.04"
+assert onb["if"].strip() == "github.event_name != 'pull_request'", onb.get("if")
+assert on["workflow_dispatch"]["inputs"]["example-repo"]["default"] == ""
+assert on["workflow_dispatch"]["inputs"]["example-ref"]["default"] == "main"
+checkouts = [s for s in onb["steps"] if "actions/checkout" in str(s.get("uses", ""))]
+assert len(checkouts) == 1 and checkouts[0]["with"]["path"] == "Fieldproof"
+onb_runs = "\n".join(str(s.get("run", "")) for s in onb["steps"])
+assert "docker pull" in onb_runs and "git clone" in onb_runs and "cp -r Fieldproof/examples/fieldproof-example-vehicle" in onb_runs
+assert "make assets validate image FIELDPROOF_ROOT=../Fieldproof" in onb_runs
+assert "make run FIELDPROOF_ROOT=../Fieldproof" in onb_runs and "--render software" in onb_runs
+assert all(s.get("working-directory") == "fieldproof-example-vehicle" for s in onb["steps"] if "make " in str(s.get("run", "")))
+onb_uploads = [s for s in onb["steps"] if "upload-artifact" in str(s.get("uses", ""))]
+assert len(onb_uploads) == 1 and onb_uploads[0]["with"]["path"] == "fieldproof-example-vehicle/runs"
+assert str(onb_uploads[0].get("if", "")).strip() == "always()"
+assert any(
+    "io.fieldproof.run" in str(s.get("run", "")) and str(s.get("if", "")).strip() == "always()"
+    for s in onb["steps"]
+), "the onboarding job checks nothing is left"
 PY
-then pass "scenario-tests.yml: main, nightly and dispatch; published images, scenario-run.sh, artefacts always uploaded; the determinism and matrix jobs"; else fail "scenario-tests.yml rules"; fi
+then pass "scenario-tests.yml: main, nightly and dispatch; published images, scenario-run.sh, artefacts always uploaded; the determinism, onboarding and matrix jobs"; else fail "scenario-tests.yml rules"; fi
 
 # ---------------------------------------------------------------------------------------------
 section "3. Helpers"
@@ -565,6 +589,54 @@ fi
 status=0
 "$demo" --scenario >/dev/null 2>&1 || status=$?
 if [[ "$status" -eq 2 ]]; then pass "demo_m1: --scenario without a file exits 2"; else fail "demo_m1: --scenario without a file exits 2 (got $status)"; fi
+
+# The M2 demo (task P2-T08): one `fieldproof` command per step of the milestone.
+demo2="$REPO/examples/demo_m2.sh"
+if "$demo2" --help | grep -q '^Usage: examples/demo_m2.sh'; then pass "demo_m2 --help"; else fail "demo_m2 --help"; fi
+if dry="$(cd "$REPO" && "$demo2" --dry-run 2>&1)" \
+  && grep -q '^+ docker pull --quiet ghcr.io/dimitrios-kafetzis/fieldproof-bridge:main$' <<<"$dry" \
+  && grep -q '^+ make assets$' <<<"$dry" && grep -q '^+ make vehicle-image$' <<<"$dry" \
+  && grep -q 'fieldproof run examples/scenarios/ugv_fleet.yaml --run-id m2-fleet-.* --check-contracts' <<<"$dry" \
+  && grep -q 'fieldproof run examples/scenarios/ugv_link_loss.yaml' <<<"$dry" \
+  && grep -q 'fieldproof run examples/scenarios/ugv_obstacle_replan.yaml' <<<"$dry" \
+  && grep -q 'fieldproof run examples/scenarios/ugv_gps_denied.yaml' <<<"$dry" \
+  && grep -q 'fieldproof run examples/scenarios/ugv_realtime.yaml' <<<"$dry" \
+  && [[ "$(grep -c 'fieldproof run examples/scenarios/ugv_lockstep.yaml' <<<"$dry")" -eq 2 ]] \
+  && grep -q 'fieldproof compare runs/m2-lockstep_a-.* runs/m2-lockstep_b-' <<<"$dry" \
+  && grep -q '^+ uv run --locked --project engine fieldproof matrix examples/matrices/ugv_nav_matrix.yaml$' <<<"$dry" \
+  && grep -q '^+ make replay-log$' <<<"$dry" && grep -q 'fieldproof run examples/scenarios/ugv_replay.yaml' <<<"$dry" \
+  && grep -q '^+ make -C examples/fieldproof-example-vehicle image FIELDPROOF_ROOT=' <<<"$dry" \
+  && grep -q '^+ make -C examples/fieldproof-example-vehicle run FIELDPROOF_ROOT=.* RUN_FLAGS=--run-id m2-onboarding-' <<<"$dry" \
+  && grep -q 'Dry run: nothing was executed' <<<"$dry"; then
+  pass "demo_m2 --dry-run: the images, the assets, the vehicle image, then every step of the milestone"
+else
+  fail "demo_m2 --dry-run"
+  printf '%s\n' "$dry" | sed 's/^/        /' | tail -n 30
+fi
+if dry="$(cd "$REPO" && "$demo2" --dry-run --quick --local 2>&1)" && ! grep -q 'docker pull' <<<"$dry" \
+  && ! grep -q 'ugv_fleet.yaml' <<<"$dry" \
+  && grep -q 'fieldproof matrix examples/matrices/ugv_nav_matrix.yaml --only c01 --only c02' <<<"$dry" \
+  && grep -q 'Using the stack images already present (tag local)' <<<"$dry"; then
+  pass "demo_m2 --dry-run --quick --local: no pull, no fleet, two cases of the matrix"
+else
+  fail "demo_m2 --dry-run --quick --local"
+fi
+if dry="$(cd "$REPO" && "$demo2" --dry-run --only replay,onboarding --no-pull 2>&1)" \
+  && ! grep -q 'ugv_link_loss.yaml\|ugv_fleet.yaml\|fieldproof matrix' <<<"$dry" \
+  && grep -q 'ugv_replay.yaml' <<<"$dry" && grep -q 'make -C examples/fieldproof-example-vehicle run' <<<"$dry"; then
+  pass "demo_m2 --dry-run --only replay,onboarding: the two steps and nothing else"
+else
+  fail "demo_m2 --dry-run --only replay,onboarding"
+fi
+if dry="$(cd "$REPO" && "$demo2" --dry-run --skip clocks,matrix --no-pull 2>&1)" \
+  && ! grep -q 'ugv_realtime.yaml\|fieldproof matrix' <<<"$dry" && grep -q 'ugv_link_loss.yaml' <<<"$dry"; then
+  pass "demo_m2 --dry-run --skip clocks,matrix"
+else
+  fail "demo_m2 --dry-run --skip clocks,matrix"
+fi
+status=0
+"$demo2" --only nosuch >/dev/null 2>&1 || status=$?
+if [[ "$status" -eq 2 ]]; then pass "demo_m2: --only with an unknown step exits 2"; else fail "demo_m2: --only with an unknown step exits 2 (got $status)"; fi
 
 # ---------------------------------------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"

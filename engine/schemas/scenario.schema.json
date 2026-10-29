@@ -8049,6 +8049,192 @@
       "title": "VisitsWaypoints",
       "type": "object"
     },
+    "Wait": {
+      "additionalProperties": false,
+      "description": "Hold the timeline for a duration (a stack that runs on its own gets measured).",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label in the run record (default: `<action>@<at>s`).",
+          "title": "Name"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The vehicle the entry acts on.",
+          "title": "Vehicle"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Offset from the trigger: seconds after the timeline starts, after the `after` entry ends, or after the `when` condition first holds (`30s`, `1m`).",
+          "title": "At"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start when the timeline entry with this `name` has ended successfully, or every entry of a list of names (a repeated entry cannot be named).",
+          "title": "After"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/When"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start the first time this condition of the run holds."
+        },
+        "within_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long after the timeline starts a `when` condition may still trigger the entry (absent: as long as the rest of the timeline runs); the entry is skipped otherwise.",
+          "title": "Within S"
+        },
+        "every": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repeat the entry at this period (seconds or a duration) from its first start; occurrences never overlap, the record labels them `<name>#2`, `#3`, ...",
+          "title": "Every"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating after this many occurrences.",
+          "title": "Count"
+        },
+        "until_s": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+                  "type": "string"
+                }
+              ],
+              "description": "Seconds, or a duration such as '90s', '1m30s' or '2h'."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop repeating this long after the timeline starts (absent, without `count`: when the rest of the timeline has ended).",
+          "title": "Until S"
+        },
+        "action": {
+          "const": "wait",
+          "title": "Action",
+          "type": "string"
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "pattern": "^\\s*(\\d+(\\.\\d+)?h)?\\s*(\\d+(\\.\\d+)?m)?\\s*(\\d+(\\.\\d+)?s)?\\s*$",
+              "type": "string"
+            }
+          ],
+          "description": "How long the timeline holds (wall clock; simulation seconds in lockstep).",
+          "title": "Duration S"
+        }
+      },
+      "required": ["action", "duration_s"],
+      "title": "Wait",
+      "type": "object"
+    },
     "When": {
       "additionalProperties": false,
       "description": "A condition of the run that triggers a timeline entry the first time it holds.\n\nA :class:`Signal` (a topic field or a metric of the run) with a `condition`, an expression\nover `value` (`value > 0.3`, `value < 2.0`).",
@@ -8321,7 +8507,8 @@
             "sim.resume": "#/$defs/SimResume",
             "sim.step": "#/$defs/SimStep",
             "spawn_object": "#/$defs/SpawnObject",
-            "teleport": "#/$defs/Teleport"
+            "teleport": "#/$defs/Teleport",
+            "wait": "#/$defs/Wait"
           },
           "propertyName": "action"
         },
@@ -8391,6 +8578,9 @@
           },
           {
             "$ref": "#/$defs/SimStep"
+          },
+          {
+            "$ref": "#/$defs/Wait"
           },
           {
             "$ref": "#/$defs/Announce"

@@ -7,10 +7,13 @@ Gazebo and ROS names and types, the direction, the frame its messages carry, the
 profile. :class:`Manifest` validates those sections and exposes them as :class:`Interface` values;
 everything else in the file passes through untouched in :attr:`Manifest.data`.
 
-A manifest may ``extends`` another one (a path relative to its own directory): the vehicle
-manifest of a stack then inherits the model sections of the reference vehicle it runs on and adds
-its own (task P1-T04 adds ``runtime``). :func:`read_manifest_data` resolves the chain before any
-validation, so the bridge and the engine read the same merged document.
+A manifest may ``extends`` another one (a path relative to its own directory, or
+``fieldproof:<model>`` for a reference model of the Fieldproof checkout the stack runs from, task
+P2-T08): the vehicle manifest of a stack then inherits the model sections of the reference vehicle
+it runs on and adds its own (task P1-T04 adds ``runtime``). :func:`read_manifest_data` resolves
+the chain before any validation, so the bridge and the engine read the same merged document; the
+reference models' directory comes from its ``robots`` argument or, inside the bridge container,
+from ``FIELDPROOF_ROBOTS``.
 
 Plain Python (PyYAML and the standard library only), so the engine can run it on the host.
 """
@@ -18,6 +21,7 @@ Plain Python (PyYAML and the standard library only), so the engine can run it on
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -42,6 +46,15 @@ DRIVE_INTERFACES = {
 # Keys of the `description` section that hold paths relative to the manifest declaring them; an
 # inherited description keeps pointing at the parent's files.
 DESCRIPTION_PATH_KEYS = ("xacro", "urdf", "sdf", "meshes")
+# `extends: fieldproof:<model>` names a reference model (`robots/fieldproof_robots/models/<model>`
+# of the Fieldproof checkout) instead of a path: a vehicle repository outside the checkout
+# inherits the reference UGV without knowing where the checkout is. The directory of the
+# reference models comes from the reader's `robots` argument (the engine resolves it from the
+# workspace configuration) or from this variable (the orchestrator sets it in the bridge
+# container, where the directory is mounted).
+REFERENCE_SCHEME = "fieldproof:"
+ROBOTS_ENV = "FIELDPROOF_ROBOTS"
+MANIFEST_FILE = "robot.yaml"
 
 
 BATTERY_TYPE = "sensor_msgs/msg/BatteryState"
@@ -74,10 +87,39 @@ def _read_yaml(file: Path) -> Any:
         raise ManifestError(f"{file}: not valid YAML ({error})") from error
 
 
-def read_manifest_data(path: Path | str, _chain: tuple[Path, ...] = ()) -> dict[str, Any]:
+def reference_manifest(model: str, file: Path, robots: Path | str | None) -> Path:
+    """The manifest of the reference model ``extends: fieldproof:<model>`` names."""
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", model):
+        raise ManifestError(
+            f"{file}: extends: {REFERENCE_SCHEME}{model!r} is not a reference model name "
+            "(lower case, digits, underscores)"
+        )
+    directory = robots if robots is not None else os.environ.get(ROBOTS_ENV)
+    if not directory:
+        raise ManifestError(
+            f"{file}: extends: {REFERENCE_SCHEME}{model} needs the reference models' directory "
+            f"(the workspace's stack, or {ROBOTS_ENV})"
+        )
+    candidate = (Path(directory) / model / MANIFEST_FILE).resolve()
+    if not candidate.is_file():
+        raise ManifestError(
+            f"{file}: extends: {REFERENCE_SCHEME}{model}: no reference model {model!r} "
+            f"under {Path(directory).resolve()}"
+        )
+    return candidate
+
+
+def read_manifest_data(
+    path: Path | str,
+    _chain: tuple[Path, ...] = (),
+    *,
+    robots: Path | str | None = None,
+) -> dict[str, Any]:
     """Read the manifest at ``path`` with its ``extends`` chain resolved.
 
-    The parent named by ``extends`` (a path relative to the manifest's directory) is read first,
+    The parent named by ``extends`` (a path relative to the manifest's directory, or
+    ``fieldproof:<model>`` for a reference model under ``robots``, the reference models'
+    directory, or under ``FIELDPROOF_ROBOTS`` when ``robots`` is not given) is read first,
     recursively; the child's sections are merged over it with :func:`deep_merge`. Relative paths
     of the parent's ``description`` section are rewritten to be relative to the child's
     directory, so the merged document still resolves them. The ``extends`` key itself is removed.
@@ -93,9 +135,12 @@ def read_manifest_data(path: Path | str, _chain: tuple[Path, ...] = ()) -> dict[
     if parent is None:
         return data
     if not isinstance(parent, str) or not parent.strip():
-        raise ManifestError(f"{file}: extends must be a relative path")
-    parent_file = (file.parent / parent).resolve()
-    parent_data = read_manifest_data(parent_file, (*_chain, file))
+        raise ManifestError(f"{file}: extends must be a relative path or {REFERENCE_SCHEME}<model>")
+    if parent.startswith(REFERENCE_SCHEME):
+        parent_file = reference_manifest(parent[len(REFERENCE_SCHEME) :].strip(), file, robots)
+    else:
+        parent_file = (file.parent / parent).resolve()
+    parent_data = read_manifest_data(parent_file, (*_chain, file), robots=robots)
     description = parent_data.get("description")
     if isinstance(description, dict):
         for key in DESCRIPTION_PATH_KEYS:
@@ -266,10 +311,14 @@ class Manifest:
             raise ManifestError(f"ROS topics declared more than once: {duplicates}")
 
     @classmethod
-    def load(cls, path: Path | str) -> Manifest:
-        """Read and validate the manifest at ``path`` (its ``extends`` chain resolved)."""
+    def load(cls, path: Path | str, *, robots: Path | str | None = None) -> Manifest:
+        """Read and validate the manifest at ``path`` (its ``extends`` chain resolved).
+
+        ``robots`` is the reference models' directory an ``extends: fieldproof:<model>``
+        resolves against (``FIELDPROOF_ROBOTS`` without it).
+        """
         file = Path(path).resolve()
-        return cls(read_manifest_data(file), file)
+        return cls(read_manifest_data(file, robots=robots), file)
 
     @property
     def interfaces(self) -> list[Interface]:

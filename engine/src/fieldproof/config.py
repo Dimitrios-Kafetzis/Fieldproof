@@ -8,10 +8,15 @@ repository, so the file may be short or absent; :func:`load_config` finds it by 
 starting directory (the scenario's, then the current one), the way git finds its repository, and
 the directory that holds it is the workspace root that relative paths resolve against.
 
+A workspace need not be a Fieldproof checkout (task P2-T08): a vehicle repository with a
+``fieldproof.toml``, a manifest and scenarios of its own runs them with the worlds, models,
+assets and reference vehicles of the checkout the engine runs from (``[stack] root`` names
+another checkout; ``FIELDPROOF_STACK`` overrides it), see :meth:`Config.stack_root`.
+
 Precedence, highest first (01-architecture.md): the scenario file, the command line, the
 environment (``FIELDPROOF_IMAGE_PREFIX``, ``FIELDPROOF_IMAGE_TAG``, ``FIELDPROOF_RENDER``,
-``ROS_DOMAIN_ID``, ``FIELDPROOF_DISCOVERY``, as the compose stack reads them),
-``fieldproof.toml``, the defaults.
+``ROS_DOMAIN_ID``, ``FIELDPROOF_DISCOVERY``, ``FIELDPROOF_STACK``, as the compose stack reads
+them), ``fieldproof.toml``, the defaults.
 """
 
 from __future__ import annotations
@@ -35,7 +40,12 @@ ENV_IMAGE_TAG = "FIELDPROOF_IMAGE_TAG"
 ENV_RENDER = "FIELDPROOF_RENDER"
 ENV_DOMAIN_ID = "ROS_DOMAIN_ID"
 ENV_DISCOVERY = "FIELDPROOF_DISCOVERY"
+ENV_STACK = "FIELDPROOF_STACK"
 AUTO: Literal["auto"] = "auto"
+# The checkout the engine runs from: engine/src/fieldproof/config.py is four levels below it.
+# An installed wheel has no checkout (the parents are site-packages), which `engine_checkout`
+# tells by the stack directory below.
+ENGINE_CHECKOUT = Path(__file__).resolve().parents[3]
 
 Render = Literal["auto", "gpu", "software"]
 Discovery = Literal["multicast", "server"]
@@ -93,8 +103,18 @@ class Docker(Strict):
 
 
 class Stack(Strict):
-    """What the simulator mounts, relative to the workspace (docker/compose.yaml's mounts)."""
+    """What the simulator mounts, relative to the stack root (docker/compose.yaml's mounts).
 
+    The stack root is the workspace itself when it is a Fieldproof checkout (it holds
+    ``worlds``), else ``root``, else the checkout the engine runs from (task P2-T08).
+    """
+
+    root: str = Field(
+        default="",
+        description="The Fieldproof checkout the stack paths below resolve against, relative "
+        "to the workspace; empty: the workspace itself when it holds the stack, otherwise "
+        "the checkout the engine runs from (`FIELDPROOF_STACK` overrides it).",
+    )
     worlds: str = Field(default="sim/fieldproof_worlds/worlds", description="World files.")
     models: str = Field(
         default="sim/fieldproof_worlds/models", description="The worlds' own models."
@@ -145,11 +165,38 @@ class Config(Strict):
 
     _root: Path = PrivateAttr(default_factory=Path.cwd)
     _path: Path | None = PrivateAttr(default=None)
+    _stack_env: str | None = PrivateAttr(default=None)
 
     @property
     def root(self) -> Path:
         """The workspace root: the configuration file's directory."""
         return self._root
+
+    @property
+    def stack_root(self) -> Path:
+        """The Fieldproof checkout the stack paths resolve against (:class:`Stack`).
+
+        ``FIELDPROOF_STACK`` first, then ``[stack] root``, then the workspace when it holds the
+        worlds directory, then the checkout the engine runs from. The result need not exist:
+        the runner reports a missing world or asset by its full path.
+        """
+        if self._stack_env:
+            return Path(self._stack_env).resolve()
+        if self.stack.root:
+            return (self._root / self.stack.root).resolve()
+        if (self._root / self.stack.worlds).is_dir():
+            return self._root
+        checkout = engine_checkout(self.stack.worlds)
+        return checkout if checkout is not None else self._root
+
+    @property
+    def external(self) -> bool:
+        """Whether the workspace is another directory than the stack it runs on."""
+        return self.stack_root != self._root
+
+    def stack_path(self, key: str) -> Path:
+        """A stack directory (`worlds`, `models`, `fuel`, `fuel_lock`, `robots`), resolved."""
+        return (self.stack_root / str(getattr(self.stack, key))).resolve()
 
     @property
     def path(self) -> Path | None:
@@ -163,6 +210,11 @@ class Config(Strict):
     def image(self, name: str) -> str:
         """The stack image called `name` (`sim`, `bridge`) at the configured prefix and tag."""
         return f"{self.docker.image_prefix}{name}:{self.docker.image_tag}"
+
+
+def engine_checkout(worlds: str = Stack().worlds) -> Path | None:
+    """The Fieldproof checkout the engine runs from, if it holds the stack (`worlds`)."""
+    return ENGINE_CHECKOUT if (ENGINE_CHECKOUT / worlds).is_dir() else None
 
 
 def find_config(start: Path) -> Path | None:
@@ -213,6 +265,12 @@ def load_config(
         else:
             config = Config()
             config._root = origin.resolve()
+    apply_environment(config, environment)
+    return config
+
+
+def apply_environment(config: Config, environment: Mapping[str, str]) -> None:
+    """Override the file's values with the environment variables the compose stack reads."""
     if ENV_IMAGE_PREFIX in environment:
         config.docker.image_prefix = environment[ENV_IMAGE_PREFIX]
     if ENV_IMAGE_TAG in environment:
@@ -241,4 +299,5 @@ def load_config(
             ).discovery
         except ValidationError as error:
             raise ConfigError(f"{ENV_DISCOVERY}: {format_errors(error)}") from error
-    return config
+    if environment.get(ENV_STACK, "").strip():
+        config._stack_env = environment[ENV_STACK].strip()

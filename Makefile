@@ -22,6 +22,8 @@
 # also runs the example scenario end to end; see docs/reference/scenarios.md.
 # The M1 demo (task P1-T07): `demo` runs examples/demo_m1.sh, the quick start of the README
 # (the published images, the vehicle image, the example scenario, the report and the MCAP).
+# The M2 demo (task P2-T08): `demo-m2` runs examples/demo_m2.sh, the scenario engine's
+# milestone end to end (fleet, links, events, two clocks, matrix, replay, onboarding).
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -euo pipefail -c
@@ -116,7 +118,7 @@ IMAGE_TEST_FLAGS ?= --quick
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
 	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
 	test-vehicles test-integration test-determinism tidy docs docs-serve docs-links branch-protection clean pins assets images \
-	manifest-schema scenario-schema vehicle-image replay-log run demo up down shell prune
+	manifest-schema scenario-schema vehicle-image replay-log run demo demo-m2 up down shell prune
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## "; printf "Targets:\n" } /^[a-zA-Z_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -265,6 +267,11 @@ matrix: assets ## Run a matrix of scenarios (MATRIX=examples/matrices/ugv_nav_ma
 # `make images` instead), fetches the assets, builds the vehicle image and runs the scenario.
 demo: ## Run the M1 demo: examples/demo_m1.sh (DEMO_FLAGS=--local|--no-pull|--rebuild-vehicle|--dry-run)
 	examples/demo_m1.sh $(DEMO_FLAGS)
+
+# The M2 demo (task P2-T08): every scenario of the milestone in turn, then a table of verdicts;
+# --quick skips the fleet and runs two cases of the matrix.
+demo-m2: ## Run the M2 demo: examples/demo_m2.sh (DEMO_FLAGS=--quick|--only STEPS|--skip STEPS|--local|--dry-run)
+	examples/demo_m2.sh $(DEMO_FLAGS)
 
 vehicle-image: ## Build the example vehicle image from its manifest (VEHICLE_MANIFEST, on VEHICLE_BASE_IMAGE)
 	$(UV) sync --locked --project engine

@@ -115,6 +115,8 @@ nav:
       - Reference vehicles: reference/robots.md
       - Bridge contract: reference/bridge.md
       - Vehicle manifest: reference/manifest.md
+      - Onboarding a vehicle: reference/onboarding.md
+      - Troubleshooting: reference/troubleshooting.md
       - Scenarios: reference/scenarios.md
       - Assertions, KPIs, recording and reports: reference/assertions.md
       - Radio links: reference/network.md

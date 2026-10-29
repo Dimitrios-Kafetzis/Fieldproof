@@ -48,14 +48,22 @@ tell their frames apart with a `frame_prefix` ([scenarios.md](scenarios.md#fleet
 
 ### `extends`
 
-A manifest may inherit another one, named by a path relative to its own directory. The parent is
+A manifest may inherit another one, named by a path relative to its own directory or, as
+`fieldproof:<model>`, by the name of a reference model of the stack (task P2-T08:
+`fieldproof:ugv_ref` is `robots/fieldproof_robots/models/ugv_ref/robot.yaml` of the Fieldproof
+checkout the workspace runs on, wherever the manifest is, which is how a vehicle repository
+outside the checkout inherits the reference UGV, [onboarding.md](onboarding.md)). The parent is
 read first (recursively; a cycle is an error), then the child's sections are merged over it:
 mappings merge key by key, anything else (scalars, lists) replaces. The relative paths of the
 inherited `description` section are rewritten so they still point at the parent's files from the
 child's directory. The example vehicle `examples/vehicles/ugv_nav2/robot.yaml` extends the
-reference UGV and adds only `metadata` and `runtime`; the bridge launch
+reference UGV by path and adds only `metadata` and `runtime`; the bridge launch
 (`bridge.launch.py manifest:=examples/vehicles/ugv_nav2/robot.yaml`) resolves the same chain and
-produces the same contract as for the reference model, under the vehicle's name.
+produces the same contract as for the reference model, under the vehicle's name. The engine
+resolves a `fieldproof:` parent against the workspace's stack (`fieldproof.toml`, `[stack]
+root`; [scenarios.md](scenarios.md#the-workspace)) and the bridge against the directory the
+orchestrator mounts into its container (`/fieldproof/robots`, named by `FIELDPROOF_ROBOTS`),
+so both read the same merged document.
 
 ### Model sections
 
@@ -112,7 +120,7 @@ measured.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `base` | `ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2:local` | base of both stages: ROS 2 Jazzy ros-base with snapshot-pinned apt sources, non-root user, `fieldproof-apt-install` ([containers.md](../setup/containers.md)) |
+| `base` | the workspace's `base-ros2` image at its prefix and tag (`ghcr.io/dimitrios-kafetzis/fieldproof-base-ros2:local` in this repository, `FIELDPROOF_IMAGE_TAG` included; task P2-T08) | base of both stages: ROS 2 Jazzy ros-base with snapshot-pinned apt sources, non-root user, `fieldproof-apt-install` ([containers.md](../setup/containers.md)); `fieldproof vehicle build --base-image` overrides either |
 | `ros_distro` | `jazzy` | ROS 2 distribution of the base |
 | `rosdistro_commit` | `8e9a99d2…` (2026-10-03) | commit of `ros/rosdistro` rosdep resolves keys against, so a rebuild resolves the same packages |
 | `repos[]` | | repositories `vcs import` clones into `src/<name>`: `name`, `url`, `version` (a 40-digit commit SHA: branches and tags are not pins), `type: git` |
