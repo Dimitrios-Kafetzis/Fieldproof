@@ -262,7 +262,7 @@ if selected onboarding; then
   fi
   run_id="m2-onboarding-${stamp}"
   status=0
-  run make -C "$EXAMPLE_REPO" run FIELDPROOF_ROOT="$REPO" RUN_FLAGS="--run-id $run_id" || status=$?
+  run make -C "$EXAMPLE_REPO" run FIELDPROOF_ROOT="$REPO" SCENARIO=scenarios/dock_to_yard.yaml RUN_FLAGS="--run-id $run_id" || status=$?
   if [[ "$dry_run" == true ]]; then
     record onboarding "dry run" "$EXAMPLE_REPO/runs/$run_id"
   else
