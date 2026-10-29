@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.18.0...v0.19.0) (2026-10-28)
+
+
+### Features
+
+* **engine:** field log replay source, localisation assertion and synthetic UGV log ([#98](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/98)) ([b1c2e60](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/b1c2e60270a72c532eebc6b8b8a10e3930cd19b0))
+
 ## [0.18.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.17.1...v0.18.0) (2026-10-28)
 
 
