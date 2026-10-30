@@ -358,6 +358,8 @@ MANAGED = [
     "collision_monitor",
 ]
 RETRY_TIMEOUT_S = 120.0
+PAUSED_FOR_S = 45.0
+"""Longer than the watchdog's fast stall (15 s) plus its poll period (5 s), with margin."""
 
 
 def vehicle_ros2(*argv: str, timeout: float = 60.0) -> str:
@@ -407,6 +409,14 @@ def test_04_bringup_watchdog_retries_an_aborted_bringup(stack: Stack) -> None:
     then published on `/rosout` as the manager would, and the watchdog is expected to take the
     servers down, ask the manager for `STARTUP` and get the stack active again.
     """
+    # The fixture waits for the world only (test_01 checks the vehicle): with this test run on
+    # its own, the stack may still be coming up.
+    wait_until(
+        lambda: set(lifecycle_states().values()) == {"active"},
+        RETRY_TIMEOUT_S,
+        "every server to be active before the watchdog is poked",
+        period_s=5.0,
+    )
     # The manager also aborts when it lost the answer of its last get_state with every server
     # active (seen on CI): the watchdog must leave a working stack alone.
     publish_abort_line()
@@ -431,8 +441,40 @@ def test_04_bringup_watchdog_retries_an_aborted_bringup(stack: Stack) -> None:
         period_s=5.0,
     )
     log = container_logs(VEHICLE, tail=5000)
-    assert "retrying the bringup (1 of 3)" in log, log[-3000:]
+    assert "retrying the bringup (1 of 10)" in log, log[-3000:]
     assert "the bringup succeeded on retry" in log, log[-3000:]
     assert "Managed nodes are active" in log.split("retrying the bringup")[-1], log[-3000:]
     died = [line for line in log.splitlines() if "process has died" in line]
     assert not died, died[:5]
+
+
+@pytest.mark.integration
+def test_05_bringup_watchdog_leaves_a_paused_stack_alone(stack: Stack) -> None:
+    """A stack paused on purpose stays paused: the fallback watches the first bringup only.
+
+    After the servers have all been active once, servers found inactive were put there by the
+    timeline (`lifecycle pause`, task P2-T03), not left by an aborted bringup, and the watchdog
+    must not bring them back (issue #103 made the fallback fast enough to matter). `PAUSE`
+    leaves every server inactive; nothing may change for longer than the fallback's stall,
+    then `RESUME` restores the stack for the tests that follow.
+    """
+    pause = vehicle_ros2(
+        "service", "call", MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", "{command: 1}"
+    )
+    assert "success=True" in pause, pause
+    assert set(lifecycle_states().values()) == {"inactive"}
+    retries_before = container_logs(VEHICLE, tail=5000).count("retrying the bringup")
+    time.sleep(PAUSED_FOR_S)
+    assert set(lifecycle_states().values()) == {"inactive"}
+    log = container_logs(VEHICLE, tail=5000)
+    assert log.count("retrying the bringup") == retries_before, log[-3000:]
+    resume = vehicle_ros2(
+        "service", "call", MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", "{command: 2}"
+    )
+    assert "success=True" in resume, resume
+    wait_until(
+        lambda: set(lifecycle_states().values()) == {"active"},
+        60.0,
+        "the manager to resume the servers",
+        period_s=2.0,
+    )

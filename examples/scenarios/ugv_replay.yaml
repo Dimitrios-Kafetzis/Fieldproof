@@ -33,7 +33,10 @@ source:
   kind: replay
   log: ../logs/ugv_dock_drive.mcap # an MCAP file or a rosbag2 directory, relative to this file
   rate: 1.0 # log seconds per wall-clock second (and the clock's pace)
-  lead_in_s: 20s # the clock runs this long before the log's first message (the stack's launch)
+  # The clock runs this long before the log's first message. Short on purpose: Nav2's costmaps
+  # wait only a couple of seconds for the odometry transform when they activate, so the data
+  # must flow before the stack activates (issue #103); the log starts with the vehicle at rest.
+  lead_in_s: 10s
   vehicles:
     ugv1:
       topics: # log topic -> vehicle topic (under its namespace; here the root)

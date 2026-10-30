@@ -12,13 +12,23 @@ velocity smoother reads it and publishes `cmd_vel_smoothed`, the collision monit
 manager) publishes the vehicle's `cmd_vel`: it holds the vehicle in place while the ground
 station's heartbeat is missing. The bringup watchdog (`bringup_watchdog`, also outside the
 manager) retries the bringup when the manager aborts it after one lost transition call, which
-it does not retry itself. Under a `namespace` the parameter file is rewritten with the
+it does not retry itself; the manager starts `MANAGER_DELAY_S` after the watchdog's process so
+its abort line on `/rosout` always has a listener (the manager carries its namespace and
+`use_sim_time` itself: an action run later by a timer is outside the group's scope). Under a
+`namespace` the parameter file is rewritten with the
 namespace as its root key (nav2_common's RewrittenYaml, as nav2_bringup does): a ROS 2 parameter
 file names its nodes, and `controller_server:` reaches `/controller_server` only, not
 `/ugv1/controller_server`.
 """
 
-from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    RegisterEventHandler,
+    SetEnvironmentVariable,
+    TimerAction,
+)
+from launch.event_handlers import OnProcessStart
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, PushRosNamespace, SetParameter
 from launch_ros.descriptions import ParameterFile
@@ -26,6 +36,9 @@ from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import RewrittenYaml
 
 from launch import LaunchDescription
+
+MANAGER_DELAY_S = 3.0
+"""Seconds between the watchdog's process start and the lifecycle manager's."""
 
 SERVERS = [
     # (package, executable, node name, extra remappings)
@@ -115,11 +128,24 @@ def generate_launch_description() -> LaunchDescription:
         package="nav2_lifecycle_manager",
         executable="lifecycle_manager",
         name="lifecycle_manager_navigation",
+        namespace=namespace,
         output="screen",
         arguments=["--ros-args", "--log-level", log_level],
         parameters=[
-            {"autostart": autostart, "node_names": [name for _, _, name, _ in SERVERS]},
+            {
+                "autostart": autostart,
+                "node_names": [name for _, _, name, _ in SERVERS],
+                "use_sim_time": use_sim_time,
+            },
         ],
+    )
+    # The manager after the watchdog: its abort line is published once, a few seconds into the
+    # bringup, and a watchdog still subscribing would miss it (issue #103).
+    manager_after_watchdog = RegisterEventHandler(
+        OnProcessStart(
+            target_action=bringup_watchdog,
+            on_start=[TimerAction(period=MANAGER_DELAY_S, actions=[lifecycle_manager])],
+        )
     )
     group = GroupAction(
         [
@@ -127,7 +153,6 @@ def generate_launch_description() -> LaunchDescription:
             SetParameter("use_sim_time", use_sim_time),
             *nodes,
             link_monitor,
-            lifecycle_manager,
             bringup_watchdog,
         ]
     )
@@ -135,6 +160,7 @@ def generate_launch_description() -> LaunchDescription:
         [
             SetEnvironmentVariable("RCUTILS_LOGGING_BUFFERED_STREAM", "1"),
             *arguments,
+            manager_after_watchdog,
             group,
         ]
     )

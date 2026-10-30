@@ -2202,7 +2202,8 @@ class Run:
             "replay.missed",
             f"the playback started {missed:.1f} s of the log before every vehicle was ready "
             f"(lead-in {replay.source.lead_in_s:g} s): the stacks missed that much of the "
-            "log; raise source.lead_in_s if they need its beginning",
+            "log; a stack that comes up on its own can take a longer source.lead_in_s, one "
+            "whose activation waits for the data (Nav2's costmaps) needs it flowing first",
             level="warning",
             missed_s=round(missed, 3),
             lead_in_s=replay.source.lead_in_s,

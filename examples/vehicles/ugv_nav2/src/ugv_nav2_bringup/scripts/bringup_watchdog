@@ -8,9 +8,16 @@ and stops. It has no retry: the servers it had reached stay `inactive`, the rest
 `unconfigured`, and the vehicle never becomes ready (Fieldproof issue #32, about once in ten
 to twenty bringups on a loaded CI runner). This node sits next to the manager and retries:
 
-- it watches `/rosout` for the manager's abort line and, as a fallback, polls the managed
-  servers after `grace_s` and every `check_period_s`: servers not all active and no change
-  for `stall_s` mean an aborted bringup even when the line was missed;
+- it watches `/rosout` for the manager's abort line (the launch starts the manager a few
+  seconds after this node, so the line is not published before anyone listens) and, as a
+  fallback, polls the managed servers from `grace_s` on and every `check_period_s`: servers
+  not all active and no change for `stall_s` mean an aborted bringup even when the line was
+  missed, and a stack the manager has started on (a server `inactive` or `active`, none in
+  transition) and left unchanged for `aborted_stall_s` means the same sooner, since the
+  manager moves a healthy bringup along every few seconds; the fallback watches the first
+  bringup only: once every server has been active, servers found inactive were put there on
+  purpose (a `lifecycle pause` from the timeline) and only the manager's own abort line
+  means a retry;
 - a retry takes every managed server back to `unconfigured` through its own `change_state`
   service (deactivate, then cleanup: the manager's `STARTUP` configures every server and
   fails on one that is already configured), then asks the manager for `STARTUP` again, so the
@@ -18,11 +25,17 @@ to twenty bringups on a loaded CI runner). This node sits next to the manager an
 - a stack whose servers are all active is left alone: the manager also aborts when it lost
   the answer of its last `get_state`, with every server up (seen on CI), and a retry then
   would take a working stack down in the middle of its mission; a server caught
-  mid-transition means the manager is at work, and the retry waits; at most `max_retries`
-  retries.
+  mid-transition, or one that does not answer (busy inside a transition), means the manager
+  is at work, and the retry waits; at most `max_retries`
+  retries (a cycle of abort, settle, cleanup and bringup takes about ten seconds, so ten
+  retries cover a stack that waits a minute and more for its data).
 
 Parameters: `manager` (the lifecycle manager's node name), `node_names` (the managed servers,
-as the manager's), `grace_s` (90), `check_period_s` (15), `stall_s` (30), `max_retries` (3).
+as the manager's), `grace_s` (20), `check_period_s` (5), `stall_s` (30), `aborted_stall_s`
+(15), `max_retries` (10). A replayed log (Fieldproof issue #103) made the speed matter: Nav2's
+costmaps wait a couple of seconds for the odometry transform when they activate, a stack that
+activates before the data flows aborts its first bringup, and the old fallback (90 s grace,
+30 s stall) retried after the log was spent.
 Names are relative, so they resolve under the vehicle's namespace. Time is the wall clock: the
 bringup happens before the simulation clock is of any use.
 """
@@ -84,12 +97,15 @@ class BringupWatchdog(Node):  # type: ignore[misc]
         self.node_names = [
             str(name) for name in self.declare_parameter("node_names", SERVERS).value
         ]
-        self.grace_s = float(self.declare_parameter("grace_s", 90.0).value)
-        self.check_period_s = float(self.declare_parameter("check_period_s", 15.0).value)
+        self.grace_s = float(self.declare_parameter("grace_s", 20.0).value)
+        self.check_period_s = float(self.declare_parameter("check_period_s", 5.0).value)
         self.stall_s = float(self.declare_parameter("stall_s", 30.0).value)
-        self.max_retries = int(self.declare_parameter("max_retries", 3).value)
+        self.aborted_stall_s = float(self.declare_parameter("aborted_stall_s", 15.0).value)
+        self.max_retries = int(self.declare_parameter("max_retries", 10).value)
         self.aborted = False
         self.retries = 0
+        self.was_active = False
+        """Whether every server has been active at once: the first bringup is done."""
         self.create_subscription(
             Log,
             "/rosout",
@@ -155,6 +171,13 @@ class BringupWatchdog(Node):  # type: ignore[misc]
         if any(state is not None and state not in PRIMARY_STATES for state in states.values()):
             self.get_logger().info(f"{reason}: a server is in transition, the manager is at work")
             return
+        if any(state is None for state in states.values()):
+            # A server that does not answer its get_state is busy in a transition (a costmap
+            # waiting for its transform inside on_activate), so the manager is at work too.
+            self.get_logger().info(
+                f"{reason}: a server does not answer, the manager may be at work"
+            )
+            return
         self.retries += 1
         self.get_logger().warning(
             f"{reason}: retrying the bringup ({self.retries} of {self.max_retries}); servers "
@@ -180,9 +203,26 @@ class BringupWatchdog(Node):  # type: ignore[misc]
                 f"no answer from {self.manager} within {STARTUP_TIMEOUT_S:.0f} s"
             )
         elif response.success:
+            self.was_active = True
             self.get_logger().info("the bringup succeeded on retry")
         else:
             self.get_logger().error("the manager aborted the bringup again")
+
+    @staticmethod
+    def half_done(states: dict[str, int | None]) -> bool:
+        """Whether the manager has acted on the stack and left it.
+
+        A server configured (`inactive` or `active`), none mid-transition, none unknown.
+        """
+        known = [state for state in states.values() if state is not None]
+        return (
+            len(known) == len(states)
+            and all(state in PRIMARY_STATES for state in known)
+            and any(
+                state in (State.PRIMARY_STATE_INACTIVE, State.PRIMARY_STATE_ACTIVE)
+                for state in known
+            )
+        )
 
     def run(self) -> None:
         """Watch until shut down."""
@@ -202,16 +242,24 @@ class BringupWatchdog(Node):  # type: ignore[misc]
             if now < next_check:
                 continue
             next_check = now + self.check_period_s
+            if self.was_active:
+                continue
             states = self.states()
             pending = [
                 name for name, state in states.items() if state != State.PRIMARY_STATE_ACTIVE
             ]
             if not pending:
+                self.was_active = True
+                self.get_logger().info("every server active: the fallback stands down")
                 previous = None
                 continue
             if states != previous:
                 previous, unchanged_since = states, now
-            if unchanged_since is not None and now - unchanged_since >= self.stall_s:
+            # A bringup the manager started on and left (a server configured, none in
+            # transition) is an aborted one after a short stall; servers all unconfigured may
+            # mean a manager that has not started yet, so they get the long one.
+            stall_s = self.aborted_stall_s if self.half_done(states) else self.stall_s
+            if unchanged_since is not None and now - unchanged_since >= stall_s:
                 self.retry(
                     f"{len(pending)} of {len(states)} servers not active and no change for "
                     f"{now - unchanged_since:.0f} s"
