@@ -27,7 +27,7 @@ source:
   rate: 1.0                          # log seconds per wall-clock second (the clock's pace too)
   start_s: 0s                        # skip this far into the log
   duration_s: null                   # play this much of it (absent: to its end)
-  lead_in_s: 20s                     # the clock runs this long before the log's first message
+  lead_in_s: 10s                     # the clock runs this long before the log's first message
   vehicles:
     ugv1:
       topics:                        # log topic -> vehicle topic (relative to its namespace)
@@ -47,7 +47,7 @@ source:
 | `log` | the field log, relative to the scenario file: a single `.mcap` file, or a rosbag2 directory with its `metadata.yaml` (MCAP or SQLite storage). The player mounts it read-only; `fieldproof validate` reads its summary (`fieldproof log info` prints it) and refuses a mapping the log cannot serve |
 | `rate` | the playback pace, log seconds per wall-clock second (`ros2 bag play --rate`); the clock advances at the same pace, so a stack never sees a stamp ahead of its clock. `time.mode: realtime` requires 1.0 |
 | `start_s`, `duration_s` | the span of the log played: from `start_s` into it (`--start-offset`) for `duration_s` (`--playback-duration`; absent: to the end; a span past the end is clipped) |
-| `lead_in_s` | log seconds the clock runs **before** the log's first played message. The vehicles start on a moving clock and come up during the lead-in; a stack still starting when the data begins misses the beginning of the log (see [What the timeline sees](#what-the-timeline-sees)) |
+| `lead_in_s` | log seconds the clock runs **before** the log's first played message (default 20). The vehicles start on a moving clock and come up during the lead-in; a stack still starting when the data begins misses the beginning of the log, and a stack whose activation waits for the data needs it flowing first, so the example uses 10 (see [What the timeline sees](#what-the-timeline-sees)) |
 | `vehicles.<name>.topics` | log topic to vehicle topic: what the swapped drivers would publish on the real vehicle ([manifest.md](manifest.md), `runtime.drivers`). A relative target lives under the vehicle's namespace (`scan` is `/ugv1/scan` for `namespace: ugv1`), an absolute one stays as written. A log topic feeds one vehicle; `/clock` is never played (the player publishes the clock from the log's timestamps instead, so a log recorded in simulation plays like one recorded in the field) |
 | `vehicles.<name>.tf` | the log's TF topic and, with `frames`, which `parent -> child` transforms reach the vehicle's `tf`. A field log carries the vehicle's whole tree, its own localisation (`map -> odom`) included; filtered to the wheel odometry, the stack computes the rest itself and the log's answer never competes with it. Without `frames` the topic is remapped as it is |
 | `vehicles.<name>.ground_truth` | where the vehicle's true pose is in the log, in the world frame the placements of the scenario refer to. The player publishes it on a hidden topic (`/fieldproof/replay/<vehicle>/ground_truth`) the observer reads and the vehicle never sees; the `pose` samples of the stream, the `reach_pose`, `geofence`, `min_distance`, `path_efficiency` assertions, the `path` and `distance` KPIs and the `when` metrics all read it as they read Gazebo's. Without it, nothing judges the vehicle's position |
@@ -124,12 +124,15 @@ Toolbox up on a loaded host), and the timeline's `t = 0` lands somewhere into th
 the readiness gate: `source.playing_t_s` in the record is negative when the playback started
 before the timeline, and a `replay.missed` warning in the log says how much of the log the
 stacks missed; `source.done_t_s` says when the log ended on the timeline. The lead-in is not
-simply "longer is safer": the example stack's Nav2 costmaps block their activation until the
-odometry transform exists, which only the played log provides, and an activation that waits
-much longer than ten seconds is abandoned and retried by the bringup's watchdog minutes
-later, so the data must start about when the stack launches (the default 20 s; the stack was
-ready 4 s after the data started on the workstation, 125 s after launch with a 60 s lead-in).
-A stack that comes up on its own can take a long lead-in. Two consequences:
+simply "longer is safer": the example stack's Nav2 costmaps wait only a couple of seconds for
+the odometry transform when they activate, and only the played log provides it, so a stack
+that activates before the data flows aborts its first bringup and comes up on the watchdog's
+retry (issue #103: with the 20 s default on a fast workstation the stack activated at 13 s,
+the data started at 20 s, and the old watchdog retried after 120 s, when the log was spent;
+the watchdog now retries within seconds). The data must therefore flow *before* the stack
+activates: the example scenario uses `lead_in_s: 10s`, enough for the nodes to subscribe,
+and its log starts with the vehicle at rest so nothing of the drive is missed. A stack that
+comes up on its own, without the data, can take a long lead-in. Two consequences:
 
 - a log whose first seconds matter should start with the vehicle at rest, as a field recording
   usually does (the operator starts recording, then drives); `lead_in_s` is then tuned to the
@@ -260,7 +263,9 @@ its path and a mapping.
 - The playback is resumed by a service call when the clock reaches the log's start, which
   lands within a few milliseconds on a workstation and within a few tens on a loaded runner;
   `late_s` in `replay.jsonl` says how late. The lead-in holds the clock back, never the data:
-  a stack that is not listening by then misses the beginning.
+  a stack that is not listening by then misses the beginning. The player does not wait for
+  the vehicles either: holding the data while the clock runs would publish every message in
+  the past, and holding the clock would stall a stack whose activation waits for the data.
 - The TF frame filter relays through a node of the player, one more hop for those transforms;
   `tf_static` and every other topic go straight from rosbag2's publishers.
 - `start_s` and `duration_s` cut the log; the player does not loop it (`-l`) and does not

@@ -152,7 +152,7 @@ def test_01_replay_scenario_passes(synthetic_log: Path, tmp_path: Path) -> None:
     assert source["kind"] == "replay"
     assert source["log"] == str(synthetic_log)
     assert source["rate"] == 1.0
-    assert source["lead_in_s"] == 20.0
+    assert source["lead_in_s"] == 10.0
     assert source["duration_s"] == 120.0
     assert source["remaps"]["/tf"] == "/fieldproof/replay/ugv1/tf"
     assert source["remaps"]["/ground_truth/pose"] == "/fieldproof/replay/ugv1/ground_truth"
