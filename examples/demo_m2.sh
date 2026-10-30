@@ -237,8 +237,15 @@ if selected matrix; then
   status=0
   run "${FIELDPROOF[@]}" matrix examples/matrices/ugv_nav_matrix.yaml "${matrix_flags[@]}" || status=$?
   if [[ "$dry_run" == false ]]; then
-    matrix_dir="$(find runs -maxdepth 1 -type d -name 'ugv_nav_matrix-*' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -n 1 | cut -d' ' -f2-)"
-    record matrix "exit $status" "${matrix_dir:-runs/}"
+    # The matrix directory is named by the matrix's digest, the stamp and a token: the newest
+    # one holding a matrix.json is this run's.
+    matrix_dir="$(find runs -mindepth 2 -maxdepth 2 -name matrix.json -printf '%T@ %h\n' 2>/dev/null | sort -n | tail -n 1 | cut -d' ' -f2-)"
+    if [[ -n "$matrix_dir" ]]; then
+      matrix_verdict="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["verdict"])' "$matrix_dir/matrix.json" 2>/dev/null || echo "unreadable")"
+      record matrix "$matrix_verdict (exit $status)" "$matrix_dir"
+    else
+      record matrix "exit $status" "runs/"
+    fi
     run "${FIELDPROOF[@]}" runs list -n 15 || true
   fi
 fi

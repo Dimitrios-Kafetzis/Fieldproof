@@ -138,19 +138,36 @@ with v0.3.0)
    --check` shows any later drift.
 9. P2-T08 hand-off (2026-10-29, #101). (a) **Sign off M2**: `make demo-m2 --quick` (about 20
    minutes: every step but the fleet, two cases of the matrix) or `make demo-m2` (about 90
-   minutes, eight cores); the table at the end lists one verdict per step. (b) **Publish the
-   example repository**: create `Dimitrios-Kafetzis/fieldproof-example-vehicle` (public,
-   Apache-2.0) and push the in-tree copy's contents, for example
-   `git subtree split --prefix examples/fieldproof-example-vehicle -b example-vehicle` then
-   `git push git@github.com:Dimitrios-Kafetzis/fieldproof-example-vehicle.git example-vehicle:main`;
-   then, in the published repository only, pin its `.github/workflows/scenario.yml`
-   (`FIELDPROOF_REF`) and its `fieldproof.toml` (`image_tag`) to `v0.20.0` (the release that
-   carries #101, 2026-10-29) and run the Scenario tests workflow's `onboarding` job with
-   `example-repo` set to the clone URL. The in-tree copy keeps following `main` on purpose (it is
-   tested on every push: the `onboarding` job passed on `main` from #104 on, run 40876455359, and
-   the published `main` images carry the new manifest reader since run 40851959778); it stays
-   the source of truth until the repository exists (the guide and the READMEs already link to
-   the repository's URL), and `.lychee.toml` excludes that URL until then.
+   minutes, eight cores); the table at the end lists one verdict per step. **Run on the dev
+   workstation on 2026-10-30** (the published `main` images, which are v0.20.0's): 8 of the 9
+   runs pass. `obstacle`, `gps_denied`, `realtime`, both lockstep runs (compared within tolerance),
+   the matrix (2 of 2) and `onboarding` passed first time; `links` failed by 0.01 ms (`lte_rural`
+   restored at 71.01 ms against 60 ± 11 ms, #80's symptom) and passed when run alone
+   (`--only links --no-pull`). **`replay` failed twice with one cause**, so #103 is a race, not a
+   runner flake: Nav2's lifecycle manager aborts its first bringup 3 s in because the local
+   costmap finds no `base_link -> odom` transform (the log's transforms flow only once the player
+   resumes after the 20 s lead-in, and the stack's bringup races that), the bringup watchdog
+   (#84) retries only after 90 s of silence plus 30 s unchanged, the vehicle is ready at 125.6 s
+   and 112 s of the 120 s log are gone (`replay.missed`), so slam_toolbox never publishes an
+   estimate; the CI runs that passed had a bringup slower than the lead-in. The fix is the
+   runner's: resume the player only once every vehicle is ready (the clock keeps running the
+   lead-in ahead), or at least retry an aborted bringup within seconds; either is a small
+   follow-up PR. Sign M2 off with #103 as the known issue, or after that fix (recommended: the
+   demo's replay step should pass as written). The demo's table named a bare `runs/` for the
+   matrix (the directory is named by digest and stamp): fixed with this entry's PR. (b) **Publish
+   the example repository**: the published copy is ready on this repository's `example-vehicle`
+   branch (afd113e: `git subtree split` of the in-tree copy plus one commit pinning
+   `.github/workflows/scenario.yml` (`FIELDPROOF_REF`) and `fieldproof.toml` (`image_tag`) to
+   `v0.20.0`, the release that carries #101; it validates against the engine). The session could
+   not create the repository (denied), so:
+   `gh repo create Dimitrios-Kafetzis/fieldproof-example-vehicle --public` then
+   `git push git@github.com:Dimitrios-Kafetzis/fieldproof-example-vehicle.git example-vehicle:main`
+   and drop the URL's exclusion from `.lychee.toml`, then run the Scenario tests workflow's
+   `onboarding` job with `example-repo` set to the clone URL. The in-tree copy keeps following
+   `main` on purpose (it is tested on every push: the `onboarding` job passed on `main` from #104
+   on, run 40876455359, and the published `main` images carry the new manifest reader since run
+   40851959778); it stays the source of truth until the repository exists (the guide and the READMEs
+   already link to the repository's URL), and `.lychee.toml` excludes that URL until then.
    (c) The roadmap's M2 demo line (`fieldproof matrix examples/ugv_fleet_sweep.yaml`, 3 robots ×
    4 loss profiles, zero drift) describes a sweep the plan replaced in P2-T06 (seeds × budgets);
    `examples/demo_m2.sh` is the demo as built (the fleet, a dropped link, events and faults, the
