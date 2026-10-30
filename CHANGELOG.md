@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.1](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.0...v0.20.1) (2026-10-30)
+
+
+### Bug fixes
+
+* **engine:** retry an aborted Nav2 bringup within seconds, start the replay's data first ([#109](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/109)) ([920a93e](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/920a93e87180a60d581b5b497966506ce640b7e8))
+* **repo:** the M2 demo's matrix row, and the demo run recorded in STATUS ([#106](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/106)) ([207f229](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/207f2293d2bbfab8a47b035dcb981a311c95cb89))
+
 ## [0.20.0](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.19.0...v0.20.0) (2026-10-29)
 
 
