@@ -7,10 +7,10 @@
 directory = "runs"
 
 [docker]
-# The published stack images. A team pins the release of its checkout (`image_tag =
-# "v0.20.0"`); this example follows Fieldproof's `main`, since it is tested against it on
-# every push. FIELDPROOF_IMAGE_TAG overrides the tag (`local` for images built in the checkout
+# The published stack images, at the release of the Fieldproof checkout this repository runs
+# against (the workflow checks out the same tag). Move both together when you take a newer
+# Fieldproof. FIELDPROOF_IMAGE_TAG overrides the tag (`local` for images built in the checkout
 # with `make images`).
-image_tag = "main"
+image_tag = "v0.20.0"
 render = "auto" # gpu when the host has a /dev/dri render node, software otherwise
 ros_domain_id = "auto" # a domain per run, so runs on one host never share one

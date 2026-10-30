@@ -15,7 +15,7 @@ on:
         description: Fieldproof ref to run against (a release tag, main or a commit)
         type: string
         required: false
-        default: main
+        default: v0.20.0
       scenario:
         description: Scenario file to run
         type: string
@@ -33,7 +33,7 @@ env:
   UV_VERSION: "0.13.1"
   FORCE_COLOR: "1"
   # Pin the release fieldproof.toml names (`v0.20.0`); `main` follows Fieldproof's development.
-  FIELDPROOF_REF: ${{ inputs.fieldproof-ref || 'main' }}
+  FIELDPROOF_REF: ${{ inputs.fieldproof-ref || 'v0.20.0' }}
   SCENARIO: ${{ inputs.scenario || 'scenarios/dock_to_yard.yaml' }}
 
 jobs:

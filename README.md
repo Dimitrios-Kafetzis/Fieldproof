@@ -17,7 +17,7 @@ repository is what a team clones and copies from.
 | Path | Contents |
 | --- | --- |
 | `robot.yaml` | the vehicle manifest: the model inherited from Fieldproof's reference UGV (`extends: fieldproof:ugv_ref`), the image built from `src/`, the field launch as the entrypoint (`use_sim_time:=true drivers:=false`), the driver-swap map, readiness (the navigator's node, action, `map -> base_link` transform and state topic), the budget (one core, 1 GiB) |
-| `fieldproof.toml` | the workspace: runs under `runs/`, the published stack images at `main` (a team pins a release) |
+| `fieldproof.toml` | the workspace: runs under `runs/`, the published stack images at the pinned release (`v0.20.0`, the tag the workflow checks Fieldproof out at) |
 | `scenarios/dock_to_yard.yaml` | the first scenario: the vehicle drives 4 m from the depot's loading dock through the roller door into the yard; ten assertions (the goal reached, in time, the lidar streaming, no contact, the speed limit, a geofence, the odometry's latency, the budget, the mission time, the order of events) and four KPIs |
 | `scenarios/obstacle_hold.yaml` | the same drive with a crate dropped in the path once the vehicle moves: the navigator holds, the crate is moved out of the lane, the drive resumes; a `sequence` tells the story, `min_distance` keeps the chassis off the crate |
 | `src/example_ugv_bringup/` | the vehicle codebase (`ament_python`): `launch/bringup.launch.py`, the field launch (`drivers:=true` starts the hardware drivers of `launch/drivers.launch.py`; `namespace` makes it one of a fleet); `example_ugv_bringup/waypoint_navigator.py`, the stack: a `NavigateToPose` action server driving on `odom`, holding on `scan`, reporting on `mission/state`; `config/example_ugv.yaml`, its parameters; `package.xml`, the driver packages as conditional dependencies (`EXAMPLE_UGV_TARGET=field`) |
@@ -40,8 +40,8 @@ make run SCENARIO=scenarios/obstacle_hold.yaml
 ```
 
 `make run` pulls nothing: pull the stack images first (`docker pull
-ghcr.io/dimitrios-kafetzis/fieldproof-{base-ros2,sim,bridge}:main`, the tag of
-`fieldproof.toml`), or build them in the checkout (`make -C ../Fieldproof images`) and run with
+ghcr.io/dimitrios-kafetzis/fieldproof-{base-ros2,sim,bridge}:v0.20.0`, the tag of
+`fieldproof.toml`; check Fieldproof out at the same tag), or build them in the checkout (`make -C ../Fieldproof images`) and run with
 `FIELDPROOF_IMAGE_TAG=local`. `FIELDPROOF_ROOT=/path/to/Fieldproof` names a checkout elsewhere.
 The run ends with `PASS`, one line per assertion, and `runs/<run_id>/` holds the report
 (`report.md`, `report.json`, `junit.xml`), the containers' logs and the MCAP recording, which
