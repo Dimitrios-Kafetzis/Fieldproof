@@ -117,6 +117,7 @@ nav:
       - Vehicle manifest: reference/manifest.md
       - Onboarding a vehicle: reference/onboarding.md
       - Troubleshooting: reference/troubleshooting.md
+      - The M2 demo video: reference/demo-m2.md
       - Scenarios: reference/scenarios.md
       - Assertions, KPIs, recording and reports: reference/assertions.md
       - Radio links: reference/network.md

@@ -10,16 +10,28 @@ automated test with pass/fail assertions, so field testing becomes verification 
 passed.
 
 !!! note "Status"
-    Milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2, the
-    scenario engine, is next. The [status board](plan/STATUS.md) is updated at the end of every
-    working session; the [roadmap](plan/02-roadmap.md) lists the milestones.
+    Milestone M2 (the scenario engine: fleets, faults, two clocks) closed with v0.20.1; M1 (the
+    first scenario passes, in CI too) closed with v0.10.0. Phase 3, the cockpit, is next. The
+    [status board](plan/STATUS.md) is updated at the end of every working session; the
+    [roadmap](plan/02-roadmap.md) lists the milestones.
+
+![The M2 demo: a fleet of three UGVs seen from above the depot, a crate dropped in a vehicle's path and Nav2 replanning around it, a vehicle holding while its radio link is down, two lockstep runs side by side, the example vehicle repository's own navigator holding behind a crate](media/m2-demo.gif)
+
+The milestone M2 demo, `make demo-m2`, as Fieldproof records it from the depot's cameras
+([the video output](reference/scenarios.md#video)): a fleet of three UGVs, a crate dropped in a
+vehicle's path and Nav2 replanning around it, a vehicle holding while its radio link is cut, the
+simulator paused, stepped and resumed under a driving vehicle, two lockstep runs side by side,
+a GNSS denial, the real-time lock, a run matrix, a field log replayed into the SLAM stack and
+the external example vehicle repository run through its own Makefile; every clip is a scenario
+with pass/fail assertions. [How the video was made](reference/demo-m2.md); the full-resolution
+MP4 is attached to the
+[v0.20.1 release](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/tag/v0.20.1).
 
 ![The example UGV leaves the depot's loading bay through the roller door and reaches its goal in the yard, seen from the world's spectator camera](media/m1-demo.gif)
 
-The first scenario as Fieldproof records it ([the video output](reference/scenarios.md#video)):
-the example UGV, running an unmodified Nav2 and SLAM Toolbox stack in its own container, drives
-from the loading dock through the roller door to a goal in the yard while five assertions check
-the run.
+The first scenario (milestone M1): the example UGV, running an unmodified Nav2 and SLAM Toolbox
+stack in its own container, drives from the loading dock through the roller door to a goal in
+the yard while five assertions check the run.
 
 ## Quick start
 

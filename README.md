@@ -14,26 +14,41 @@ isolated containers, fed by simulated sensors from a physics engine, orchestrate
 scenario engine, and observed through a browser-based 3D cockpit. Every scenario is an automated
 test with pass/fail assertions, so field testing becomes verification of what already passed.
 
-> Status: milestone M1 (the first scenario passes, in CI too) closed with v0.10.0; Phase 2
-> (the scenario engine) is complete up to its demo: fleets of vehicles (P2-T01), radio links
-> between the vehicles and a ground station (P2-T02), the event injection framework (P2-T03),
-> the two clock modes and determinism (P2-T04), the assertion library (P2-T05), run matrices
-> and the run database (P2-T06), field log replay (P2-T07) and the vehicle onboarding SDK
-> (P2-T08: `fieldproof vehicle init`, an external repository as a workspace, the worked
-> example `fieldproof-example-vehicle`, `examples/demo_m2.sh`). See
-> [docs/plan/STATUS.md](docs/plan/STATUS.md).
+> Status: milestone M2 (the scenario engine: fleets, faults, two clocks) closed with v0.20.1;
+> M1 (the first scenario passes, in CI too) closed with v0.10.0. Phase 2 delivered fleets of
+> vehicles (P2-T01), radio links between the vehicles and a ground station (P2-T02), the event
+> injection framework (P2-T03), the two clock modes and determinism (P2-T04), the assertion
+> library (P2-T05), run matrices and the run database (P2-T06), field log replay (P2-T07) and
+> the vehicle onboarding SDK (P2-T08: `fieldproof vehicle init`, an external repository as a
+> workspace, the worked example `fieldproof-example-vehicle`). Phase 3, the cockpit, is next.
+> See [docs/plan/STATUS.md](docs/plan/STATUS.md).
 
 ## See it run
 
+![The M2 demo: a fleet of three UGVs seen from above the depot, a crate dropped in a vehicle's path and Nav2 replanning around it, a vehicle holding while its radio link is down, two lockstep runs side by side, the example vehicle repository's own navigator holding behind a crate](docs/media/m2-demo.gif)
+
+The milestone M2 demo, `make demo-m2`, as Fieldproof records it from the depot's cameras: a
+fleet of three UGVs with namespaces and resource budgets driving in the yard, the dock and the
+hall; a crate dropped in a vehicle's path by the timeline and Nav2 replanning around it; a
+vehicle holding in place while the radio link to its ground station is cut, then driving on when
+it returns; the simulator paused, stepped and resumed under a driving vehicle; two lockstep runs
+side by side, their trajectories compared; a GNSS denial that a SLAM stack never notices; the
+drive real-time-locked; a run matrix with one JUnit document; a field log replayed into the SLAM
+stack and its localisation judged; and the external example vehicle repository, with a navigator
+of its own, run through its own Makefile. Every clip is a scenario with pass/fail assertions.
+The full-resolution MP4, `fieldproof-m2-demo.mp4`, is attached to the
+[v0.20.1 release](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/tag/v0.20.1);
+[docs/reference/demo-m2.md](docs/reference/demo-m2.md) says how it was made.
+
 ![The example UGV leaves the depot's loading bay through the roller door and reaches its goal in the yard, seen from the world's spectator camera](docs/media/m1-demo.gif)
 
-The first scenario as Fieldproof itself records it: the example UGV, running an unmodified Nav2
-and SLAM Toolbox stack in its own container, drives from the depot's loading dock through the
-roller door to a goal in the yard while five assertions check the run. The clip comes from a
-camera sensor in the world (`fieldproof run --video`, or `outputs.video` in a scenario),
-encoded headlessly by the simulator and saved into the run directory next to the MCAP
-recording and the reports;
-[the full-resolution MP4](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/download/v0.10.0/fieldproof-m1-demo.mp4)
+The first scenario (milestone M1) as Fieldproof itself records it: the example UGV, running an
+unmodified Nav2 and SLAM Toolbox stack in its own container, drives from the depot's loading
+dock through the roller door to a goal in the yard while five assertions check the run. The
+clips come from camera sensors in the world (`fieldproof run --video`, or `outputs.video` in a
+scenario), encoded headlessly by the simulator and saved into the run directory next to the
+MCAP recording and the reports;
+[the M1 MP4](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/download/v0.10.0/fieldproof-m1-demo.mp4)
 is attached to the v0.10.0 release. Every run of the quick start below produces its own under
 `runs/<run_id>/video/`.
 
