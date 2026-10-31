@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.3](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.2...v0.20.3) (2026-10-31)
+
+
+### Documentation
+
+* **docs:** a README that presents the project ([#114](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/114)) ([ec34c4f](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/ec34c4ff593b30071bd644e31ffd388d82a087fc))
+
 ## [0.20.2](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.1...v0.20.2) (2026-10-31)
 
 
