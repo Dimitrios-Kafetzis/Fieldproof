@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.2](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.1...v0.20.2) (2026-10-31)
+
+
+### Documentation
+
+* **docs:** the M2 demo video, two depot cameras and the M2 sign-off ([#111](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/111)) ([2489768](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/2489768b9dd1caea6933ae9e030e00b59d0ab077))
+
 ## [0.20.1](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.0...v0.20.1) (2026-10-30)
 
 
