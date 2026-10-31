@@ -36,8 +36,8 @@ side by side, their trajectories compared; a GNSS denial that a SLAM stack never
 drive real-time-locked; a run matrix with one JUnit document; a field log replayed into the SLAM
 stack and its localisation judged; and the external example vehicle repository, with a navigator
 of its own, run through its own Makefile. Every clip is a scenario with pass/fail assertions.
-The full-resolution MP4, `fieldproof-m2-demo.mp4`, is attached to the
-[v0.20.1 release](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/tag/v0.20.1);
+[The full-resolution MP4](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/download/v0.20.1/fieldproof-m2-demo.mp4)
+(3 min 26 s) is attached to the v0.20.1 release;
 [docs/reference/demo-m2.md](docs/reference/demo-m2.md) says how it was made.
 
 ![The example UGV leaves the depot's loading bay through the roller door and reaches its goal in the yard, seen from the world's spectator camera](docs/media/m1-demo.gif)
