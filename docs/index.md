@@ -23,9 +23,9 @@ vehicle's path and Nav2 replanning around it, a vehicle holding while its radio 
 simulator paused, stepped and resumed under a driving vehicle, two lockstep runs side by side,
 a GNSS denial, the real-time lock, a run matrix, a field log replayed into the SLAM stack and
 the external example vehicle repository run through its own Makefile; every clip is a scenario
-with pass/fail assertions. [How the video was made](reference/demo-m2.md); the full-resolution
-MP4 is attached to the
-[v0.20.1 release](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/tag/v0.20.1).
+with pass/fail assertions. [How the video was made](reference/demo-m2.md);
+[the full-resolution MP4](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/download/v0.20.1/fieldproof-m2-demo.mp4)
+(3 min 26 s) is attached to the v0.20.1 release.
 
 ![The example UGV leaves the depot's loading bay through the roller door and reaches its goal in the yard, seen from the world's spectator camera](media/m1-demo.gif)
 

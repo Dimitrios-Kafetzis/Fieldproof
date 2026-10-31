@@ -6,9 +6,10 @@ two clocks*, as Fieldproof itself records it: every clip is a scenario of `examp
 [`outputs.video`](scenarios.md#video) from one of the depot's three cameras
 ([worlds.md](worlds.md#the-cameras)), with its assertions passing. Nothing is staged: the
 recorder encodes the simulator's own frames in simulation time, so a clip plays at the pace the
-vehicle drove, and the verdict shown under each clip is the run's. The full-resolution MP4 is
-attached to the v0.20.1 release as `fieldproof-m2-demo.mp4`; the GIF under `docs/media/` is a
-short, low-resolution cut of it for the README.
+vehicle drove, and the verdict shown under each clip is the run's.
+[The full-resolution MP4](https://github.com/Dimitrios-Kafetzis/Fieldproof/releases/download/v0.20.1/fieldproof-m2-demo.mp4)
+(3 min 26 s, 1280 × 720) is attached to the v0.20.1 release as `fieldproof-m2-demo.mp4`; the GIF
+under `docs/media/` is a short, low-resolution cut of it for the README.
 
 ## The clips
 
