@@ -800,7 +800,7 @@ def test_video_unknown_camera(config: Config, tmp_path: Path) -> None:
     with pytest.raises(
         ScenarioError,
         match="outputs.video: world depot has no camera sensor 'roof' with a CameraVideoRecorder "
-        r"plugin \(cameras with one: spectator\)",
+        r"plugin \(cameras with one: hall, overview, spectator\)",
     ):
         plan(scenario, config, runs_dir=tmp_path, render="software", token=SUFFIX)
 
