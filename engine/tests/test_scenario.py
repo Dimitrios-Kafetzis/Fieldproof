@@ -333,9 +333,11 @@ def test_within_time_needs_a_named_entry(data: dict[str, Any]) -> None:
 
 def test_read_depot() -> None:
     world = read_world(DEPOT)
-    assert world.cameras == {"spectator": "/spectator/record_video"}, (
-        "the depot's spectator camera carries the CameraVideoRecorder plugin"
-    )
+    assert world.cameras == {
+        "spectator": "/spectator/record_video",
+        "overview": "/overview/record_video",
+        "hall": "/hall/record_video",
+    }, "the depot's three cameras carry the CameraVideoRecorder plugin"
     assert world.name == "depot"
     assert world.file == DEPOT
     assert world.frames["spawn_dock"] == Pose(10.0, 3.0, 0.0, -1.5708)

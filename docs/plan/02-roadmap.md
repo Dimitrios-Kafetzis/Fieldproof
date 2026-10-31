@@ -36,8 +36,14 @@ match their priorities (for example, drones before cockpit if a drone team is wa
 - **M0:** `make up` starts the sim container, `gz topic -l` lists topics, CI badge green.
 - **M1:** `fieldproof run examples/ugv_nav_to_goal.yaml` ends with `PASS` and a report; opening the
   MCAP in Foxglove Studio shows the robot path.
-- **M2:** `fieldproof matrix examples/ugv_fleet_sweep.yaml` runs 3 robots × 4 loss profiles and
-  produces JUnit consumed by CI; one run uses real-time lock and reports zero drift.
+- **M2:** `make demo-m2` (`examples/demo_m2.sh`) runs the milestone end to end and ends with a
+  table of verdicts: a fleet of three UGVs with namespaces and budgets, a radio link dropped
+  under a driving vehicle, a crate dropped in the path and a GNSS denial from the timeline, the
+  drive real-time-locked and two lockstep runs compared, a run matrix (seeds × budgets) with one
+  JUnit document, a field log replayed into the SLAM stack and the external example vehicle
+  repository run through its own Makefile. (Planned as `fieldproof matrix
+  examples/ugv_fleet_sweep.yaml`, 3 robots × 4 loss profiles; P2-T06 built the matrix over seeds
+  and budgets instead, and the link profiles are a scenario of their own.)
 - **M3:** `fieldproof cockpit` opens the browser; inject an obstacle mid-run and watch Nav2 replan.
 - **M4:** `fieldproof run examples/uav_mission_gps_denied.yaml --autopilot px4` and `--autopilot
   ardupilot` both PASS.

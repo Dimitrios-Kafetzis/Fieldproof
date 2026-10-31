@@ -430,6 +430,60 @@
       </link>
     </model>
 
+    <!-- The overview camera (the M2 demo video): high above the yard's south edge, looking north
+         over the yard, the roller door and the open-topped building, so a fleet spread over the
+         yard, the dock and the hall is in one frame. Same recorder, same cost rules as the
+         spectator: nothing until a scenario asks for `outputs.video: {camera: overview}`. -->
+    <model name="overview_camera">
+      <static>true</static>
+      <pose>0 -29 23 0 0.76 1.5708</pose>
+      <link name="link">
+        <sensor name="overview" type="camera">
+          <topic>overview/image</topic>
+          <update_rate>15</update_rate>
+          <always_on>true</always_on>
+          <visualize>false</visualize>
+          <camera>
+            <horizontal_fov>1.25</horizontal_fov>
+            <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>150</far></clip>
+          </camera>
+          <plugin filename="gz-sim-camera-video-recorder-system" name="gz::sim::systems::CameraVideoRecorder">
+            <service>/overview/record_video</service>
+            <use_sim_time>true</use_sim_time>
+            <fps>15</fps>
+            <bitrate>4000000</bitrate>
+          </plugin>
+        </sensor>
+      </link>
+    </model>
+
+    <!-- The hall camera (the M2 demo video): above the east wall, looking west along the open
+         floor of the hall, where `spawn_hall` scenarios drive (the radio link scenario). -->
+    <model name="hall_camera">
+      <static>true</static>
+      <pose>13 11 4.5 0 0.33 2.86</pose>
+      <link name="link">
+        <sensor name="hall" type="camera">
+          <topic>hall/image</topic>
+          <update_rate>15</update_rate>
+          <always_on>true</always_on>
+          <visualize>false</visualize>
+          <camera>
+            <horizontal_fov>1.1</horizontal_fov>
+            <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>80</far></clip>
+          </camera>
+          <plugin filename="gz-sim-camera-video-recorder-system" name="gz::sim::systems::CameraVideoRecorder">
+            <service>/hall/record_video</service>
+            <use_sim_time>true</use_sim_time>
+            <fps>15</fps>
+            <bitrate>4000000</bitrate>
+          </plugin>
+        </sensor>
+      </link>
+    </model>
+
     <!-- ============================================================ drums, cones, barriers -->
     <!-- 55-gallon drums and jersey barriers from Fuel (cylinder and box collisions), traffic
          cones from fieldproof_worlds/models/traffic_cone. All static. -->

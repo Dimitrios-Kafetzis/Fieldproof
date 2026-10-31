@@ -100,17 +100,24 @@ file. Fuel and package models are included as `model://<dir>`; both kinds are in
 `share/fieldproof_worlds/models`, which the package's environment hook puts on
 `GZ_SIM_RESOURCE_PATH` next to `share/fieldproof_worlds/worlds`.
 
-### The spectator camera
+### The cameras
 
-The depot carries one fixed camera sensor, `spectator` (model `spectator_camera`, in the yard
-at (12.5, −7, 4) looking down at the roller door from the south-east, above the chicane),
-framing the loading bay behind the door, `spawn_dock` and the yard in front of it: the course
-of the first scenario. It renders 1280 × 720 at 15 Hz (a 1.0 rad lens), and only while Gazebo's
-`CameraVideoRecorder` system attached to it is recording: idle, it has no subscriber and
+The depot carries three fixed camera sensors a scenario can record from. `spectator` (model
+`spectator_camera`, in the yard at (12.5, −7, 4) looking down at the roller door from the
+south-east, above the chicane) frames the loading bay behind the door, `spawn_dock` and the yard
+in front of it: the course of the first scenario, and the default of `outputs.video: true`.
+`overview` (model `overview_camera`, 23 m above the yard's south edge at (0, −29) looking north
+through a 1.25 rad lens) frames the whole site in one shot, the yard with its ramp, the roller
+door and the open-topped building down to the racking, so a fleet spread over the yard, the dock
+and the hall stays in frame (`outputs.video: {camera: overview}`; the M2 demo video's fleet
+clip). `hall` (model `hall_camera`, above the east wall at (13, 11, 4.5) looking west along
+the open floor of the hall) frames the drives that start at `spawn_hall`, such as the radio
+link scenario's. Each renders 1280 × 720 at 15 Hz, and only while Gazebo's `CameraVideoRecorder` system
+attached to it is recording: idle, it has no subscriber and
 renders nothing, so it costs the world tests and every run without `outputs.video` nothing;
 recording, it roughly halves the simulator's real-time factor on a GPU workstation
 ([scenarios.md](scenarios.md#video)). The runner starts and stops the recorder through its
-service `/spectator/record_video` and copies the MP4 into the run directory
+service `/<camera>/record_video` and copies the MP4 into the run directory
 ([scenarios.md](scenarios.md#video)). Another world offers the same by declaring a camera
 sensor with the plugin and a `<service>` of `/<sensor name>/record_video`.
 

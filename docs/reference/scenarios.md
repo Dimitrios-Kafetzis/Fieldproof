@@ -325,10 +325,11 @@ described under [Fleets](#fleets).
 ### Video
 
 `outputs.video` records the run from a camera of the world (issue #46, the M1 demo video):
-`true` uses the world's `spectator` camera, `camera: <name>` another one. The camera is a
+`true` uses the world's `spectator` camera, `camera: <name>` another one (the depot also has
+`overview`, the whole site from above: [worlds.md](worlds.md#the-cameras)). The camera is a
 `<sensor type="camera">` of the world file carrying Gazebo's `CameraVideoRecorder` system,
 whose `<service>` is `/<camera>/record_video` by convention
-([worlds.md](worlds.md#the-spectator-camera)); `fieldproof validate` and `fieldproof run`
+([worlds.md](worlds.md#the-cameras)); `fieldproof validate` and `fieldproof run`
 refuse a scenario naming a camera the world does not have. The runner starts the recording
 through that service when the timeline starts and stops it when the timeline ends, whatever
 ended it, waits for the encoder to close the file (`VIDEO_SETTLE_S`, 15 s), copies it out of
