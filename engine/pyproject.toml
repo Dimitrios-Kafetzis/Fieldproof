@@ -5,7 +5,7 @@
 # repository's version.txt (maintained by release-please), so a release bump changes no file here
 # and uv.lock, which records no version for a dynamic project, stays current.
 [build-system]
-requires = ["hatchling==1.32.4"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -36,7 +36,7 @@ dependencies = [
   "fieldproof-bridge",
   "mcap==1.6.0",
   "mcap-ros2-support==0.6.0",
-  "pydantic==2.14.1",
+  "pydantic==2.14.2",
   "pyyaml==6.0.3",
   "rich==15.0.0",
   "typer==0.27.3",
@@ -114,7 +114,7 @@ fieldproof-example-assertions = { path = "../examples/plugins/example_assertions
 dev = [
   "fieldproof-example-events",
   "fieldproof-example-assertions",
-  "pytest==9.1.1",
+  "pytest==9.2.0",
   "pytest-cov==7.1.0",
   "types-docker==7.2.0.20261006",
 ]
