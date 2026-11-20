@@ -43,6 +43,10 @@ WORLD = "depot"
 RUN_LABEL = "io.fieldproof.run"
 FIELDPROOF = [sys.executable, "-m", "fieldproof"]
 RUN_TIMEOUT_S = 1500.0
+# The record keeps t_s and duration_s to the millisecond, so a due time rebuilt from
+# rounded parts can land a millisecond or so past the (also rounded) time an action
+# fired exactly on time; the comparisons allow for that.
+ROUNDING_S = 0.002
 WORLD_TIMEOUT_S = 300.0
 ENV = {**os.environ, "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID", "0")}
 CRATE_X, CRATE_Y, CRATE_HALF = 10.0, 0.8, 0.3
@@ -236,7 +240,7 @@ def test_02_obstacle_scenario(tmp_path: Path) -> None:
     assert timeline["clear_crate"]["detail"] == "removed model crate"
     assert timeline["clear_crate"]["trigger"] == {"at_s": 0.0, "after": "drive_ahead"}
     drive_end = timeline["drive_ahead"]["t_s"] + timeline["drive_ahead"]["duration_s"]
-    assert timeline["clear_crate"]["t_s"] >= drive_end
+    assert timeline["clear_crate"]["t_s"] >= drive_end - ROUNDING_S
     spawn_t = timeline["spawn_crate"]["t_s"]
     assert 0.0 < spawn_t < drive_end
 
