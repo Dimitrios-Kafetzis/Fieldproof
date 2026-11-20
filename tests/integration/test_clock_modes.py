@@ -40,6 +40,10 @@ SIM_CONTROL = REPO / "examples/scenarios/ugv_sim_control.yaml"
 RUN_LABEL = "io.fieldproof.run"
 FIELDPROOF = [sys.executable, "-m", "fieldproof"]
 RUN_TIMEOUT_S = 1500.0
+# The record keeps t_s and duration_s to the millisecond, so a due time rebuilt from
+# rounded parts can land a millisecond or so past the (also rounded) time an action
+# fired exactly on time; the comparisons allow for that.
+ROUNDING_S = 0.002
 PHASE_TIMEOUT_S = 600.0
 ENV = {**os.environ, "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID", "0")}
 STRICT = os.environ.get("FIELDPROOF_REALTIME_STRICT") == "1"
@@ -279,11 +283,11 @@ def test_02_sim_control_scenario(tmp_path: Path) -> None:
     assert timeline["freeze"]["detail"] == "paused"
     assert timeline["thaw"]["detail"] == "resumed"
     assert timeline["thaw"]["trigger"]["when"]["metric"] == "rtf"
-    assert timeline["thaw"]["t_s"] >= timeline["freeze"]["t_s"] + 0.5
+    assert timeline["thaw"]["t_s"] >= timeline["freeze"]["t_s"] + 0.5 - ROUNDING_S
     assert timeline["nudge"]["detail"] == "500 step(s), 0.5 s, paused"
-    assert timeline["nudge"]["t_s"] >= timeline["thaw"]["t_s"] + 1.0
+    assert timeline["nudge"]["t_s"] >= timeline["thaw"]["t_s"] + 1.0 - ROUNDING_S
     assert timeline["thaw_again"]["detail"] == "resumed"
-    assert timeline["thaw_again"]["t_s"] >= timeline["nudge"]["t_s"] + 0.5
+    assert timeline["thaw_again"]["t_s"] >= timeline["nudge"]["t_s"] + 0.5 - ROUNDING_S
     for name, entry in timeline.items():
         print(f"{name}: t {entry['t_s']} s, {entry['detail']}", flush=True)  # noqa: T201
     assert {a["name"]: a["status"] for a in record["assertions"]} == {

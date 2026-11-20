@@ -46,6 +46,10 @@ SCENARIO = REPO / "examples/scenarios/ugv_events.yaml"
 RUN_LABEL = "io.fieldproof.run"
 FIELDPROOF = [sys.executable, "-m", "fieldproof"]
 RUN_TIMEOUT_S = 1500.0
+# The record keeps t_s and duration_s to the millisecond, so a due time rebuilt from
+# rounded parts can land a millisecond or so past the (also rounded) time an action
+# fired exactly on time; the comparisons allow for that.
+ROUNDING_S = 0.002
 ENV = {**os.environ, "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID", "0")}
 ENTRIES = ("drive_ahead", "say_hello", "tighten_failsafe", "freeze_stack", "stop_stack")
 
@@ -128,12 +132,12 @@ def test_01_events_scenario(tmp_path: Path) -> None:  # noqa: PLR0915
         "after": ["drive_ahead", "tighten_failsafe"],
     }
     tighten_end = timeline["tighten_failsafe"]["t_s"] + timeline["tighten_failsafe"]["duration_s"]
-    assert timeline["freeze_stack"]["t_s"] >= tighten_end + 5.0
+    assert timeline["freeze_stack"]["t_s"] >= tighten_end + 5.0 - ROUNDING_S
     assert timeline["freeze_stack"]["detail"] == "paused for 3 s, resumed"
     drive_t, drive_s = timeline["drive_ahead"]["t_s"], timeline["drive_ahead"]["duration_s"]
-    assert timeline["freeze_stack"]["t_s"] >= drive_t + drive_s + 5.0
+    assert timeline["freeze_stack"]["t_s"] >= drive_t + drive_s + 5.0 - ROUNDING_S
     assert timeline["stop_stack"]["detail"] == "SIGKILL sent"
-    assert timeline["stop_stack"]["t_s"] >= timeline["freeze_stack"]["t_s"] + 3.0
+    assert timeline["stop_stack"]["t_s"] >= timeline["freeze_stack"]["t_s"] + 3.0 - ROUNDING_S
     # The timeline waited for the condition, which held once the vehicle had moved.
     assert timeline["tighten_failsafe"]["t_s"] > 0.0
 

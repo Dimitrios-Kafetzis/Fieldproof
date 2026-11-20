@@ -42,6 +42,10 @@ RUN_LABEL = "io.fieldproof.run"
 FIELDPROOF = [sys.executable, "-m", "fieldproof"]
 BRIDGE_ENTRYPOINT = "/usr/local/bin/fieldproof-bridge-entrypoint"
 RUN_TIMEOUT_S = 1500.0
+# The record keeps t_s and duration_s to the millisecond, so a due time rebuilt from
+# rounded parts can land a millisecond or so past the (also rounded) time an action
+# fired exactly on time; the comparisons allow for that.
+ROUNDING_S = 0.002
 WORLD_TIMEOUT_S = 300.0
 SPAWN_TIMEOUT_S = 300.0
 BRIDGE_TIMEOUT_S = 180.0
@@ -351,7 +355,7 @@ def test_06_gps_denied_scenario(tmp_path: Path) -> None:
     assert timeline["deny_gps"]["duration_s"] >= 20.0
     assert timeline["drive_back"]["trigger"] == {"at_s": 0.0, "after": ["drive_ahead", "deny_gps"]}
     deny_end = timeline["deny_gps"]["t_s"] + timeline["deny_gps"]["duration_s"]
-    assert timeline["drive_back"]["t_s"] >= deny_end
+    assert timeline["drive_back"]["t_s"] >= deny_end - ROUNDING_S
 
     verdicts = {a["name"]: a["status"] for a in record["assertions"]}
     assert verdicts == {
