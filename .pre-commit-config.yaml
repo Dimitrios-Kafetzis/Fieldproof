@@ -70,12 +70,12 @@ repos:
           - docker==7.2.0
           - mcap==1.6.0
           - mcap-ros2-support==0.6.0
-          - pydantic==2.14.1
-          - pytest==9.1.1
+          - pydantic==2.14.3
+          - pytest==9.2.0
           - pyyaml==6.0.3
           - rich==15.0.0
-          - typer==0.27.3
-          - types-docker==7.2.0.20261006
+          - typer==0.29.1
+          - types-docker==7.2.0.20261102
 
   # ---------------------------------------------------------------- C++ and CMake
   - repo: https://github.com/pre-commit/mirrors-clang-format
