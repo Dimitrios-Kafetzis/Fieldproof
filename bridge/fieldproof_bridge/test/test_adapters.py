@@ -72,6 +72,16 @@ def test_throttle_passes_slower_input_untouched() -> None:
     assert all(throttle.accept(s) for s in stamps)
 
 
+def test_throttle_keeps_its_grid_through_a_hole_in_the_stream() -> None:
+    throttle = Throttle(50.0)
+    # 1 kHz for one second with 30 ms of messages lost on their way to the node (issue #81).
+    stamps = [i * 0.001 for i in range(1000) if not 100 <= i < 130]
+    passed = [s for s in stamps if throttle.accept(s)]
+    assert passed[:5] == pytest.approx([0.0, 0.02, 0.04, 0.06, 0.08])
+    assert passed[5:8] == pytest.approx([0.13, 0.14, 0.16]), "the late message fills its slot"
+    assert len(passed) == 49, "one slot saw no message at all; the grid did not move"
+
+
 def test_throttle_restarts_when_time_goes_backwards() -> None:
     throttle = Throttle(10.0)
     assert throttle.accept(5.0)

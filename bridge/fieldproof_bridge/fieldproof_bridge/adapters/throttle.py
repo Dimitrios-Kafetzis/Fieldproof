@@ -6,12 +6,15 @@ tens of hertz. The throttle passes one message per period, judged by the header 
 time), so the output rate holds whatever the real-time factor is. Messages without a header are
 timed with the node clock.
 
-Parameters: ``input``, ``output``, ``type`` (ROS type, ``pkg/msg/Name``), ``rate_hz``, ``qos_*``;
+Parameters: ``input``, ``output``, ``type`` (ROS type, ``pkg/msg/Name``), ``rate_hz``, ``qos_*``,
+``input_depth`` (the subscription's queue: the generator sets a second of the physics-rate stream,
+so a stall of this node on a loaded host delays the output instead of losing messages, issue #81);
 the faults ``dropout`` and ``freeze`` (task P2-T03).
 """
 
 from __future__ import annotations
 
+import math
 import sys
 from typing import Any
 
@@ -25,10 +28,17 @@ from fieldproof_bridge.adapters.faults import FaultInjection
 NODE_NAME = "throttle"
 # Stamps jitter by a float rounding; a message this close to the due time passes.
 EPSILON_S = 1e-6
+DEFAULT_INPUT_DEPTH = 10
 
 
 class Throttle:
-    """Decides which messages pass: one per ``1 / rate_hz`` seconds of stamp time."""
+    """Decides which messages pass: the first one at or after each slot of a ``1 / rate_hz`` grid.
+
+    The grid is anchored to the first stamp. A message that arrives after its slot, because the
+    one due at the slot was lost between the simulator and this node (issue #81), fills the slot
+    without moving the grid, so the output keeps the declared rate unless a whole slot goes by
+    with no message at all.
+    """
 
     def __init__(self, rate_hz: float) -> None:
         """``rate_hz`` must be positive."""
@@ -36,18 +46,23 @@ class Throttle:
             msg = f"rate_hz must be positive, got {rate_hz}"
             raise ValueError(msg)
         self.period_s = 1.0 / rate_hz
-        self.last_s: float | None = None
+        self.last_s: float | None = None  # the last stamp that passed
+        self.due_s = 0.0  # the next slot of the grid
 
     def accept(self, stamp_s: float) -> bool:
         """Return whether a message stamped ``stamp_s`` passes, and remember it if it does."""
-        if self.last_s is None or stamp_s - self.last_s >= self.period_s - EPSILON_S:
+        if self.last_s is None or stamp_s < self.last_s:
+            # The first message, or time went backwards (simulation reset): start over.
             self.last_s = stamp_s
+            self.due_s = stamp_s + self.period_s
             return True
-        if stamp_s < self.last_s:
-            # Time went backwards (simulation reset): start over.
-            self.last_s = stamp_s
-            return True
-        return False
+        if stamp_s < self.due_s - EPSILON_S:
+            return False
+        # The slot this message fills; the next due is the slot after it, on the same grid.
+        slots = math.floor((stamp_s - self.due_s) / self.period_s + EPSILON_S)
+        self.due_s += (slots + 1) * self.period_s
+        self.last_s = stamp_s
+        return True
 
 
 def stamp_seconds(msg: Any) -> float | None:
@@ -66,8 +81,10 @@ class ThrottleNode(FaultInjection, Node):
         input_topic, output_topic, qos = declare_io_parameters(self)
         self.declare_parameter("type", "")
         self.declare_parameter("rate_hz", 0.0)
+        self.declare_parameter("input_depth", DEFAULT_INPUT_DEPTH)
         type_name = str(self.get_parameter("type").value)
         rate_hz = float(self.get_parameter("rate_hz").value)
+        input_depth = int(self.get_parameter("input_depth").value)
         if not type_name:
             msg = f"{self.get_name()}: the parameter type is required"
             raise ValueError(msg)
@@ -76,9 +93,11 @@ class ThrottleNode(FaultInjection, Node):
         self.init_faults()
         self.publisher = self.create_publisher(message_type, output_topic, qos)
         self.subscription = self.create_subscription(
-            message_type, input_topic, self.on_message, QoSProfile(depth=10)
+            message_type, input_topic, self.on_message, QoSProfile(depth=input_depth)
         )
-        self.get_logger().info(f"{input_topic} -> {output_topic} at {rate_hz} Hz ({type_name})")
+        self.get_logger().info(
+            f"{input_topic} -> {output_topic} at {rate_hz} Hz ({type_name}, queue {input_depth})"
+        )
 
     def on_message(self, msg: Any) -> None:
         """Pass the message when its period is due."""
