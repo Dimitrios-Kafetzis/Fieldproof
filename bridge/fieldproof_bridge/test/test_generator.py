@@ -390,6 +390,7 @@ def test_ugv_plan_adapters(ugv: Manifest) -> None:
     throttle = bundle.node("joint_states_throttle")
     assert throttle.params["type"] == "sensor_msgs/msg/JointState"
     assert throttle.params["rate_hz"] == 50.0
+    assert throttle.params["input_depth"] == 1000, "a second of the physics-rate stream (#81)"
     assert throttle.params["qos_reliability"] == "reliable"
 
 
@@ -554,11 +555,10 @@ def test_write_bundle_files(ugv: Manifest, tmp_path: Path) -> None:
     for path in written:
         assert path.read_text().splitlines()[0].startswith(("# Generated", '"""Generated'))
     config = yaml.safe_load((out / "ros_gz_bridge.yaml").read_text())
-    assert all(
-        set(entry)
-        == {"ros_topic_name", "gz_topic_name", "ros_type_name", "gz_type_name", "direction", "lazy"}
-        for entry in config
-    )
+    keys = {"ros_topic_name", "gz_topic_name", "ros_type_name", "gz_type_name", "direction", "lazy"}
+    assert all(set(entry) - {"publisher_queue"} == keys for entry in config)
+    queued = {e["ros_topic_name"]: e["publisher_queue"] for e in config if "publisher_queue" in e}
+    assert queued == {"/ugv1/_bridge/joint_states": 1000}, "the throttle's input alone is queued"
     assert {e["direction"] for e in config} == {"GZ_TO_ROS", "ROS_TO_GZ"}
     params = yaml.safe_load((out / "params.yaml").read_text())
     assert set(params) == {
