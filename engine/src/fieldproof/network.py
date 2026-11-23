@@ -68,10 +68,13 @@ NETEM_LIMIT = 1000
 
 DROP = "drop"
 """The profile a dropped link carries: every packet lost, both ways."""
+DROP_EDGE_S = 2.0
+"""The edge of a dropped period: the seconds after the change during which the probes in flight
+and the ones the holder's `tc` commands have not yet cut (ten a second, a round trip of up to
+120 ms on the presets, a loaded runner slow to apply the drop) can still be answered. The windows
+that start in the edge stay in the record but not in the verdict (issue #67)."""
 DROP_EDGE_TOLERANCE = 3
-"""Replies a dropped period may still count: the probes in flight when the drop began (ten a
-second, a round trip of up to 120 ms on the presets, and a holder busy applying the drop; a
-slow runner has counted two; issue #67)."""
+"""Replies a dropped period may still count past its edge: a reply the ground read late."""
 PASSED = "passed"
 FAILED = "failed"
 INSUFFICIENT = "insufficient"
@@ -345,11 +348,18 @@ class LinkPeriod:
         """Whether the window's probes were all sent under this period's profile."""
         return window.start >= self.start and (self.end is None or window.end <= self.end)
 
+    def judged_start(self) -> float | None:
+        """When the verdict's windows begin: `judged_from`, and the edge of a dropped period."""
+        if self.profile.dropped:
+            return max(self.judged_from or 0.0, self.start + DROP_EDGE_S)
+        return self.judged_from
+
     def judged(self) -> list[LinkWindow]:
-        """The windows the verdict is drawn from (from `judged_from` on, when set)."""
-        if self.judged_from is None:
+        """The windows the verdict is drawn from (from `judged_start` on, when set)."""
+        start = self.judged_start()
+        if start is None:
             return list(self.windows)
-        return [w for w in self.windows if w.start >= self.judged_from]
+        return [w for w in self.windows if w.start >= start]
 
     def measured(self) -> dict[str, Any]:
         """Probes, replies, one-way latency, jitter and loss estimated from the round trips.
@@ -393,7 +403,7 @@ class LinkPeriod:
             if received > DROP_EDGE_TOLERANCE:
                 return FAILED, f"{received} of {sent} probe(s) answered while the link was dropped"
             answered = (
-                f"{received} of {sent} probe(s) answered at the edge of the drop (tolerated)"
+                f"{received} of {sent} probe(s) answered while the link was dropped (tolerated)"
                 if received
                 else f"none of {sent} probe(s) answered while the link was dropped"
             )
@@ -424,7 +434,7 @@ class LinkPeriod:
             "cause": self.cause,
             "from_s": rel(self.start),
             "to_s": rel(self.end),
-            "judged_from_s": rel(self.judged_from),
+            "judged_from_s": rel(self.judged_start()),
             "expected": {
                 **self.profile.model_dump(exclude={"description"}),
                 "latency_ms": _round(expected),
