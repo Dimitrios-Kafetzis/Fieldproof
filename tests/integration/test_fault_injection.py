@@ -202,7 +202,9 @@ class TestInjectors:
         time.sleep(1.0)
         moved = echo_number("/gps/fix", "longitude")
         metres_per_degree = 111_319.5 * math.cos(math.radians(latitude))
-        assert (moved - longitude) * metres_per_degree == pytest.approx(100.0, abs=3.0)
+        # Two single fixes, each with the reference UGV's 1 m of horizontal noise: their
+        # difference carries about 1.4 m, so the tolerance is four sigma (issue #110).
+        assert (moved - longitude) * metres_per_degree == pytest.approx(100.0, abs=6.0)
         assert echo_number("/gps/fix", "latitude") == pytest.approx(latitude, abs=1e-4)
         set_param("/gps_adapter", "offset_enu_m", "[0.0, 0.0, 0.0]")
         time.sleep(1.0)
