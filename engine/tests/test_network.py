@@ -237,25 +237,33 @@ def test_initial_period_is_judged_from_the_timeline() -> None:
 
 def test_dropped_period_verdict() -> None:
     period = LinkPeriod("ugv1", "drop", DROP_PROFILE, start=100.0, cause="cut")
-    period.windows = [LinkWindow.from_sample(window(100.0, [], sent=5))]
+    # The first two seconds are the edge: the probes in flight when the drop began and the ones
+    # the holder had not yet cut on a loaded runner are answered, and are not judged (#67).
+    period.windows = [LinkWindow.from_sample(window(100.0, [120.0, 118.0, 121.0, 119.0], sent=10))]
+    period.windows.append(LinkWindow.from_sample(window(101.0, [120.0], sent=10)))
+    assert period.judged() == []
     assert period.verdict()[0] == INSUFFICIENT
-    period.windows.append(LinkWindow.from_sample(window(101.0, [], sent=10)))
+    period.windows.append(LinkWindow.from_sample(window(102.0, [], sent=5)))
+    assert period.verdict() == (INSUFFICIENT, "5 probe(s) while dropped, 10 needed")
+    period.windows.append(LinkWindow.from_sample(window(103.0, [], sent=10)))
     assert period.verdict() == (PASSED, "none of 15 probe(s) answered while the link was dropped")
-    # Up to three replies, the probes in flight when the drop began, are tolerated (#67).
-    period.windows.append(LinkWindow.from_sample(window(102.0, [120.0], sent=10)))
+    # Past the edge, up to three replies the ground read late are tolerated.
+    period.windows.append(LinkWindow.from_sample(window(104.0, [120.0], sent=10)))
     assert period.verdict() == (
         PASSED,
-        "1 of 25 probe(s) answered at the edge of the drop (tolerated)",
+        "1 of 25 probe(s) answered while the link was dropped (tolerated)",
     )
-    period.windows.append(LinkWindow.from_sample(window(103.0, [118.0, 121.0], sent=10)))
+    period.windows.append(LinkWindow.from_sample(window(105.0, [118.0, 121.0], sent=10)))
     assert period.verdict()[0] == PASSED
-    period.windows.append(LinkWindow.from_sample(window(104.0, [119.0], sent=10)))
+    period.windows.append(LinkWindow.from_sample(window(106.0, [119.0], sent=10)))
     assert period.verdict() == (FAILED, "4 of 45 probe(s) answered while the link was dropped")
     data = period.to_dict(origin=90.0)
     assert data["expected"]["latency_ms"] is None
     assert data["expected"]["loss_pct"] == 100.0
     assert data["from_s"] == 10.0
+    assert data["judged_from_s"] == 12.0, "the record marks the edge"
     assert data["to_s"] is None
+    assert data["measured"]["probes"] == 45, "the edge's probes are not measured"
 
 
 # ---------------------------------------------------------------------------------- monitor
