@@ -369,14 +369,49 @@ def vehicle_ros2(*argv: str, timeout: float = 60.0) -> str:
     ).stdout
 
 
+SERVICE_ATTEMPTS = 3
+SERVICE_TIMEOUT_S = 30.0
+
+
+def call_service(service: str, srv_type: str, request: str = "{}") -> str:
+    """`ros2 service call` inside the vehicle's container, tried again when it gets no answer.
+
+    Each call is a fresh client node, and now and then its request goes out before the server
+    has matched it and is never answered (`making request` printed, nothing after it: the 0.20.3
+    release run lost the manager's `RESUME` that way for 60 s while the manager's log stayed
+    silent). A new call discovers the service again.
+    """
+    for attempt in range(1, SERVICE_ATTEMPTS + 1):
+        try:
+            return vehicle_ros2(
+                "service", "call", service, srv_type, request, timeout=SERVICE_TIMEOUT_S
+            )
+        except subprocess.TimeoutExpired:
+            if attempt == SERVICE_ATTEMPTS:
+                raise
+            print(  # noqa: T201
+                f"{service}: no answer in {SERVICE_TIMEOUT_S:.0f} s, calling again "
+                f"({attempt + 1} of {SERVICE_ATTEMPTS})",
+                flush=True,
+            )
+    raise AssertionError("unreachable")
+
+
+def manage_nodes(command: int) -> str:
+    """The manager's `manage_nodes` (0 STARTUP, 1 PAUSE, 2 RESUME, ...), asserted successful."""
+    answer = call_service(
+        MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", f"{{command: {command}}}"
+    )
+    assert "success=True" in answer, answer
+    return answer
+
+
 def lifecycle_states() -> dict[str, str]:
     """The managed servers' states through their `get_state` services (what the probe polls;
     `ros2 lifecycle get` wants the node in the graph first and says `Node not found`)."""
     states = {}
     for name in MANAGED:
-        text = vehicle_ros2(
-            "service", "call", f"/{name}/get_state", "lifecycle_msgs/srv/GetState", timeout=30
-        )
+        text = call_service(f"/{name}/get_state", "lifecycle_msgs/srv/GetState")
         found = re.search(r"label='(\w+)'", text)
         states[name] = found.group(1) if found else "unknown"
     return states
@@ -427,10 +462,7 @@ def test_04_bringup_watchdog_retries_an_aborted_bringup(stack: Stack) -> None:
         period_s=2.0,
     )
     assert set(lifecycle_states().values()) == {"active"}
-    pause = vehicle_ros2(
-        "service", "call", MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", "{command: 1}"
-    )
-    assert "success=True" in pause, pause
+    manage_nodes(1)  # PAUSE
     paused = lifecycle_states()
     assert set(paused.values()) == {"inactive"}, paused
     publish_abort_line()
@@ -458,20 +490,14 @@ def test_05_bringup_watchdog_leaves_a_paused_stack_alone(stack: Stack) -> None:
     leaves every server inactive; nothing may change for longer than the fallback's stall,
     then `RESUME` restores the stack for the tests that follow.
     """
-    pause = vehicle_ros2(
-        "service", "call", MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", "{command: 1}"
-    )
-    assert "success=True" in pause, pause
+    manage_nodes(1)  # PAUSE
     assert set(lifecycle_states().values()) == {"inactive"}
     retries_before = container_logs(VEHICLE, tail=5000).count("retrying the bringup")
     time.sleep(PAUSED_FOR_S)
     assert set(lifecycle_states().values()) == {"inactive"}
     log = container_logs(VEHICLE, tail=5000)
     assert log.count("retrying the bringup") == retries_before, log[-3000:]
-    resume = vehicle_ros2(
-        "service", "call", MANAGER_SERVICE, "nav2_msgs/srv/ManageLifecycleNodes", "{command: 2}"
-    )
-    assert "success=True" in resume, resume
+    manage_nodes(2)  # RESUME
     wait_until(
         lambda: set(lifecycle_states().values()) == {"active"},
         60.0,
