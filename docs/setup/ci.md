@@ -72,6 +72,67 @@ write neither. A cold build on a runner takes 10 to 20 minutes depending on the 
 the images and running the tests. `tools/ci/free-disk.sh` removes unused runner toolchains
 first, because the images and their cache need about 12 GB.
 
+## Runners
+
+Every job runs on GitHub's `ubuntu-24.04` runner except the heavy ones: the image job of CI
+(the image build, then `make test-images`, `make test-vehicles`, `make test-integration`,
+`make test-ros`, `make tidy` and `make test-worlds`) and the four jobs of Scenario tests. Those
+declare `runs-on: ${{ vars.FIELDPROOF_HEAVY_RUNNER || 'ubuntu-24.04' }}`: with the repository
+variable unset they run on GitHub's runner; set to a label, they run on the self-hosted runner
+that carries it.
+
+The reason is the size of GitHub's runner, which depends on the repository's visibility: 4 CPUs
+and 16 GB for a public repository, 2 CPUs and 7 GB for a private one. The simulator in software
+rendering next to a vehicle with a 2 CPU budget does not fit in two cores: when the repository
+went private (2026-11-23) the lidar fell to 1.0 to 1.8 Hz against the scenario's 2 Hz assertion,
+Nav2 went unresponsive and the integration tests failed on load in every run, after passing on
+the 4 CPU runner all day. A private repository is also billed its Actions minutes, and the image
+job alone takes about 45 minutes there. The light jobs (lint, the layer tests, the docs, the
+image publication and scans) stay on GitHub's runner; they take a few minutes each.
+
+### The self-hosted runner
+
+`make self-hosted-runner` (`tools/ci/self-hosted-runner.sh`) registers the machine it runs on,
+in one go: it downloads the pinned `actions/runner` release and verifies its checksum, registers
+the runner with a token from `gh` under the label `fieldproof`, writes `DOCKER_CONFIG` into the
+runner's `.env` so the jobs' GHCR login never touches the user's Docker credentials, loads the
+`sch_netem` and `ifb` kernel modules (the radio link tests) now and at boot, installs the runner
+as a systemd service running as the current user, and sets `FIELDPROOF_HEAVY_RUNNER=fieldproof`.
+It needs `gh` authenticated as a repository admin, Docker usable without sudo, and sudo for the
+modules and the service. `tools/ci/self-hosted-runner.sh --check` prints the runner as the
+repository sees it (online, busy, labels), the variable, the modules and the service.
+
+What to know about the machine:
+
+- It shares its Docker daemon with the jobs. The image job builds the `:local` tags and
+  `make test-images` drives the `fieldproof` compose project, the same names a developer's
+  `make images` and `make up` use on that machine, so do not run those while a job is running
+  (namespacing the jobs' images and projects by run is a possible follow-up). Containers and
+  networks of a run are named by run id and removed by the job.
+- It runs one job at a time; a job queued while the machine sleeps starts when it wakes, and the
+  check stays pending until then. On 16 cores the image job takes about a third of its time on
+  GitHub's runner.
+- It needs about 40 GB free for the images, their layer cache and the vehicle image;
+  `docker builder prune --keep-storage 20GB` reclaims the build cache when it grows.
+- The runner's user is uid 1000 on a typical workstation, the uid the dev container builds as,
+  so the image job's change of owner is skipped and no sudo is needed in a job. Another uid
+  needs a passwordless sudoers rule for `chown -R 1000:1000 sim bridge robots assets`.
+- Self-hosted runners execute pull-request code. That is fine for a private repository whose
+  pull requests come from its own branches and Dependabot; it would not be for a public one with
+  forks, where GitHub's runner is the right place anyway.
+
+`gh variable delete FIELDPROOF_HEAVY_RUNNER` sends the heavy jobs back to GitHub's runner;
+`sudo ./svc.sh stop && sudo ./svc.sh uninstall` in the runner directory stops the service and
+`./config.sh remove --token <token>` unregisters it.
+
+### The Docs workflow of a private repository
+
+Lychee runs with the workflow's `GITHUB_TOKEN` (`make docs-links` passes it to the container
+when set), so the links into this repository are verified through the GitHub API instead of
+answering 404 anonymously. The Pages deployment runs only while `FIELDPROOF_DEPLOY_PAGES` is
+`true`; GitHub Pages is off for a private repository on a plan without it
+([docs.md](docs.md#continuous-integration-and-deployment)).
+
 ## Scenario tests
 
 Task P1-T07's proof that the chain is reproducible away from the maintainer's machine:
@@ -283,6 +344,7 @@ but never fails the check, because any timestamp is a valid snapshot and it move
 | `FIELDPROOF_IMAGE_TAG=main make matrix` | the matrix job of the Scenario tests workflow: the example matrix's twelve runs, one JUnit document ([matrix.md](../reference/matrix.md)) |
 | `make lint-title TITLE="..."` | the PR title check |
 | `make branch-protection` / `tools/ci/branch-protection.sh --check` | the required checks wiring |
+| `make self-hosted-runner` / `tools/ci/self-hosted-runner.sh --check` | the self-hosted runner of the heavy jobs ([Runners](#runners)) |
 
 `tests/ci/test_workflows.sh` (`make test-ci`) checks the workflows themselves: actionlint and the
 schema hooks pass, every action is SHA-pinned with a version comment, permissions, concurrency

@@ -117,7 +117,7 @@ IMAGE_TEST_FLAGS ?= --quick
 
 .PHONY: help setup lint lint-files lint-commits lint-title secrets fmt test test-host test-tooling \
 	test-images test-ci test-docs test-layout test-engine test-cockpit test-ros test-assets test-worlds \
-	test-vehicles test-integration test-determinism tidy docs docs-serve docs-links branch-protection clean pins assets images \
+	test-vehicles test-integration test-determinism tidy docs docs-serve docs-links branch-protection self-hosted-runner clean pins assets images \
 	manifest-schema scenario-schema vehicle-image replay-log run demo demo-m2 up down shell prune
 
 help: ## Show this help
@@ -285,12 +285,17 @@ docs-serve: ## Serve the documentation site with live reload (DOCS_ADDR=127.0.0.
 
 # The built site is mounted read-only under the path it has on GitHub Pages so that the
 # root-relative links of the 404 page (/Fieldproof/...) resolve like the relative ones.
+# GITHUB_TOKEN, when set, lets lychee verify the links into a private repository through the API.
 docs-links: docs ## Check every link of the built site, external ones included (LYCHEE_ARGS=--offline for internal only)
 	docker run --rm --init -v "$(CURDIR)/site:/srv/$(DOCS_BASE_PATH):ro" -v "$(CURDIR)/.lychee.toml:/lychee.toml:ro" \
+	    $(if $(GITHUB_TOKEN),-e GITHUB_TOKEN,) \
 	    "$(LYCHEE_IMAGE)" --config /lychee.toml --root-dir /srv $(LYCHEE_ARGS) "/srv/$(DOCS_BASE_PATH)/**/*.html"
 
 branch-protection: ## Wire the CI status checks into the protection of main (needs gh as an admin)
 	tools/ci/branch-protection.sh
+
+self-hosted-runner: ## Register this machine as the runner of the heavy CI jobs (needs gh as an admin, sudo)
+	tools/ci/self-hosted-runner.sh
 
 clean: ## Remove pre-commit's installed hook environments (they are rebuilt on the next run)
 	$(PRE_COMMIT) clean

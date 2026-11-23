@@ -76,7 +76,7 @@ env:
 jobs:
   scenario:
     name: UGV scenario (published images, software rendering)
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.FIELDPROOF_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -140,7 +140,7 @@ jobs:
   determinism:
     name: Determinism (two lockstep runs, published images)
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.FIELDPROOF_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -198,7 +198,7 @@ jobs:
   onboarding:
     name: Onboarding (the example vehicle repository, published images)
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.FIELDPROOF_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -266,7 +266,7 @@ jobs:
   matrix:
     name: Run matrix (twelve runs, published images)
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.FIELDPROOF_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

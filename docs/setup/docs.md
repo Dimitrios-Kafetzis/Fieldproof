@@ -97,8 +97,14 @@ in the index when that ADR exists.
 
 The Pages deployment uses the repository setting *build and deployment from GitHub Actions*; the
 `deploy` job has `pages: write` and `id-token: write` and runs in the `github-pages`
-environment, whose URL is the live site. The first deployment after a change to
-`docs/` on `main` is visible within a minute of the workflow finishing.
+environment, whose URL is the live site. It runs only while the repository variable
+`FIELDPROOF_DEPLOY_PAGES` is `true`: GitHub Pages is off for a private repository on a plan
+without it (the repository has been private since 2026-11-23), and the job would fail. Set the
+variable (`gh variable set FIELDPROOF_DEPLOY_PAGES --body true`) once Pages is available again.
+The first deployment after a change to `docs/` on `main` is visible within a minute of the
+workflow finishing. The link check verifies the links into this repository with the workflow's
+`GITHUB_TOKEN`, since a private repository answers anonymous requests with 404
+([ci.md](ci.md#runners)).
 
 Every action is pinned to a commit SHA, as everywhere in `.github/workflows`
 ([ci.md](ci.md#workflows)).
@@ -110,9 +116,9 @@ scratch directory of ADRs (table, template excluded, status links, malformed fil
 idempotent rewrite) and that the committed index is current; that `make docs` succeeds and
 produces a page for every Markdown file under `docs/`, the ADR table, the navigation entries and
 a rendered Mermaid block; that a broken link or a page missing from the navigation fails the
-strict build; that `uv.lock` matches `pyproject.toml`; that `docs.yml` deploys only from `main`
-with the Pages permissions; and, when Docker is available, that lychee finds no broken internal
-link or fragment in the built site.
+strict build; that `uv.lock` matches `pyproject.toml`; that `docs.yml` deploys only from `main`,
+only when `FIELDPROOF_DEPLOY_PAGES` is `true`, with the Pages permissions; and, when Docker is
+available, that lychee finds no broken internal link or fragment in the built site.
 
 ## Troubleshooting
 
