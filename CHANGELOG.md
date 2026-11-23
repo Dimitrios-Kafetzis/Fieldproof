@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.3](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.2...v0.20.3) (2026-11-20)
+
+
+### Bug fixes
+
+* **bridge:** hold the throttle's grid and queue its input against stalls ([#126](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/126)) ([1d46ba3](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/1d46ba3d06e3dfe0e3aacc90fa5ade461c2e9950))
+
+
+### Documentation
+
+* **docs:** a README that presents the project ([#114](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/114)) ([ec34c4f](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/ec34c4ff593b30071bd644e31ffd388d82a087fc))
+
+
+### Build and dependencies
+
+* **deps:** bump mkdocs-material in /tools/docs in the docs group ([#122](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/122)) ([c0f9c89](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/c0f9c8912d17ba39750eebb25ba8dca7a59afbfc))
+* **deps:** bump the actions group across 1 directory with 4 updates ([#119](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/119)) ([6727be1](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/6727be15df46f3b7423a7041d60bec8f642572ba))
+* **deps:** bump the node group across 1 directory with 3 updates ([#121](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/121)) ([e77e245](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/e77e2455dd886ad5cf1c2b24c8ddb481a1c99658))
+* **deps:** bump the python group across 1 directory with 5 updates ([#123](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/123)) ([b95325d](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/b95325dbee5902fcc5ca01c09c63d9802b28600d))
+
 ## [0.20.2](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.1...v0.20.2) (2026-10-31)
 
 
