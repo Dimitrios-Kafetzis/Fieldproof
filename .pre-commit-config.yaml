@@ -70,11 +70,11 @@ repos:
           - docker==7.2.0
           - mcap==1.6.0
           - mcap-ros2-support==0.6.0
-          - pydantic==2.14.3
+          - pydantic==2.14.4
           - pytest==9.2.0
           - pyyaml==6.0.3
           - rich==15.0.0
-          - typer==0.29.1
+          - typer==0.29.2
           - types-docker==7.2.0.20261102
 
   # ---------------------------------------------------------------- C++ and CMake
