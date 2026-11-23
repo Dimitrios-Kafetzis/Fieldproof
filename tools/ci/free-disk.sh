@@ -4,10 +4,17 @@
 # CodeQL bundles, preloaded Docker images) that together take 25 to 30 GB; the three Fieldproof
 # images and their layer cache need roughly 12 GB. Safe to run elsewhere: every path is checked
 # and the script only removes directories that exist under the runner's well-known locations.
+# It does nothing outside GitHub Actions and on a self-hosted runner.
 set -euo pipefail
 
 if [[ "${GITHUB_ACTIONS:-false}" != "true" ]]; then
   echo "free-disk: not running on GitHub Actions, nothing to do"
+  exit 0
+fi
+# A self-hosted runner (RUNNER_ENVIRONMENT=self-hosted) is somebody's machine: its toolchains and
+# Docker images are not ours to remove.
+if [[ "${RUNNER_ENVIRONMENT:-github-hosted}" != "github-hosted" ]]; then
+  echo "free-disk: self-hosted runner, nothing to do"
   exit 0
 fi
 

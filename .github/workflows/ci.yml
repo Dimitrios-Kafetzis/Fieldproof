@@ -178,7 +178,11 @@ jobs:
     name: Container images and ROS workspaces
     needs: changes
     if: needs.changes.outputs.images == 'true'
-    runs-on: ubuntu-24.04
+    # The heavy job: the simulator, the bridge and a vehicle with a 2 CPU budget do not fit the
+    # 2 CPU runner GitHub gives a private repository, so the repository variable
+    # FIELDPROOF_HEAVY_RUNNER names the label of a self-hosted runner
+    # (tools/ci/self-hosted-runner.sh, docs/setup/ci.md); unset, the job stays on GitHub's runner.
+    runs-on: ${{ vars.FIELDPROOF_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -264,18 +268,21 @@ jobs:
       # The radio links of tests/integration/test_radio_links.py shape traffic with netem and an ifb
       # device; load both modules rather than rely on the runner's kernel loading them on demand.
       - name: Load the netem and ifb kernel modules (radio links)
-        run: sudo modprobe sch_netem ifb && lsmod | grep -E '^(sch_netem|ifb) '
+        run: |
+          lsmod | grep -qE '^sch_netem ' && lsmod | grep -qE '^ifb ' || sudo modprobe sch_netem ifb
+          lsmod | grep -E '^(sch_netem|ifb) '
       # The vertical slice (task P1-T04): the simulator with the depot, the bridge container and
       # the vehicle image just built; Nav2 reaches active, a NavigateToPose goal is reached.
       # Software rendering keeps the simulator below real time, so the test's limits are in
       # simulation time where it matters and generous in wall-clock time.
       - name: Integration test (tests/integration, sim + bridge + vehicle in the depot, Nav2 active, NavigateToPose)
         run: make test-integration
-      # The checkout belongs to the runner user (uid 1001); the dev container builds as uid 1000
-      # and writes build/, install/ and log/ into the bind-mounted workspaces and the fetched
-      # models into assets/fuel.
+      # The checkout belongs to the runner user (uid 1001 on GitHub's runners); the dev container
+      # builds as uid 1000 and writes build/, install/ and log/ into the bind-mounted workspaces
+      # and the fetched models into assets/fuel. A self-hosted runner running as uid 1000 needs no
+      # change of owner (and no sudo).
       - name: Let the container user write to the ROS workspaces and the asset cache
-        run: sudo chown -R 1000:1000 sim bridge robots assets
+        run: '[ "$(id -u)" = 1000 ] || sudo chown -R 1000:1000 sim bridge robots assets'
       # The bridge contract test measures the sensors' rates; with software rendering the
       # rendering sensors fall behind on a loaded runner (issue #69), so their tolerance is wider
       # here (the contract's 10 % holds on a GPU host).

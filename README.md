@@ -182,7 +182,9 @@ The [roadmap](docs/plan/02-roadmap.md) has the exit criteria, the
 
 ## Documentation
 
-Published at https://dimitrios-kafetzis.github.io/Fieldproof/ on every merge to `main`.
+Published at https://dimitrios-kafetzis.github.io/Fieldproof/ on every merge to `main` while GitHub
+Pages is on for the repository (the variable `FIELDPROOF_DEPLOY_PAGES`, see
+[docs/setup/docs.md](docs/setup/docs.md)); `make docs-serve` serves the site locally.
 
 | | |
 | --- | --- |

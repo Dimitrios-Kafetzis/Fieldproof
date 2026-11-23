@@ -309,12 +309,13 @@ runs = [s.get("run", "") for s in build["steps"]]
 assert "make docs" in runs and "make docs-links" in runs, runs
 assert deploy["needs"] == "build", deploy["needs"]
 assert "github.event_name != 'pull_request'" in deploy["if"], deploy["if"]
+assert "vars.FIELDPROOF_DEPLOY_PAGES == 'true'" in deploy["if"], deploy["if"]
 assert deploy["permissions"] == {"pages": "write", "id-token": "write"}, deploy["permissions"]
 assert deploy["environment"]["name"] == "github-pages", deploy["environment"]
 assert any(str(s.get("uses", "")).startswith("actions/deploy-pages@") for s in deploy["steps"])
 assert doc["permissions"] == {"contents": "read"}, doc["permissions"]
 PY
-then pass "docs.yml: build on pull requests and main, upload site/, deploy only from main with Pages permissions"; else fail "docs.yml rules"; fi
+then pass "docs.yml: build on pull requests and main, upload site/, deploy only from main, when FIELDPROOF_DEPLOY_PAGES is true, with Pages permissions"; else fail "docs.yml rules"; fi
 if python3 - <<'PY'
 import yaml
 doc = yaml.safe_load(open(".github/workflows/ci.yml"))

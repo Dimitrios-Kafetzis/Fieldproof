@@ -39,7 +39,7 @@ trap 'rm -rf "$SCRATCH"' EXIT
 SHELLCHECK_IMAGE="koalaman/shellcheck:v0.10.0@sha256:2097951f02e735b613f4a34de20c40f937a6c8f18ecb170612c88c34517221fb"
 TRIVY_IMAGE="aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
 SCRIPTS=(tools/ci/changed-areas.sh tools/ci/bake-cache.sh tools/ci/free-disk.sh tools/ci/branch-protection.sh
-  tools/ci/scenario-run.sh examples/demo_m1.sh examples/demo_m2.sh tests/ci/test_workflows.sh)
+  tools/ci/self-hosted-runner.sh tools/ci/scenario-run.sh examples/demo_m1.sh examples/demo_m2.sh tests/ci/test_workflows.sh)
 WORKFLOWS=(.github/workflows/*.yml)
 
 PASSED=0
@@ -183,8 +183,10 @@ assert ".github/workflows/scenario-tests.yml" in on["pull_request"]["paths"]
 assert "examples/**" in on["pull_request"]["paths"]
 assert list(doc["jobs"]) == ["scenario", "determinism", "onboarding", "matrix"], list(doc["jobs"])
 assert on["workflow_dispatch"]["inputs"]["matrix"]["default"] == "examples/matrices/ugv_nav_matrix.yaml"
+# The heavy jobs run on the self-hosted runner named by FIELDPROOF_HEAVY_RUNNER, GitHub's otherwise.
+HEAVY = "${{ vars.FIELDPROOF_HEAVY_RUNNER || 'ubuntu-24.04' }}"
 job = doc["jobs"]["scenario"]
-assert job["runs-on"] == "ubuntu-24.04"
+assert job["runs-on"] == HEAVY
 steps = job["steps"]
 runs = "\n".join(str(s.get("run", "")) for s in steps)
 assert "docker pull" in runs and "FIELDPROOF_IMAGE_TAG" in runs, "pulls the published images"
@@ -200,7 +202,7 @@ assert any(
 ), "checks nothing is left"
 # The determinism job (task P2-T04): two lockstep runs, not on pull requests.
 det = doc["jobs"]["determinism"]
-assert det["runs-on"] == "ubuntu-24.04"
+assert det["runs-on"] == HEAVY
 assert det["if"].strip() == "github.event_name != 'pull_request'", det.get("if")
 det_runs = "\n".join(str(s.get("run", "")) for s in det["steps"])
 assert "docker pull" in det_runs and "make vehicle-image" in det_runs and "make assets" in det_runs
@@ -214,7 +216,7 @@ assert any(
 ), "the determinism job checks nothing is left"
 # The matrix job (task P2-T06): the example matrix through `fieldproof matrix`, not on pull requests.
 mat = doc["jobs"]["matrix"]
-assert mat["runs-on"] == "ubuntu-24.04"
+assert mat["runs-on"] == HEAVY
 assert mat["if"].strip() == "github.event_name != 'pull_request'", mat.get("if")
 mat_runs = "\n".join(str(s.get("run", "")) for s in mat["steps"])
 assert "docker pull" in mat_runs and "make vehicle-image" in mat_runs and "make assets" in mat_runs
@@ -230,7 +232,7 @@ assert any(
 # The onboarding job (task P2-T08): the example vehicle repository next to the checkout, driven
 # through its own Makefile against the published images, not on pull requests.
 onb = doc["jobs"]["onboarding"]
-assert onb["runs-on"] == "ubuntu-24.04"
+assert onb["runs-on"] == HEAVY
 assert onb["if"].strip() == "github.event_name != 'pull_request'", onb.get("if")
 assert on["workflow_dispatch"]["inputs"]["example-repo"]["default"] == ""
 assert on["workflow_dispatch"]["inputs"]["example-ref"]["default"] == "main"
@@ -329,7 +331,12 @@ if out="$(GITHUB_ACTIONS=false tools/ci/free-disk.sh)" && grep -q "nothing to do
 else
   fail "free-disk: no-op outside GitHub Actions"
 fi
-for helper in tools/ci/bake-cache.sh tools/ci/branch-protection.sh; do
+if out="$(GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted tools/ci/free-disk.sh)" && grep -q "self-hosted runner, nothing to do" <<<"$out"; then
+  pass "free-disk: no-op on a self-hosted runner"
+else
+  fail "free-disk: no-op on a self-hosted runner"
+fi
+for helper in tools/ci/bake-cache.sh tools/ci/branch-protection.sh tools/ci/self-hosted-runner.sh; do
   if "$helper" --help | grep -q '^Usage:'; then pass "$helper --help"; else fail "$helper --help"; fi
 done
 

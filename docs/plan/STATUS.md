@@ -102,6 +102,8 @@ v0.3.0)
 ## Open questions for the maintainer
 
 1. ~~GitHub owner and visibility~~ Resolved 2026-10-14: public repo at https://github.com/Dimitrios-Kafetzis/Fieldproof.
+   **Private since 2026-11-23** (maintainer decision, confirmed in the working session of that
+   day). Consequences and their handling are in question 10.
 2. Any real vehicle repository, URDF, field logs or flight controller available for the optional inputs.
    Vehicle part resolved 2026-10-16 (after #21): the reference vehicles up to 1.0.0 are realistic
    synthetic examples and no real URDF will be supplied; P4-T03 and P5-T02 follow the same rule.
@@ -178,3 +180,21 @@ v0.3.0)
    `examples/demo_m2.sh` is the demo as built (the fleet, a dropped link, events and faults, the
    two clocks, the matrix, the replay, the onboarding). Amend `02-roadmap.md` at the sign-off, or
    ask for the link-profile sweep as a follow-up matrix file.
+10. **Private repository (2026-11-23).** GitHub's hosted runner shrank from 4 CPUs / 16 GB to
+    2 CPUs / 7 GB with the visibility change: the UGV scenario job failed four attempts in a row
+    (lidar at 1.0 to 1.8 Hz against the 2 Hz assertion, Nav2 unresponsive) and the image job of
+    CI failed 2 and 3 of its 28 integration tests on load (#131, #134), after twelve passes on
+    the 4 CPU runner earlier that day; lychee got 404 for every link into the repository; GitHub
+    Pages went off (`has_pages` false, the live site answers 404); Actions minutes are billed.
+    The fix (PR `ci/private-repo`): the heavy jobs take `runs-on` from the repository variable
+    `FIELDPROOF_HEAVY_RUNNER` (a self-hosted runner's label, GitHub's runner when unset), lychee
+    gets the workflow's `GITHUB_TOKEN`, the Pages deploy runs only when `FIELDPROOF_DEPLOY_PAGES`
+    is `true`, `tools/ci/free-disk.sh` does nothing on a self-hosted runner, and the image job
+    needs no sudo as uid 1000. **The maintainer:** (a) run `make self-hosted-runner` on the dev
+    workstation (16 cores, 30 GiB; it registers the runner, loads netem/ifb, installs the service
+    and sets the variable; needs `gh` as admin and sudo), after freeing disk
+    (`docker builder prune --keep-storage 20GB`: 16 GB were free with 44 GB of reclaimable build
+    cache); (b) merge that PR, then update #131 and #134 against `main` so their heavy jobs run on
+    the new runner (#134 last: it tags 0.20.4); (c) when Pages is available again (a plan with
+    Pages for private repositories, or the repository public again), re-enable it in the settings
+    and `gh variable set FIELDPROOF_DEPLOY_PAGES --body true`. See docs/setup/ci.md, "Runners".
