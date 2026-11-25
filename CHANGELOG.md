@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.20.4](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.3...v0.20.4) (2026-11-25)
+
+
+### Bug fixes
+
+* **engine:** judge a dropped link period from two seconds after the change ([#129](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/129)) ([81cfe5b](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/81cfe5b75e7e7c3b72f2c79ec93c60492db9eebd))
+* **engine:** measure the obstacle scenario's planning rate over 30 s ([#128](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/128)) ([d8991c1](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/d8991c176cf329fe0ab7db7191c8c5cb2f5d9966))
+
+
+### Build and dependencies
+
+* **deps:** bump astral-sh/setup-uv ([#131](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/131)) ([8b800cd](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/8b800cd3d8c27407390a93a5594c63feba895746))
+* **deps:** bump mkdocs-material in /tools/docs in the docs group ([#132](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/132)) ([b6a3030](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/b6a3030fa2e5109a9d681702117c96e69cb031a8))
+* **deps:** bump the node group in /cockpit with 2 updates ([#130](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/130)) ([d78e828](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/d78e828f266456df80588028296fa46ac5145d37))
+* **deps:** bump the python group in /engine with 2 updates ([#133](https://github.com/Dimitrios-Kafetzis/Fieldproof/issues/133)) ([41d7fd5](https://github.com/Dimitrios-Kafetzis/Fieldproof/commit/41d7fd50c1f3d5ae3829a39b4ee610ab41b968c2))
+
 ## [0.20.3](https://github.com/Dimitrios-Kafetzis/Fieldproof/compare/v0.20.2...v0.20.3) (2026-11-20)
 
 
